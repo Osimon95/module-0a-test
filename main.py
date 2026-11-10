@@ -14702,221 +14702,113 @@ def unit_14_update_execution(
 # NO MANUAL TRADE-SPECIFIC RENDER VARIABLES
 # ============================================================
 
-def unit_14_h1_initialize_cycle(p, atr_value):
 
+def unit_14_h1_initialize_cycle(p, atr_value):
     import hashlib
     from decimal import Decimal
 
     D = unit_14_v3_D
-
     if not isinstance(p, dict):
-        raise RuntimeError("H1 POSITION RECORD INVALID")
+        raise RuntimeError('H1 POSITION INVALID')
 
-    symbol = str(p.get("symbol", "")).upper()
-    side = str(p.get("side", "")).upper()
+    symbol = str(p.get('symbol', '')).upper()
+    side = str(p.get('side', '')).upper()
 
-    if symbol != "BTCSUSDT":
-        raise RuntimeError("H1 NON-DEMO SYMBOL BLOCKED")
+    if symbol != 'BTCSUSDT' or side not in ('LONG', 'SHORT'):
+        raise RuntimeError('H1 INVALID DEMO POSITION')
 
-    if side not in ("LONG", "SHORT"):
-        raise RuntimeError("H1 ORIGINAL SIDE INVALID")
+    position_id = str(p.get('id') or '').strip()
+    created = str(p.get('createdTime') or '').strip()
 
-    quantity = D(
-        p.get("size"),
-        "H1 ORIGINAL POSITION QUANTITY"
-    )
+    if not position_id or not created:
+        raise RuntimeError('H1 STABLE EXCHANGE IDENTITY MISSING')
 
-    open_value = D(
-        p.get("openValue"),
-        "H1 ORIGINAL OPEN VALUE"
-    )
-
-    atr = D(
-        atr_value,
-        "H1 ORIGINAL ATR14"
-    )
-
-    if quantity <= 0 or open_value <= 0 or atr <= 0:
-        raise RuntimeError(
-            "H1 INVALID INITIAL CYCLE VALUES"
-        )
-
-    # A fresh position must have no previously
-    # closed quantity. Otherwise initialization
-    # would incorrectly freeze a reduced position.
-
-    cumulative_open = D(
-        p.get("cumOpenSize"),
-        "H1 CUMULATIVE OPEN QUANTITY"
-    )
-
-    cumulative_close = D(
-        p.get("cumCloseSize", "0"),
-        "H1 CUMULATIVE CLOSED QUANTITY",
-        True
-    )
-
-    if cumulative_close != 0:
-        raise RuntimeError(
-            "H1 INITIALIZATION REQUIRES "
-            "UNREDUCED ORIGINAL POSITION"
-        )
-
-    if cumulative_open != quantity:
-        raise RuntimeError(
-            "H1 ORIGINAL QUANTITY "
-            "DOES NOT MATCH CUMULATIVE OPEN"
-        )
-
-    entry = open_value / quantity
-
-    # Use the exchange's position creation identity.
-    # Do not derive cycle identity from the current
-    # position size or current market price.
-
-    created = str(
-        p.get("createdTime") or ""
-    ).strip()
-
-    position_id = str(
-        p.get("id") or ""
-    ).strip()
-
-    if not created or not position_id:
-        raise RuntimeError(
-            "H1 EXCHANGE POSITION IDENTITY MISSING"
-        )
-
-    identity = "|".join((
-        symbol,
-        side,
-        position_id,
-        created
-    ))
-
-    cycle_id = hashlib.sha256(
-        identity.encode("utf-8")
-    ).hexdigest()[:32]
+    identity = '|'.join((symbol, side, position_id, created))
+    cycle_id = hashlib.sha256(identity.encode()).hexdigest()[:32]
 
     db = unit_14_execution_db()
 
     try:
-        db.execute("BEGIN IMMEDIATE")
+        db.execute('BEGIN IMMEDIATE')
 
-        existing = db.execute(
-            """
-            SELECT
-                symbol,
-                original_side,
-                original_quantity,
-                original_entry,
-                frozen_atr,
-                tp1_filled,
-                state
-            FROM execution_cycles
-            WHERE cycle_id = ?
-            """,
-            (cycle_id,)
-        ).fetchone()
+        row = db.execute('''
+            SELECT symbol, original_side, original_quantity,
+                   original_entry, frozen_atr, tp1_filled, state
+            FROM execution_cycles WHERE cycle_id = ?
+        ''', (cycle_id,)).fetchone()
 
-        if existing is None:
+        if row is None:
+            size = D(p.get('size'), 'H1 ORIGINAL SIZE')
+            cum_open = D(p.get('cumOpenSize'), 'H1 CUM OPEN')
+            cum_close = D(
+                p.get('cumCloseSize', '0'),
+                'H1 CUM CLOSE', True
+            )
+            open_value = D(p.get('openValue'), 'H1 OPEN VALUE')
+            atr = D(atr_value, 'H1 ATR14')
 
-            # Never create a second active original
-            # cycle on the same symbol and side.
-
-            conflict = db.execute(
-                """
-                SELECT cycle_id
-                FROM execution_cycles
-                WHERE symbol = ?
-                  AND original_side = ?
-                  AND state = 'ACTIVE'
-                  AND cycle_id != ?
-                """,
-                (symbol, side, cycle_id)
-            ).fetchone()
-
-            if conflict is not None:
-                db.execute("ROLLBACK")
+            if size <= 0 or cum_open != size or cum_close != 0:
                 raise RuntimeError(
-                    "H1 PREVIOUS ACTIVE CYCLE "
-                    "REQUIRES RECONCILIATION"
+                    'H1 POSITION NOT FRESH - INITIALIZATION BLOCKED'
                 )
 
-            db.execute(
-                """
-                INSERT INTO execution_cycles (
-                    cycle_id,
-                    symbol,
-                    original_side,
-                    original_quantity,
-                    original_entry,
-                    frozen_atr,
-                    tp1_filled,
-                    state
+            if open_value <= 0 or atr <= 0:
+                raise RuntimeError('H1 INVALID ENTRY OR ATR')
+
+            conflict = db.execute('''
+                SELECT cycle_id FROM execution_cycles
+                WHERE symbol = ? AND original_side = ?
+                  AND state = 'ACTIVE' AND cycle_id != ?
+            ''', (symbol, side, cycle_id)).fetchone()
+
+            if conflict:
+                raise RuntimeError(
+                    'H1 PREVIOUS CYCLE RECONCILIATION REQUIRED'
                 )
+
+            row = (
+                symbol, side, str(size),
+                str(open_value / size), str(atr),
+                0, 'ACTIVE'
+            )
+
+            db.execute('''
+                INSERT INTO execution_cycles
+                (cycle_id, symbol, original_side, original_quantity,
+                 original_entry, frozen_atr, tp1_filled, state)
                 VALUES (?, ?, ?, ?, ?, ?, 0, 'ACTIVE')
-                """,
-                (
-                    cycle_id,
-                    symbol,
-                    side,
-                    str(quantity),
-                    str(entry),
-                    str(atr)
-                )
-            )
-
-            record = (
-                symbol,
-                side,
-                str(quantity),
-                str(entry),
-                str(atr),
-                0,
-                "ACTIVE"
-            )
+            ''', (cycle_id, *row[:5]))
 
             print(
-                "UNIT 14 H1 NEW CYCLE SAVED =",
-                cycle_id,
-                flush=True
+                'UNIT 14 H1 NEW CYCLE SAVED =',
+                cycle_id, flush=True
             )
 
         else:
-            record = existing
-
             print(
-                "UNIT 14 H1 EXISTING CYCLE LOADED =",
-                cycle_id,
-                flush=True
+                'UNIT 14 H1 FROZEN CYCLE RESTORED =',
+                cycle_id, flush=True
             )
 
-        db.execute("COMMIT")
+        db.execute('COMMIT')
 
         return {
-            "cycle_id": cycle_id,
-            "symbol": record[0],
-            "side": record[1],
-            "original_quantity": Decimal(record[2]),
-            "original_entry": Decimal(record[3]),
-            "frozen_atr": Decimal(record[4]),
-            "tp1_filled": bool(record[5]),
-            "state": record[6],
+            'cycle_id': cycle_id,
+            'symbol': row[0],
+            'side': row[1],
+            'original_quantity': Decimal(row[2]),
+            'original_entry': Decimal(row[3]),
+            'frozen_atr': Decimal(row[4]),
+            'tp1_filled': bool(row[5]),
+            'state': row[6],
         }
 
     except Exception:
         if db.in_transaction:
-            db.execute("ROLLBACK")
+            db.execute('ROLLBACK')
         raise
-
     finally:
         db.close()
-
-
-# ============================================================
-# END UNIT 14 H1 CYCLE INITIALIZER
-# ============================================================
 
 def unit_14_h1_check(p, mark, qstep, minimum):
 
