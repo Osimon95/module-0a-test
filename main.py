@@ -16539,6 +16539,207 @@ def fresh_reconstruction_unit_14(
     # PART 9 CONTINUES INSIDE SAME FUNCTION
     # ========================================================
 
+
+ 
+    # ========================================================
+    # UNIT 14 PART 9
+    # H1 PERSISTENT EXECUTION AND RECONCILIATION
+    # CONTINUE INSIDE fresh_reconstruction_unit_14()
+    # ========================================================
+
+    from decimal import Decimal
+
+    h1_check = None
+    h1_execution = None
+    h1_pending = False
+
+    # --------------------------------------------------------
+    # 1. CHECK WHETHER H1 ALREADY HAS PERSISTED ORDERS
+    # --------------------------------------------------------
+
+    db = unit_14_execution_db()
+
+    try:
+        active_cycles = db.execute(
+            """
+            SELECT cycle_id, original_side,
+                   original_quantity, original_entry,
+                   frozen_atr, state, tp1_filled
+            FROM execution_cycles
+            WHERE symbol = ?
+              AND original_side = ?
+              AND state = 'ACTIVE'
+            ORDER BY created_at DESC
+            """,
+            (
+                str(p.get("symbol", "")).upper(),
+                side
+            )
+        ).fetchall()
+
+        if len(active_cycles) > 1:
+            raise RuntimeError(
+                "UNIT 14 MULTIPLE ACTIVE H1 CYCLES"
+            )
+
+        saved_cycle = (
+            active_cycles[0] if active_cycles else None
+        )
+
+        if saved_cycle is not None:
+            saved_orders = db.execute(
+                """
+                SELECT action, state
+                FROM execution_orders
+                WHERE cycle_id = ?
+                  AND action IN ('H1-C', 'H1-H')
+                """,
+                (saved_cycle[0],)
+            ).fetchall()
+
+            h1_pending = bool(saved_orders)
+
+    finally:
+        db.close()
+
+    # --------------------------------------------------------
+    # 2. RESTORE AN EXISTING H1 CYCLE
+    # --------------------------------------------------------
+
+    if saved_cycle is not None and h1_pending:
+
+        cycle_id = saved_cycle[0]
+        original_side = saved_cycle[1]
+
+        original_qty = Decimal(saved_cycle[2])
+        original_entry = Decimal(saved_cycle[3])
+        frozen_atr = Decimal(saved_cycle[4])
+
+        h1_qty = unit_14_v3_floor(
+            original_qty / Decimal("2"),
+            qstep
+        )
+
+        if original_side == "SHORT":
+            trigger = original_entry + frozen_atr
+            hedge_side = "LONG"
+            reached = Decimal(str(mark)) >= trigger
+        else:
+            trigger = original_entry - frozen_atr
+            hedge_side = "SHORT"
+            reached = Decimal(str(mark)) <= trigger
+
+        h1_check = {
+            "cycle_id": cycle_id,
+            "side": original_side,
+            "entry": original_entry,
+            "atr14": frozen_atr,
+            "trigger": trigger,
+            "reached": reached,
+            "close_quantity": h1_qty,
+            "hedge_side": hedge_side,
+            "quantity_executable": (
+                h1_qty >= minimum
+            ),
+            "execution_authorized": False,
+        }
+
+        result["h1_status"] = (
+            "PERSISTENT_EXECUTION_RECONCILIATION"
+        )
+
+        print(
+            "UNIT 14 H1 RESTORED CYCLE =",
+            cycle_id,
+            flush=True
+        )
+
+    # --------------------------------------------------------
+    # 3. OTHERWISE CHECK FOR A NEW H1 TRIGGER
+    # --------------------------------------------------------
+
+    else:
+
+        h1_check = unit_14_h1_check(
+            p,
+            mark,
+            qstep,
+            minimum
+        )
+
+        if h1_check is None:
+            result["h1_status"] = "ATR_NOT_VERIFIED"
+
+        elif h1_check.get("status") == (
+            "TERMINATED_BY_TP1_OR_CYCLE_CLOSED"
+        ):
+            result["h1_status"] = (
+                "TERMINATED_BY_TP1_OR_CYCLE_CLOSED"
+            )
+
+        elif h1_check.get("reached"):
+            result["h1_status"] = "TRIGGER_REACHED"
+
+        else:
+            result["h1_status"] = "WAITING_TRIGGER"
+
+    # --------------------------------------------------------
+    # 4. EXECUTE OR RECONCILE INDEPENDENT H1 ACTIONS
+    # --------------------------------------------------------
+
+    should_manage_h1 = bool(
+        h1_check is not None
+        and h1_check.get("cycle_id")
+        and h1_check.get("quantity_executable")
+        and (
+            h1_check.get("reached")
+            or h1_pending
+        )
+    )
+
+    if should_manage_h1:
+
+        h1_execution = unit_14_h1_execute(
+            p,
+            h1_check,
+            qstep,
+            minimum
+        )
+
+        result["h1_execution"] = h1_execution
+        result["h1_status"] = h1_execution.get(
+            "status",
+            "H1_EXECUTION_UNKNOWN"
+        )
+
+        print(
+            "UNIT 14 H1 EXECUTION STATUS =",
+            result["h1_status"],
+            flush=True
+        )
+
+        # Keep backup execution separate until
+        # H1 actions have been resolved.
+
+        if h1_execution.get("status") in (
+            "H1_IN_PROGRESS",
+            "H1_COMPLETE",
+            "TERMINATED_BY_TP1",
+            "H1_CYCLE_NOT_ACTIVE",
+        ):
+            return result
+
+    print(
+        "UNIT 14 H1 STATUS =",
+        result.get("h1_status"),
+        flush=True
+    )
+
+    # ========================================================
+    # END UNIT 14 PART 9
+    # EXISTING BACKUP RECONCILIATION FOLLOWS
+    # ========================================================
+   
 # ============================================================
 # COMPLETE UNIT 14 V3 REPLACEMENT
 # UNIT 13 -> UNIT 14 -> UNIT 15
