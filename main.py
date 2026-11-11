@@ -19665,6 +19665,325 @@ def scan_manage_position(unit12_result):
     return unit13, unit14
 
 
+
+# ============================================================
+# UNIVERSAL WEEX SYMBOL SWITCH CONTROLLER - PART 1
+# PERSISTENT REQUEST STATE + TELEGRAM EVENTS
+# ZERO INDENTATION
+# ============================================================
+
+import os as _sym_os
+import re as _sym_re
+import sqlite3 as _sym_sqlite
+import threading as _sym_thread
+import time as _sym_time
+
+_SYMBOL_LOCK = _sym_thread.RLock()
+
+_SYMBOL_DB_PATH = _sym_os.getenv(
+    "SYMBOL_STATE_DB",
+    "/var/data/weex_symbol_state.sqlite3"
+)
+
+
+def symbol_normalize(value):
+    symbol = str(value or "").strip().upper()
+
+    if not _sym_re.fullmatch(
+        r"[A-Z0-9]{2,25}USDT",
+        symbol
+    ):
+        raise ValueError(
+            "INVALID WEEX_SYMBOL: " + symbol
+        )
+
+    return symbol
+
+
+def symbol_db():
+    directory = _sym_os.path.dirname(
+        _SYMBOL_DB_PATH
+    )
+
+    if directory:
+        _sym_os.makedirs(
+            directory,
+            exist_ok=True
+        )
+
+    db = _sym_sqlite.connect(
+        _SYMBOL_DB_PATH,
+        timeout=15
+    )
+
+    db.execute("PRAGMA busy_timeout=15000")
+
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS symbol_state (
+            id INTEGER PRIMARY KEY CHECK(id = 1),
+            requested_symbol TEXT NOT NULL,
+            active_symbol TEXT NOT NULL,
+            pending_symbol TEXT,
+            status TEXT NOT NULL,
+            updated_at REAL NOT NULL
+        )
+    """)
+
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS symbol_events (
+            event_key TEXT PRIMARY KEY,
+            message TEXT NOT NULL,
+            delivered INTEGER NOT NULL DEFAULT 0,
+            created_at REAL NOT NULL,
+            delivered_at REAL
+        )
+    """)
+
+    db.commit()
+    return db
+
+
+def symbol_state_read():
+    with _SYMBOL_LOCK:
+        with symbol_db() as db:
+            row = db.execute("""
+                SELECT
+                    requested_symbol,
+                    active_symbol,
+                    pending_symbol,
+                    status
+                FROM symbol_state
+                WHERE id = 1
+            """).fetchone()
+
+    if row is None:
+        return None
+
+    return {
+        "requested_symbol": row[0],
+        "active_symbol": row[1],
+        "pending_symbol": row[2],
+        "status": row[3],
+    }
+
+
+def symbol_event_queue(
+    db,
+    event_key,
+    message
+):
+    db.execute("""
+        INSERT OR IGNORE INTO symbol_events (
+            event_key,
+            message,
+            delivered,
+            created_at
+        )
+        VALUES (?, ?, 0, ?)
+    """, (
+        event_key,
+        message,
+        _sym_time.time()
+    ))
+
+
+def symbol_telegram_flush():
+    sender = globals().get(
+        "unit15_telegram"
+    )
+
+    if not callable(sender):
+        print(
+            "SYMBOL TELEGRAM SENDER UNAVAILABLE",
+            flush=True
+        )
+        return False
+
+    with _SYMBOL_LOCK:
+        with symbol_db() as db:
+            events = db.execute("""
+                SELECT event_key, message
+                FROM symbol_events
+                WHERE delivered = 0
+                ORDER BY created_at, event_key
+                LIMIT 10
+            """).fetchall()
+
+        all_sent = True
+
+        for event_key, message in events:
+            try:
+                delivered = (
+                    sender(message) is True
+                )
+            except Exception as exc:
+                print(
+                    "SYMBOL TELEGRAM ERROR =",
+                    repr(exc),
+                    flush=True
+                )
+                delivered = False
+
+            if delivered:
+                with symbol_db() as db:
+                    db.execute("""
+                        UPDATE symbol_events
+                        SET delivered = 1,
+                            delivered_at = ?
+                        WHERE event_key = ?
+                    """, (
+                        _sym_time.time(),
+                        event_key
+                    ))
+                    db.commit()
+            else:
+                all_sent = False
+                break
+
+    return all_sent
+
+
+def symbol_request_refresh():
+    requested = symbol_normalize(
+        _sym_os.getenv(
+            "WEEX_SYMBOL",
+            "BTCUSDT"
+        )
+    )
+
+    with _SYMBOL_LOCK:
+        with symbol_db() as db:
+            row = db.execute("""
+                SELECT requested_symbol,
+                       active_symbol,
+                       pending_symbol,
+                       status
+                FROM symbol_state
+                WHERE id = 1
+            """).fetchone()
+
+            if row is None:
+                # Existing program is BTC-specific.
+                # Do not claim another symbol is active.
+                active = "BTCUSDT"
+
+                db.execute("""
+                    INSERT INTO symbol_state (
+                        id,
+                        requested_symbol,
+                        active_symbol,
+                        pending_symbol,
+                        status,
+                        updated_at
+                    )
+                    VALUES (1, ?, ?, ?, ?, ?)
+                """, (
+                    requested,
+                    active,
+                    requested if requested != active
+                    else None,
+                    "PENDING_INTEGRATION"
+                    if requested != active
+                    else "CURRENT_CONFIGURATION",
+                    _sym_time.time()
+                ))
+
+                if requested != active:
+                    symbol_event_queue(
+                        db,
+                        "CHANGED:INIT:" + requested,
+                        "SYMBOL_CHANGED\n"
+                        "Requested: " + requested + "\n"
+                        "Current: " + active + "\n"
+                        "Status: PENDING_INTEGRATION"
+                    )
+
+            elif row[0] != requested:
+                previous = row[0]
+                active = row[1]
+
+                db.execute("""
+                    UPDATE symbol_state
+                    SET requested_symbol = ?,
+                        pending_symbol = ?,
+                        status = ?,
+                        updated_at = ?
+                    WHERE id = 1
+                """, (
+                    requested,
+                    requested if requested != active
+                    else None,
+                    "PENDING_INTEGRATION"
+                    if requested != active
+                    else "CURRENT_CONFIGURATION",
+                    _sym_time.time()
+                ))
+
+                symbol_event_queue(
+                    db,
+                    "CHANGED:"
+                    + previous + ":"
+                    + requested + ":"
+                    + str(int(_sym_time.time() * 1000)),
+                    "SYMBOL_CHANGED\n"
+                    "Previous request: " + previous + "\n"
+                    "New request: " + requested + "\n"
+                    "Active: " + active + "\n"
+                    "Status: PENDING_VERIFICATION"
+                    if requested != active
+                    else
+                    "SYMBOL_CHANGED\n"
+                    "Previous request: " + previous + "\n"
+                    "New request: " + requested + "\n"
+                    "Active: " + active
+                )
+
+            db.commit()
+
+    state = symbol_state_read()
+
+    print(
+        "SYMBOL REQUESTED =",
+        state["requested_symbol"],
+        flush=True
+    )
+    print(
+        "SYMBOL ACTIVE =",
+        state["active_symbol"],
+        flush=True
+    )
+    print(
+        "SYMBOL PENDING =",
+        state["pending_symbol"],
+        flush=True
+    )
+    print(
+        "SYMBOL SWITCH STATUS =",
+        state["status"],
+        flush=True
+    )
+
+    symbol_telegram_flush()
+    return state
+
+
+def symbol_new_entry_allowed():
+    state = symbol_state_read()
+
+    if state is None:
+        return False
+
+    return (
+        state["pending_symbol"] is None
+        and state["requested_symbol"]
+        == state["active_symbol"]
+    )
+
+
+# ============================================================
+# END SYMBOL SWITCH CONTROLLER - PART 1
+# ============================================================
+
 # ============================================================
 # 4. ONE SCAN CYCLE
 # ============================================================
