@@ -14976,6 +14976,245 @@ def unit_14_v3_history():
 # PART 3 CONTINUES AT ZERO INDENTATION
 # ============================================================
         
+
+def unit_14_v3_mark():
+
+    query = urllib.parse.urlencode({
+        "symbol": "BTCUSDT",
+        "priceType": "MARK",
+    })
+
+    request = urllib.request.Request(
+        UNIT14_V3_BASE
+        + "/capi/v3/market/symbolPrice?"
+        + query,
+        method="GET",
+    )
+
+    with urllib.request.urlopen(
+        request,
+        timeout=15,
+    ) as response:
+
+        data = json.loads(
+            response.read().decode("utf-8")
+        )
+
+    if (
+        not isinstance(data, dict)
+        or data.get("symbol") != "BTCUSDT"
+    ):
+        raise RuntimeError(
+            "UNIT 14 INVALID MARK RESPONSE"
+        )
+
+    return unit_14_v3_D(
+        data.get("price"),
+        "MARK PRICE"
+    )
+
+
+# ============================================================
+# 4. TRADE IDENTITY AND BACKUP RECONCILIATION
+# ============================================================
+
+def unit_14_v3_trade_key(position):
+
+    created = str(
+        position.get("createdTime", "")
+    )
+
+    if created.isdigit():
+        return created[-12:]
+
+    position_id = str(
+        position.get("id", "")
+    )
+
+    if position_id:
+        return position_id[-12:]
+
+    raise RuntimeError(
+        "UNIT 14 POSITION IDENTITY MISSING"
+    )
+
+
+def unit_14_v3_backup_id(stage, key):
+
+    return (
+        "FR-B"
+        + str(stage)
+        + "-"
+        + key
+    )[:36]
+
+
+# ============================================================
+# UNIT 14 - PERSISTENT EXECUTION REGISTRY
+# SHARED BY TP1 AND H1
+# ============================================================
+
+def unit_14_execution_db():
+    import os
+    import sqlite3
+
+    path = "/var/data/unit14_execution.sqlite3"
+
+    if not os.path.isdir("/var/data"):
+        raise RuntimeError(
+            "PERSISTENT RENDER DISK NOT AVAILABLE"
+        )
+
+    db = sqlite3.connect(
+        path,
+        timeout=30,
+        isolation_level=None
+    )
+
+    db.execute("PRAGMA busy_timeout=30000")
+    db.execute("PRAGMA journal_mode=WAL")
+
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS execution_cycles (
+            cycle_id TEXT PRIMARY KEY,
+            symbol TEXT NOT NULL,
+            original_side TEXT NOT NULL,
+            original_quantity TEXT NOT NULL,
+            original_entry TEXT NOT NULL,
+            frozen_atr TEXT NOT NULL,
+            tp1_filled INTEGER NOT NULL DEFAULT 0,
+            state TEXT NOT NULL DEFAULT 'ACTIVE',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS execution_orders (
+            client_id TEXT PRIMARY KEY,
+            cycle_id TEXT NOT NULL,
+            action TEXT NOT NULL,
+            quantity TEXT NOT NULL,
+            state TEXT NOT NULL,
+            exchange_order_id TEXT,
+            confirmed_filled TEXT NOT NULL DEFAULT '0',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    return db
+
+
+def unit_14_claim_execution(
+    cycle_id,
+    action,
+    client_id,
+    quantity
+):
+    db = unit_14_execution_db()
+
+    try:
+        db.execute("BEGIN IMMEDIATE")
+
+        existing = db.execute(
+            """
+            SELECT cycle_id, action, quantity, state
+            FROM execution_orders
+            WHERE client_id = ?
+            """,
+            (client_id,)
+        ).fetchone()
+
+        if existing is not None:
+            db.execute("COMMIT")
+            return {
+                "claimed": False,
+                "existing": existing
+            }
+
+        db.execute(
+            """
+            INSERT INTO execution_orders
+            (client_id, cycle_id, action, quantity, state)
+            VALUES (?, ?, ?, ?, 'CLAIMED')
+            """,
+            (
+                client_id,
+                cycle_id,
+                action,
+                str(quantity)
+            )
+        )
+
+        db.execute("COMMIT")
+
+        return {
+            "claimed": True,
+            "existing": None
+        }
+
+    except Exception:
+        if db.in_transaction:
+            db.execute("ROLLBACK")
+        raise
+
+    finally:
+        db.close()
+
+
+def unit_14_update_execution(
+    client_id,
+    state,
+    exchange_order_id=None,
+    confirmed_filled=None
+):
+    db = unit_14_execution_db()
+
+    try:
+        if confirmed_filled is None:
+            db.execute(
+                """
+                UPDATE execution_orders
+                SET state = ?,
+                    exchange_order_id =
+                        COALESCE(?, exchange_order_id),
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE client_id = ?
+                """,
+                (
+                    state,
+                    exchange_order_id,
+                    client_id
+                )
+            )
+        else:
+            db.execute(
+                """
+                UPDATE execution_orders
+                SET state = ?,
+                    exchange_order_id =
+                        COALESCE(?, exchange_order_id),
+                    confirmed_filled = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE client_id = ?
+                """,
+                (
+                    state,
+                    exchange_order_id,
+                    str(confirmed_filled),
+                    client_id
+                )
+            )
+
+    finally:
+        db.close()
+
+
+# ============================================================
+# END UNIT 14 PART 3
+# NEXT: H1 PERSISTENT CYCLE INITIALIZATION
+# ============================================================
+
 # ============================================================
 # COMPLETE UNIT 14 V3 REPLACEMENT
 # UNIT 13 -> UNIT 14 -> UNIT 15
