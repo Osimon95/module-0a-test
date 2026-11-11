@@ -16142,6 +16142,403 @@ def fresh_reconstruction_unit_14(
     #   - RECONCILE H1-C / H1-H
     # ========================================================
 
+
+
+    # ========================================================
+    # UNIT 14 PART 8
+    # ORIGINAL POSITION ABSENT
+    # OPPOSITE HEDGE RECONCILIATION
+    # ========================================================
+
+    if p is None:
+
+        from decimal import Decimal
+
+        original_side = os.getenv(
+            "ORIGINAL_POSITION_SIDE", ""
+        ).strip().upper()
+
+        if original_side not in ("LONG", "SHORT"):
+            raise RuntimeError(
+                "UNIT 14 ORIGINAL SIDE NOT CONFIGURED"
+            )
+
+        hedge_side = (
+            "SHORT" if original_side == "LONG"
+            else "LONG"
+        )
+
+        # unit_14_v3_positions() returns a dictionary
+        # keyed by symbol and position side.
+        # Do not pass that dictionary into
+        # unit_14_active_positions(), which expects
+        # a list of raw exchange position records.
+
+        active = unit_14_v3_positions()
+
+        if not isinstance(active, dict):
+            raise RuntimeError(
+                "UNIT 14 ACTIVE POSITION MAP INVALID"
+            )
+
+        hedge = active.get(
+            "BTCSUSDT:" + hedge_side
+        )
+
+        db = unit_14_execution_db()
+
+        try:
+            cycles = db.execute(
+                """
+                SELECT cycle_id, state, tp1_filled
+                FROM execution_cycles
+                WHERE symbol = ?
+                  AND original_side = ?
+                  AND state IN (
+                      'ACTIVE',
+                      'TERMINATED_BY_TP1'
+                  )
+                ORDER BY created_at DESC
+                """,
+                ("BTCSUSDT", original_side)
+            ).fetchall()
+
+            if len(cycles) > 1:
+                raise RuntimeError(
+                    "UNIT 14 MULTIPLE UNRESOLVED CYCLES"
+                )
+
+            saved_cycle = (
+                cycles[0] if cycles else None
+            )
+
+            if saved_cycle is None:
+
+                if hedge is not None:
+
+                    result["status"] = (
+                        "UNMANAGED_OPPOSITE_POSITION"
+                    )
+
+                    result["skip_reason"] = (
+                        "HEDGE_PRESENT_WITHOUT_SAVED_CYCLE"
+                    )
+
+                    print(
+                        "UNIT 14 WARNING = OPPOSITE "
+                        "POSITION REQUIRES RECONCILIATION",
+                        flush=True
+                    )
+
+                    return result
+
+                result["status"] = (
+                    "IDLE_NO_POSITION"
+                )
+
+                result["skip_reason"] = (
+                    "NO_ACTIVE_DEMO_POSITION"
+                )
+
+                print(
+                    "UNIT 14 STATUS = IDLE_NO_POSITION",
+                    flush=True
+                )
+
+                return result
+
+            cycle_id = saved_cycle[0]
+
+            orders = db.execute(
+                """
+                SELECT action, client_id, quantity,
+                       state, confirmed_filled
+                FROM execution_orders
+                WHERE cycle_id = ?
+                  AND action IN ('H1-C', 'H1-H')
+                """,
+                (cycle_id,)
+            ).fetchall()
+
+        finally:
+            db.close()
+
+        # ====================================================
+        # RECONCILE EXISTING ORDERS WITH WEEX HISTORY
+        # NEVER CREATE A REPLACEMENT ORDER HERE
+        # ====================================================
+
+        history = unit_14_v3_history()
+
+        order_results = {}
+
+        for (
+            action,
+            client_id,
+            quantity,
+            state,
+            saved_fill
+        ) in orders:
+
+            requested = Decimal(str(quantity))
+
+            matches = [
+                item for item in history
+                if str(
+                    item.get("clientOrderId", "")
+                ) == client_id
+            ]
+
+            if matches:
+
+                exchange_ids = {
+                    str(item.get("orderId"))
+                    for item in matches
+                    if item.get("orderId") is not None
+                }
+
+                if len(exchange_ids) > 1:
+                    raise RuntimeError(
+                        "H1 DUPLICATE EXCHANGE ORDER ID"
+                    )
+
+                fills = []
+
+                for item in matches:
+
+                    filled = Decimal(
+                        str(
+                            item.get(
+                                "executedQty",
+                                "0"
+                            )
+                        )
+                    )
+
+                    if (
+                        not filled.is_finite()
+                        or filled < 0
+                    ):
+                        raise RuntimeError(
+                            "H1 INVALID EXCHANGE FILL"
+                        )
+
+                    fills.append(filled)
+
+                confirmed = max(
+                    fills,
+                    default=Decimal("0")
+                )
+
+                if confirmed > requested:
+                    raise RuntimeError(
+                        "H1 EXCHANGE FILL EXCEEDS ORDER"
+                    )
+
+                statuses = {
+                    str(
+                        item.get("status", "")
+                    ).upper()
+                    for item in matches
+                }
+
+                if confirmed == requested:
+
+                    new_state = "FILLED"
+
+                elif confirmed > 0:
+
+                    new_state = "PARTIAL"
+
+                elif statuses & {
+                    "CANCELED",
+                    "CANCELLED",
+                    "REJECTED",
+                    "EXPIRED"
+                }:
+
+                    new_state = (
+                        "TERMINAL_UNFILLED"
+                    )
+
+                else:
+
+                    new_state = "PENDING"
+
+                exchange_order_id = next(
+                    iter(exchange_ids),
+                    None
+                )
+
+                unit_14_update_execution(
+                    client_id,
+                    new_state,
+                    exchange_order_id,
+                    confirmed
+                )
+
+                order_results[action] = (
+                    new_state
+                )
+
+            else:
+
+                # Missing exchange history is not
+                # proof that an order was never sent.
+                # Retain the persistent claim.
+
+                order_results[action] = (
+                    "EXCHANGE_HISTORY_UNCONFIRMED"
+                )
+
+        # ====================================================
+        # TP1 VERIFICATION
+        # H1-C AND H2-C ARE NOT TP1 FILLS
+        # ====================================================
+
+        tp1 = unit_14_tp1_verified_fill(
+            history,
+            cycle_id
+        )
+
+        if tp1.get("tp1_filled"):
+
+            result["h1_status"] = (
+                "TP1_CONFIRMED_RECONCILIATION"
+            )
+
+        result["h1_cycle_id"] = (
+            cycle_id
+        )
+
+        result["h1_order_states"] = (
+            order_results
+        )
+
+        result["h1_hedge_present"] = (
+            hedge is not None
+        )
+
+        result["position_exists"] = False
+
+        # ====================================================
+        # DISTINGUISH ABSENT ORIGINAL FROM FLAT ACCOUNT
+        # ====================================================
+
+        if hedge is not None:
+
+            result["status"] = (
+                "ORIGINAL_ABSENT_HEDGE_PRESENT"
+            )
+
+            result["skip_reason"] = (
+                "HEDGE_MANAGEMENT_REQUIRES_RECOVERY_STAGE"
+            )
+
+            result["hedge_side"] = (
+                hedge_side
+            )
+
+            result["hedge_quantity"] = str(
+                hedge.get("size", "0")
+            )
+
+            print(
+                "UNIT 14 H1 HEDGE STILL ACTIVE =",
+                hedge_side,
+                flush=True
+            )
+
+        else:
+
+            result["status"] = (
+                "ORIGINAL_ABSENT_CYCLE_RECONCILED"
+            )
+
+            result["skip_reason"] = (
+                "VERIFY_CYCLE_FINALIZATION"
+            )
+
+        print(
+            "UNIT 14 H1 CYCLE =",
+            cycle_id,
+            flush=True
+        )
+
+        print(
+            "UNIT 14 H1 ORDER STATES =",
+            order_results,
+            flush=True
+        )
+
+        print(
+            "UNIT 14 H1 TP1 CONFIRMED =",
+            bool(
+                tp1.get("tp1_filled")
+            ),
+            flush=True
+        )
+
+        print(
+            "UNIT 14 EXCHANGE WRITE = NONE",
+            flush=True
+        )
+
+        return result
+
+    # ========================================================
+    # ORIGINAL POSITION EXISTS
+    # PREPARE NORMAL MANAGEMENT
+    # ========================================================
+
+    side = str(
+        p.get("side", "")
+    ).upper()
+
+    if side not in ("LONG", "SHORT"):
+        raise RuntimeError(
+            "UNIT 14 POSITION SIDE INVALID"
+        )
+
+    size = D(
+        p.get("size"),
+        "ACTIVE POSITION SIZE"
+    )
+
+    leverage = D(
+        p.get("leverage"),
+        "POSITION LEVERAGE"
+    )
+
+    key = unit_14_v3_trade_key(p)
+
+    liquidation = D(
+        p.get("liquidatePrice"),
+        "LIQUIDATION PRICE",
+        True
+    )
+
+    mark = unit_14_v3_mark()
+
+    history = unit_14_v3_history()
+
+    result.update({
+        "position_exists": True,
+        "position_side": side,
+        "position_size": float(size),
+        "position_leverage": float(leverage),
+        "mark_price": float(mark),
+        "liquidation_price": float(
+            liquidation
+        ),
+        "trade_key": key,
+    })
+
+    # ========================================================
+    # END UNIT 14 PART 8
+    # PART 9 CONTINUES INSIDE SAME FUNCTION
+    # ========================================================
+
 # ============================================================
 # COMPLETE UNIT 14 V3 REPLACEMENT
 # UNIT 13 -> UNIT 14 -> UNIT 15
