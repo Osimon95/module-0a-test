@@ -16740,6 +16740,451 @@ def fresh_reconstruction_unit_14(
     # EXISTING BACKUP RECONCILIATION FOLLOWS
     # ========================================================
    
+
+    # ========================================================
+    # UNIT 14 PART 10
+    # BACKUP HISTORY RECONCILIATION
+    # PERSISTENT TP3 TRAILING MANAGEMENT
+    #
+    # CONTINUES INSIDE fresh_reconstruction_unit_14()
+    # FOUR SPACES INDENTATION
+    # ========================================================
+
+    # ========================================================
+    # 9. BACKUP HISTORY RECONCILIATION
+    # ========================================================
+
+    completed, existing = unit_14_v3_reconcile(
+        history,
+        key
+    )
+
+    result["backups_filled"] = completed
+
+    print(
+        "UNIT 14 BACKUPS FILLED =",
+        str(completed) + "/5",
+        flush=True
+    )
+
+    # ========================================================
+    # 10. TP3 ELIGIBILITY
+    # ========================================================
+
+    tp3_armed = (
+        unit_13_result.get("tp3_armed") is True
+        and unit_13_result.get("tp1_completed") is True
+        and unit_13_result.get("tp2_completed") is True
+        and unit_13_result.get("position_exists") is True
+        and unit_13_result.get("position_side") == side
+    )
+
+    result["tp3_armed"] = tp3_armed
+
+    # ========================================================
+    # 10.1 PERSISTENT TP3 TRAILING STATE
+    # ========================================================
+
+    db = unit_14_execution_db()
+
+    try:
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS tp3_trailing_state (
+                trade_key TEXT PRIMARY KEY,
+                cycle_id TEXT NOT NULL,
+                position_side TEXT NOT NULL,
+                best_mark TEXT NOT NULL,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+    finally:
+        db.close()
+
+    # ========================================================
+    # 10.2 RESTORE TP3 TRAILING STATE
+    # ========================================================
+
+    if tp3_armed:
+
+        cycle_id = str(
+            unit_13_result.get("tp_cycle_id") or ""
+        )
+
+        if not cycle_id:
+            raise RuntimeError(
+                "UNIT 14 TP3 CYCLE ID MISSING"
+            )
+
+        callback = max(
+            trail_min,
+            min(trail_ref, trail_max)
+        )
+
+        db = unit_14_execution_db()
+
+        try:
+            db.execute("BEGIN IMMEDIATE")
+
+            saved = db.execute(
+                """
+                SELECT cycle_id, position_side, best_mark
+                FROM tp3_trailing_state
+                WHERE trade_key = ?
+                """,
+                (key,)
+            ).fetchone()
+
+            if saved is None:
+
+                best = mark
+
+                db.execute(
+                    """
+                    INSERT INTO tp3_trailing_state
+                    (
+                        trade_key,
+                        cycle_id,
+                        position_side,
+                        best_mark
+                    )
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        key,
+                        cycle_id,
+                        side,
+                        str(best)
+                    )
+                )
+
+            else:
+
+                if (
+                    saved[0] != cycle_id
+                    or saved[1] != side
+                ):
+                    raise RuntimeError(
+                        "UNIT 14 TP3 CYCLE IDENTITY CONFLICT"
+                    )
+
+                best = D(
+                    saved[2],
+                    "TP3 RESTORED BEST MARK"
+                )
+
+                if side == "LONG":
+                    best = max(best, mark)
+                else:
+                    best = min(best, mark)
+
+                db.execute(
+                    """
+                    UPDATE tp3_trailing_state
+                    SET best_mark = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE trade_key = ?
+                    """,
+                    (
+                        str(best),
+                        key
+                    )
+                )
+
+            db.execute("COMMIT")
+
+        except Exception:
+
+            if db.in_transaction:
+                db.execute("ROLLBACK")
+
+            raise
+
+        finally:
+            db.close()
+
+        # ====================================================
+        # 10.3 DYNAMIC TRAILING STOP
+        # ====================================================
+
+        if side == "LONG":
+
+            stop = best * (
+                D(1) - callback / D(100)
+            )
+
+            reached = mark <= stop
+
+        else:
+
+            stop = best * (
+                D(1) + callback / D(100)
+            )
+
+            reached = mark >= stop
+
+        result.update({
+            "tp3_best_mark": float(best),
+            "tp3_stop_price": float(stop),
+            "tp3_trailing_percent": float(callback),
+            "tp3_trigger_reached": bool(reached),
+        })
+
+        print(
+            "UNIT 14 TP3 BEST MARK =",
+            best,
+            flush=True
+        )
+
+        print(
+            "UNIT 14 TP3 STOP =",
+            stop,
+            flush=True
+        )
+
+        print(
+            "UNIT 14 TP3 TRIGGER REACHED =",
+            reached,
+            flush=True
+        )
+
+        # ====================================================
+        # 10.4 EXECUTE TP3 WHEN TRIGGERED
+        # ====================================================
+
+        if reached:
+
+            import hashlib
+
+            digest = hashlib.sha256(
+                cycle_id.encode("utf-8")
+            ).hexdigest()[:20]
+
+            client_id = "FR-TP3-" + digest
+
+            # Check persistent registry before
+            # considering any new submission.
+
+            db = unit_14_execution_db()
+
+            try:
+                existing_tp3 = db.execute(
+                    """
+                    SELECT state, quantity, confirmed_filled
+                    FROM execution_orders
+                    WHERE client_id = ?
+                    """,
+                    (client_id,)
+                ).fetchone()
+
+            finally:
+                db.close()
+
+            if existing_tp3 is not None:
+
+                result["status"] = (
+                    "TP3_ORDER_RECONCILIATION_REQUIRED"
+                )
+
+                result["skip_reason"] = (
+                    "TP3_PERSISTENT_ORDER_EXISTS"
+                )
+
+                result["tp3_order_state"] = (
+                    existing_tp3[0]
+                )
+
+                return result
+
+            # An exchange-history match also prevents
+            # creating a second TP3 order.
+
+            latest_history = unit_14_v3_history()
+
+            historical = [
+                o for o in latest_history
+                if str(
+                    o.get("clientOrderId", "")
+                ) == client_id
+            ]
+
+            if historical:
+
+                result["status"] = (
+                    "TP3_EXCHANGE_ORDER_EXISTS"
+                )
+
+                result["skip_reason"] = (
+                    "TP3_HISTORY_RECONCILIATION_REQUIRED"
+                )
+
+                return result
+
+            # =================================================
+            # 10.5 VERIFY CURRENT ORIGINAL POSITION
+            # =================================================
+
+            latest = unit_14_v3_position()
+
+            if latest is None:
+
+                result["status"] = (
+                    "TP3_POSITION_NOT_ACTIVE"
+                )
+
+                return result
+
+            if (
+                unit_14_v3_trade_key(latest) != key
+                or str(
+                    latest.get("side", "")
+                ).upper() != side
+            ):
+
+                result["status"] = (
+                    "TP3_POSITION_CHANGED"
+                )
+
+                return result
+
+            close_qty = unit_14_v3_floor(
+                D(
+                    latest.get("size"),
+                    "LATEST TP3 POSITION SIZE"
+                ),
+                qstep
+            )
+
+            if close_qty < minimum:
+
+                result["status"] = (
+                    "TP3_BELOW_MINIMUM_QUANTITY"
+                )
+
+                return result
+
+            # =================================================
+            # 10.6 CLAIM TP3 ORDER BEFORE SUBMISSION
+            # =================================================
+
+            claim = unit_14_claim_execution(
+                cycle_id,
+                "TP3",
+                client_id,
+                close_qty
+            )
+
+            if not claim["claimed"]:
+
+                result["status"] = (
+                    "TP3_ALREADY_CLAIMED"
+                )
+
+                return result
+
+            payload = {
+                "symbol": str(
+                    latest.get("symbol", "")
+                ).upper(),
+                "side": (
+                    "SELL" if side == "LONG"
+                    else "BUY"
+                ),
+                "positionSide": side,
+                "type": "MARKET",
+                "quantity": format(
+                    close_qty,
+                    "f"
+                ),
+                "newClientOrderId": client_id,
+            }
+
+            # =================================================
+            # 10.7 WEEX DEMO ORDER SUBMISSION
+            # =================================================
+
+            result["tp3_execution_attempted"] = True
+
+            try:
+
+                reply = unit_14_v3_signed_request(
+                    "POST",
+                    UNIT14_V3_ORDER,
+                    payload=payload
+                )
+
+            except Exception as exc:
+
+                unit_14_update_execution(
+                    client_id,
+                    "ACK_UNKNOWN"
+                )
+
+                result.update({
+                    "status": "TP3_ACK_UNKNOWN",
+                    "skip_reason":
+                        "EXCHANGE_OUTCOME_UNCERTAIN",
+                    "tp3_error": str(exc),
+                    "tp3_execution_completed": False,
+                })
+
+                return result
+
+            if (
+                not isinstance(reply, dict)
+                or reply.get("success") is not True
+                or not reply.get("orderId")
+            ):
+
+                unit_14_update_execution(
+                    client_id,
+                    "ACK_UNKNOWN"
+                )
+
+                result["status"] = (
+                    "TP3_ACK_UNVERIFIED"
+                )
+
+                return result
+
+            exchange_order_id = str(
+                reply["orderId"]
+            )
+
+            unit_14_update_execution(
+                client_id,
+                "SUBMITTED",
+                exchange_order_id
+            )
+
+            result.update({
+                "status": "TP3_SUBMITTED",
+                "tp3_order_id": exchange_order_id,
+                "tp3_client_order_id": client_id,
+                "tp3_execution_attempted": True,
+                "tp3_execution_completed": False,
+                "tp3_fill_confirmed": False,
+                "exchange_write": True,
+                "skip_reason": "NONE",
+            })
+
+            print(
+                "UNIT 14 TP3 DEMO ORDER SUBMITTED =",
+                exchange_order_id,
+                flush=True
+            )
+
+            return result
+
+    # ========================================================
+    # END UNIT 14 PART 10
+    #
+    # PART 11 CONTINUES WITH:
+    # - FAILED H1 RECOVERY ELIGIBILITY
+    # - B1-B5 BACKUP ACTIVATION
+    # - EXPOSURE CAP
+    # - BACKUP DEMO ORDER EXECUTION
+    # ========================================================
+
 # ============================================================
 # COMPLETE UNIT 14 V3 REPLACEMENT
 # UNIT 13 -> UNIT 14 -> UNIT 15
