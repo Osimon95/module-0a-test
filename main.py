@@ -12794,6 +12794,316 @@ def unit_13_v4_base_result(unit_12_result, status, reason):
 # SELECTION AND MAIN POSITION MANAGEMENT
 # ============================================================
   
+
+ 
+# ============================================================
+# UNIT 13 PART 2
+# ORIGINAL POSITION SELECTION AND MANAGEMENT
+# ============================================================
+
+def unit_14_h1_select_original(positions):
+    import os
+    from decimal import Decimal
+
+    original_side = os.getenv(
+        "ORIGINAL_POSITION_SIDE", ""
+    ).strip().upper()
+
+    if original_side not in ("LONG", "SHORT"):
+        raise RuntimeError(
+            "ORIGINAL_POSITION_SIDE MUST BE LONG OR SHORT"
+        )
+
+    selected = []
+
+    for p in positions:
+        if not isinstance(p, dict):
+            continue
+
+        symbol = str(
+            p.get("symbol", "")
+        ).upper()
+
+        side = str(
+            p.get("side", "")
+        ).upper()
+
+        if symbol != "BTCSUSDT":
+            continue
+
+        if side != original_side:
+            continue
+
+        size = Decimal(str(p.get("size", "0")))
+
+        if size > 0:
+            selected.append(p)
+
+    if len(selected) == 0:
+        return None
+
+    if len(selected) > 1:
+        raise RuntimeError(
+            "AMBIGUOUS ORIGINAL POSITION IDENTITY"
+        )
+
+    return selected[0]
+
+
+def fresh_reconstruction_unit_13(
+    config,
+    unit_12_result,
+):
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 13 V4 EXISTING POSITION MANAGEMENT START",
+        flush=True
+    )
+
+    if not isinstance(config, dict):
+        raise RuntimeError(
+            "UNIT 13 INVALID CONFIG"
+        )
+
+    if not isinstance(unit_12_result, dict):
+        raise RuntimeError(
+            "UNIT 13 UNIT 12 RESULT INVALID"
+        )
+
+    exchange = config.get("exchange", {})
+    strategy = config.get("strategy", {})
+    precision = config.get("market_precision", {})
+
+    if (
+        config.get("execution_environment") != "DEMO"
+        or exchange.get("name") != "WEEX"
+        or exchange.get("api_version") != "V3"
+        or exchange.get("market_symbol") != "BTCUSDT"
+        or exchange.get("demo_order_symbol")
+            != "BTCSUSDT"
+    ):
+        raise RuntimeError(
+            "UNIT 13 NON-DEMO CONTRACT BLOCKED"
+        )
+
+    D = unit_13_v4_D
+
+    step = D(
+        precision.get("quantity_step"),
+        "QTY STEP"
+    )
+    minimum = D(
+        precision.get("minimum_quantity"),
+        "MINIMUM QTY"
+    )
+    price_step = D(
+        precision.get("price_step"),
+        "PRICE STEP"
+    )
+
+    tp1_floor = D(
+        strategy.get(
+            "tp1_net_roi_floor_percent", 5
+        ),
+        "TP1 FLOOR"
+    )
+    tp2_floor = D(
+        strategy.get(
+            "tp2_net_roi_floor_percent", 10
+        ),
+        "TP2 FLOOR"
+    )
+    fee = D(
+        strategy.get(
+            "futures_taker_fee_percent", "0.08"
+        ),
+        "FEE",
+        True
+    )
+
+    trail_ref = D(
+        strategy.get(
+            "tp3_trailing_reference_percent",
+            "0.20"
+        ),
+        "TRAIL REF"
+    )
+    trail_min = D(
+        strategy.get(
+            "tp3_trailing_min_percent",
+            "0.10"
+        ),
+        "TRAIL MIN"
+    )
+    trail_max = D(
+        strategy.get(
+            "tp3_trailing_max_percent",
+            "0.40"
+        ),
+        "TRAIL MAX"
+    )
+
+    if (
+        tp1_floor < 5
+        or tp2_floor < 10
+        or tp2_floor <= tp1_floor
+        or not (
+            0 < trail_min
+            <= trail_ref
+            <= trail_max
+        )
+    ):
+        raise RuntimeError(
+            "UNIT 13 TP CONFIGURATION INVALID"
+        )
+
+    print(
+        "PASS: UNIT 13 RECEIVED UNIT 12 RESULT",
+        flush=True
+    )
+    print(
+        "UNIT 13 RECEIVED UNIT 12 STATUS =",
+        unit_12_result.get("status"),
+        flush=True
+    )
+    print(
+        "UNIT 13 POSITION MANAGEMENT INDEPENDENT "
+        "OF BOT_MODE = TRUE",
+        flush=True
+    )
+    print(
+        "UNIT 13 TP ALLOCATION = 10 / 20 / 70",
+        flush=True
+    )
+    print(
+        "UNIT 13 TP1 NET ROI FLOOR =",
+        tp1_floor,
+        flush=True
+    )
+    print(
+        "UNIT 13 TP2 NET ROI FLOOR =",
+        tp2_floor,
+        flush=True
+    )
+
+    # ========================================================
+    # ALWAYS READ CURRENT WEEX DEMO POSITION.
+    # DO NOT CHECK BOT_MODE HERE.
+    # ========================================================
+
+    positions = unit_13_v4_signed_request(
+        "GET",
+        UNIT13_V4_POSITION,
+    )
+
+    if not isinstance(positions, list):
+        raise RuntimeError(
+            "UNIT 13 POSITIONS NOT LIST"
+        )
+
+    active = []
+
+    for p in positions:
+
+        if not isinstance(p, dict):
+            raise RuntimeError(
+                "UNIT 13 POSITION RECORD MALFORMED"
+            )
+
+        if str(
+            p.get("symbol", "")
+        ).upper() != "BTCSUSDT":
+            continue
+
+        size = D(
+            p.get("size"),
+            "POSITION SIZE",
+            True
+        )
+
+        if size > 0:
+            active.append(p)
+
+    if not active:
+
+        result = unit_13_v4_base_result(
+            unit_12_result,
+            "IDLE_NO_POSITION",
+            "NO_ACTIVE_BTCSUSDT_POSITION",
+        )
+
+        print(
+            "UNIT 13 STATUS = IDLE_NO_POSITION",
+            flush=True
+        )
+        print(
+            "UNIT 13 EXCHANGE WRITE = False",
+            flush=True
+        )
+
+        return result
+
+    # ========================================================
+    # UNIT 13 - INDEPENDENT ACTIVE POSITION SELECTION
+    # ========================================================
+
+    selector = globals().get(
+        "unit_14_h1_select_original"
+    )
+
+    if not callable(selector):
+        raise RuntimeError(
+            "UNIT 13 ACTIVE POSITION SELECTOR UNAVAILABLE"
+        )
+
+    p = selector(active)
+
+    if p is None:
+        raise RuntimeError(
+            "UNIT 13 ORIGINAL POSITION NOT ACTIVE"
+        )
+
+    active = [p]
+
+    # ========================================================
+    # READ EXCHANGE POSITION
+    # ========================================================
+
+    p = active[0]
+
+    side = str(
+        p.get("side", "")
+    ).upper()
+
+    if side not in ("LONG", "SHORT"):
+        raise RuntimeError(
+            "UNIT 13 INVALID POSITION SIDE"
+        )
+
+    size = D(
+        p.get("size"),
+        "ACTIVE SIZE"
+    )
+
+    open_value = D(
+        p.get("openValue"),
+        "OPEN VALUE"
+    )
+
+    leverage = D(
+        p.get("leverage"),
+        "POSITION LEVERAGE"
+    )
+
+    entry = open_value / size
+
+    # ========================================================
+    # END UNIT 13 PART 2
+    # PART 3 CONTINUES WITH CUMULATIVE POSITION HISTORY
+    # AND TP MANAGEMENT
+    # ========================================================
+   
 # ============================================================
 # COMPLETE UNIT 13 V4 REPLACEMENT
 # UNIT 12 -> UNIT 13 -> UNIT 14
