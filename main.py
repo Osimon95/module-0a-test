@@ -19628,8 +19628,80 @@ def scan_refresh_entry_pipeline():
         boundary,
     )
 
-    # Unit 12: only unit permitted to
-    # submit a NEW initial demo entry.
+    
+    # ========================================================
+    # UNIT 12 - SYMBOL SWITCH ENTRY GATE
+    # PRESERVE UNITS 3-11 AND EXISTING MANAGEMENT
+    # ========================================================
+
+    symbol_state = symbol_request_refresh()
+
+    active_symbol = symbol_state[
+        "active_symbol"
+    ]
+
+    requested_symbol = symbol_state[
+        "requested_symbol"
+    ]
+
+    pending_symbol = symbol_state[
+        "pending_symbol"
+    ]
+
+    # The current market-analysis configuration
+    # must agree with the active symbol.
+    configured_symbol = (
+        config.get("exchange", {})
+        .get("market_symbol", "")
+    )
+
+    if configured_symbol != active_symbol:
+        print(
+            "SYMBOL CONFIGURATION MISMATCH =",
+            configured_symbol,
+            active_symbol,
+            flush=True
+        )
+
+        return scan_idle_unit12_result(
+            "ACTIVE_SYMBOL_CONFIG_MISMATCH"
+        )
+
+    # A pending change must not open a new
+    # position on the previous symbol.
+    if (
+        pending_symbol is not None
+        or requested_symbol != active_symbol
+    ):
+        print(
+            "UNIT 12 NEW ENTRY = PAUSED",
+            flush=True
+        )
+
+        print(
+            "SYMBOL ACTIVE =",
+            active_symbol,
+            flush=True
+        )
+
+        print(
+            "SYMBOL NEXT IN LINE =",
+            pending_symbol,
+            flush=True
+        )
+
+        print(
+            "EXISTING POSITION MANAGEMENT = ENABLED",
+            flush=True
+        )
+
+        return scan_idle_unit12_result(
+            "SYMBOL_SWITCH_PENDING"
+        )
+
+    # No pending symbol change.
+    # Preserve the existing executable
+    # WEEX demo submission adapter.
     submission = (
         fresh_unit_12_hybrid_execution_adapter(
             config,
