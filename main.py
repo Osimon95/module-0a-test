@@ -15435,6 +15435,328 @@ def unit_14_h1_check(p, mark, qstep, minimum):
 # PART 5: H1 DEMO ORDER EXECUTION
 # ============================================================
     
+
+
+# ============================================================
+# UNIT 14 PART 5
+# INDEPENDENT H1 DEMO ORDER EXECUTOR
+# ZERO INDENTATION
+# ============================================================
+
+def unit_14_h1_execute(p, h1, qstep, minimum):
+    import hashlib
+    from decimal import Decimal
+
+    D = unit_14_v3_D
+
+    if not isinstance(h1, dict):
+        return {"status": "H1_INVALID_CHECK"}
+
+    cycle_id = str(h1.get("cycle_id") or "")
+    if not cycle_id:
+        raise RuntimeError("H1 CYCLE ID MISSING")
+
+    qty = D(h1["close_quantity"], "H1 QUANTITY")
+    qstep = D(qstep, "H1 QUANTITY STEP")
+    minimum = D(minimum, "H1 MINIMUM")
+
+    if qty < minimum or unit_14_v3_floor(qty, qstep) != qty:
+        return {"status": "H1_QUANTITY_NOT_EXECUTABLE"}
+
+    side = str(h1["side"]).upper()
+    hedge_side = str(h1["hedge_side"]).upper()
+
+    if side not in ("LONG", "SHORT"):
+        raise RuntimeError("H1 INVALID ORIGINAL SIDE")
+
+    if hedge_side != (
+        "SHORT" if side == "LONG" else "LONG"
+    ):
+        raise RuntimeError("H1 INVALID HEDGE SIDE")
+
+    digest = hashlib.sha256(
+        cycle_id.encode("utf-8")
+    ).hexdigest()[:20]
+
+    actions = (
+        (
+            "H1-C",
+            "FR-H1-C-" + digest,
+            "SELL" if side == "LONG" else "BUY",
+            side,
+        ),
+        (
+            "H1-H",
+            "FR-H1-H-" + digest,
+            "BUY" if hedge_side == "LONG" else "SELL",
+            hedge_side,
+        ),
+    )
+
+    history = unit_14_v3_history()
+    db = unit_14_execution_db()
+    states = {}
+
+    def exchange_state(client_id):
+        matches = [
+            o for o in history
+            if str(o.get("clientOrderId", "")) == client_id
+        ]
+
+        if not matches:
+            return None, Decimal("0"), None
+
+        order_ids = {
+            str(o.get("orderId"))
+            for o in matches
+            if o.get("orderId") is not None
+        }
+
+        if len(order_ids) > 1:
+            raise RuntimeError("H1 DUPLICATE EXCHANGE ORDER ID")
+
+        filled = max(
+            (
+                D(
+                    o.get("executedQty", "0"),
+                    "H1 EXCHANGE FILLED",
+                    True
+                )
+                for o in matches
+            ),
+            default=Decimal("0")
+        )
+
+        if filled > qty:
+            raise RuntimeError("H1 EXCESS EXCHANGE FILL")
+
+        statuses = {
+            str(o.get("status", "")).upper()
+            for o in matches
+        }
+
+        order_id = next(iter(order_ids), None)
+
+        if filled == qty:
+            return "FILLED", filled, order_id
+
+        if filled > 0:
+            return "PARTIAL", filled, order_id
+
+        if statuses & {
+            "CANCELED", "CANCELLED",
+            "REJECTED", "EXPIRED"
+        }:
+            return "TERMINAL_UNFILLED", filled, order_id
+
+        return "PENDING", filled, order_id
+
+    try:
+        cycle = db.execute(
+            """
+            SELECT state, tp1_filled, original_side,
+                   original_quantity
+            FROM execution_cycles
+            WHERE cycle_id = ?
+            """,
+            (cycle_id,)
+        ).fetchone()
+
+        if cycle is None:
+            raise RuntimeError("H1 PERSISTED CYCLE MISSING")
+
+        if cycle[2] != side:
+            raise RuntimeError("H1 CYCLE SIDE MISMATCH")
+
+        expected_qty = unit_14_v3_floor(
+            Decimal(cycle[3]) / Decimal("2"),
+            qstep
+        )
+
+        if qty != expected_qty:
+            raise RuntimeError("H1 FROZEN QUANTITY MISMATCH")
+
+        tp1 = unit_14_tp1_verified_fill(
+            history, cycle_id
+        )
+
+        if tp1["tp1_filled"]:
+            db.execute(
+                """
+                UPDATE execution_cycles
+                SET tp1_filled = 1,
+                    state = 'TERMINATED_BY_TP1'
+                WHERE cycle_id = ?
+                """,
+                (cycle_id,)
+            )
+            return {"status": "TERMINATED_BY_TP1"}
+
+        if cycle[0] != "ACTIVE" or cycle[1]:
+            return {"status": "H1_CYCLE_NOT_ACTIVE"}
+
+        for action, client_id, order_side, position_side in actions:
+
+            state, filled, order_id = exchange_state(
+                client_id
+            )
+
+            existing = db.execute(
+                """
+                SELECT quantity, state
+                FROM execution_orders
+                WHERE client_id = ?
+                """,
+                (client_id,)
+            ).fetchone()
+
+            if existing is not None:
+                if Decimal(existing[0]) != qty:
+                    raise RuntimeError(
+                        "H1 PERSISTED ORDER QUANTITY MISMATCH"
+                    )
+
+                if state is not None:
+                    unit_14_update_execution(
+                        client_id,
+                        state,
+                        order_id,
+                        filled
+                    )
+                    states[action] = state
+                else:
+                    states[action] = "ACK_OR_HISTORY_UNKNOWN"
+
+                continue
+
+            if state is not None:
+                # Never create a new order when an
+                # unregistered exchange order exists.
+                states[action] = "UNREGISTERED_EXCHANGE_ORDER"
+                continue
+
+            if not h1.get("reached"):
+                states[action] = "WAITING_TRIGGER"
+                continue
+
+            if action == "H1-C":
+                original = unit_14_v3_position()
+
+                if original is None:
+                    states[action] = "ORIGINAL_POSITION_MISSING"
+                    continue
+
+                available = D(
+                    original.get("size"),
+                    "H1 AVAILABLE ORIGINAL QUANTITY"
+                )
+
+                if (
+                    str(original.get("side")).upper() != side
+                    or available < qty
+                ):
+                    states[action] = "CLOSE_QUANTITY_UNAVAILABLE"
+                    continue
+
+            # H1-H is not dependent on H1-C.
+            # Claim this individual action before
+            # transmitting the demo order.
+
+            claim = unit_14_claim_execution(
+                cycle_id, action, client_id, qty
+            )
+
+            if not claim["claimed"]:
+                states[action] = "PREVIOUS_CLAIM_EXISTS"
+                continue
+
+            payload = {
+                "symbol": str(p["symbol"]).upper(),
+                "side": order_side,
+                "positionSide": position_side,
+                "type": "MARKET",
+                "quantity": format(qty, "f"),
+                "newClientOrderId": client_id,
+            }
+
+            try:
+                reply = unit_14_v3_signed_request(
+                    "POST",
+                    UNIT14_V3_ORDER,
+                    payload=payload
+                )
+
+            except Exception as exc:
+                unit_14_update_execution(
+                    client_id, "ACK_UNKNOWN"
+                )
+                states[action] = "ACK_UNKNOWN"
+                print(
+                    "UNIT 14", action,
+                    "ACK UNKNOWN =", repr(exc),
+                    flush=True
+                )
+                continue
+
+            if (
+                not isinstance(reply, dict)
+                or reply.get("success") is not True
+                or not reply.get("orderId")
+            ):
+                unit_14_update_execution(
+                    client_id, "ACK_UNKNOWN"
+                )
+                states[action] = "ACK_UNKNOWN"
+                continue
+
+            unit_14_update_execution(
+                client_id,
+                "SUBMITTED",
+                str(reply["orderId"])
+            )
+
+            states[action] = "SUBMITTED"
+
+            print(
+                "UNIT 14", action,
+                "DEMO ORDER ID =", reply["orderId"],
+                flush=True
+            )
+
+        complete = (
+            states.get("H1-C") == "FILLED"
+            and states.get("H1-H") == "FILLED"
+        )
+
+        result = {
+            "status": (
+                "H1_COMPLETE"
+                if complete else "H1_IN_PROGRESS"
+            ),
+            "cycle_id": cycle_id,
+            "close_state": states.get("H1-C"),
+            "hedge_state": states.get("H1-H"),
+            "quantity": str(qty),
+            "complete": complete,
+        }
+
+        print(
+            "UNIT 14 H1 EXECUTION =",
+            result,
+            flush=True
+        )
+
+        return result
+
+    finally:
+        db.close()
+
+
+# ============================================================
+# END UNIT 14 PART 5
+# NEXT: BACKUP RECONCILIATION AND MAIN UNIT 14 MANAGEMENT
+# ============================================================
+
 # ============================================================
 # COMPLETE UNIT 14 V3 REPLACEMENT
 # UNIT 13 -> UNIT 14 -> UNIT 15
