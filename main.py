@@ -14343,6 +14343,241 @@ print(
 # ============================================================
 
 
+
+
+# ============================================================
+# COMPLETE UNIT 14 V3 REPLACEMENT
+# UNIT 13 -> UNIT 14 -> UNIT 15
+# ZERO INDENTATION
+#
+# WEEX DEMO POSITION MANAGEMENT
+# FIVE DYNAMIC BACKUPS: B1 - B5
+# PERCENT AVAILABLE BALANCE
+# 0.3% LIQUIDATION BUFFER
+# MAXIMUM EXPOSURE 35%
+# TP3 TRAILING MANAGEMENT
+#
+# BOT_MODE DOES NOT CONTROL UNIT 14
+# NO LIVE CASH ENDPOINT
+# NO LEVERAGE OR MARGIN MODE MUTATION
+# NO AUTOMATIC POST RETRIES
+# ============================================================
+
+import os
+import json
+import time
+import hmac
+import base64
+import hashlib
+import urllib.request
+import urllib.parse
+import urllib.error
+from decimal import Decimal, ROUND_DOWN
+
+
+UNIT14_V3_BASE = "https://api-contract.weex.com"
+UNIT14_V3_POSITION = "/capi/v3/sim/position/allPosition"
+UNIT14_V3_BALANCE = "/capi/v3/sim/balance"
+UNIT14_V3_HISTORY = "/capi/v3/sim/order/history"
+UNIT14_V3_ORDER = "/capi/v3/sim/order"
+
+
+# ============================================================
+# 1. DECIMAL UTILITIES
+# ============================================================
+
+def unit_14_v3_D(value, name="VALUE", zero=False):
+
+    if value is None or isinstance(value, bool):
+        raise RuntimeError(
+            "UNIT 14 MISSING " + name
+        )
+
+    try:
+        x = Decimal(str(value))
+    except Exception as exc:
+        raise RuntimeError(
+            "UNIT 14 INVALID " + name
+        ) from exc
+
+    if not x.is_finite():
+        raise RuntimeError(
+            "UNIT 14 NONFINITE " + name
+        )
+
+    if x < 0 or (x == 0 and not zero):
+        raise RuntimeError(
+            "UNIT 14 NONPOSITIVE " + name
+        )
+
+    return x
+
+
+def unit_14_v3_floor(value, step):
+
+    return (
+        value / step
+    ).to_integral_value(
+        rounding=ROUND_DOWN
+    ) * step
+
+
+# ============================================================
+# 2. SIGNED DEMO REQUEST
+# ============================================================
+
+def unit_14_v3_signed_request(
+    method,
+    path,
+    query="",
+    payload=None,
+):
+
+    allowed = {
+        ("GET", UNIT14_V3_POSITION),
+        ("GET", UNIT14_V3_BALANCE),
+        ("GET", UNIT14_V3_HISTORY),
+        ("POST", UNIT14_V3_ORDER),
+    }
+
+    if (method, path) not in allowed:
+        raise RuntimeError(
+            "UNIT 14 NON-DEMO ENDPOINT BLOCKED"
+        )
+
+    if method == "POST" and not isinstance(
+        payload, dict
+    ):
+        raise RuntimeError(
+            "UNIT 14 POST PAYLOAD INVALID"
+        )
+
+    if method == "GET" and payload is not None:
+        raise RuntimeError(
+            "UNIT 14 GET BODY NOT ALLOWED"
+        )
+
+    key = (
+        os.getenv("WEEX_API_KEY")
+        or os.getenv("API_KEY")
+    )
+
+    secret = (
+        os.getenv("WEEX_API_SECRET")
+        or os.getenv("API_SECRET")
+    )
+
+    phrase = (
+        os.getenv("WEEX_API_PASSPHRASE")
+        or os.getenv("API_PASSPHRASE")
+    )
+
+    if not all((key, secret, phrase)):
+        raise RuntimeError(
+            "UNIT 14 DEMO CREDENTIALS MISSING"
+        )
+
+    body = (
+        json.dumps(
+            payload,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        )
+        if payload is not None
+        else ""
+    )
+
+    timestamp = str(int(time.time() * 1000))
+
+    prehash = timestamp + method + path
+
+    if query:
+        prehash += "?" + query
+
+    prehash += body
+
+    signature = base64.b64encode(
+        hmac.new(
+            secret.encode("utf-8"),
+            prehash.encode("utf-8"),
+            hashlib.sha256,
+        ).digest()
+    ).decode("utf-8")
+
+    url = UNIT14_V3_BASE + path
+
+    if query:
+        url += "?" + query
+
+    request = urllib.request.Request(
+        url,
+        method=method,
+        data=(
+            body.encode("utf-8")
+            if method == "POST"
+            else None
+        ),
+        headers={
+            "ACCESS-KEY": key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-TIMESTAMP": timestamp,
+            "ACCESS-PASSPHRASE": phrase,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(
+            request,
+            timeout=15,
+        ) as response:
+
+            status = response.getcode()
+            raw = response.read().decode(
+                "utf-8", errors="replace"
+            )
+
+    except urllib.error.HTTPError as exc:
+
+        detail = exc.read().decode(
+            "utf-8", errors="replace"
+        )[:400]
+
+        raise RuntimeError(
+            "UNIT 14 WEEX HTTP "
+            + str(exc.code)
+            + ": "
+            + detail
+        ) from exc
+
+    # Never automatically retry a POST.
+    # An exchange order may have been received
+    # even when the acknowledgement was lost.
+
+    if not 200 <= status < 300:
+        raise RuntimeError(
+            "UNIT 14 HTTP STATUS " + str(status)
+        )
+
+    try:
+        return json.loads(raw)
+    except ValueError as exc:
+        raise RuntimeError(
+            "UNIT 14 INVALID RESPONSE JSON"
+        ) from exc
+
+
+# ============================================================
+# 3. POSITION, BALANCE AND ORDER HISTORY
+# ============================================================
+
+
+# ============================================================
+# END UNIT 14 PART 1
+# PART 2: INDEPENDENT ACTIVE POSITION LOCKS
+# ============================================================
+    
 # ============================================================
 # COMPLETE UNIT 14 V3 REPLACEMENT
 # UNIT 13 -> UNIT 14 -> UNIT 15
