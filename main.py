@@ -246,14 +246,57 @@ def fresh_reconstruction_unit_2():
     # EXCHANGE SETTINGS
     # ========================================================
 
+    
+    # ========================================================
+    # CENTRAL WEEX SYMBOL REQUEST
+    # ========================================================
+
+    import re
+
+    requested_symbol = os.getenv(
+        "WEEX_SYMBOL",
+        "BTCUSDT"
+    ).strip().upper()
+
+    if not re.fullmatch(
+        r"[A-Z0-9]{2,25}USDT",
+        requested_symbol
+    ):
+        raise RuntimeError(
+            "INVALID WEEX_SYMBOL FORMAT: "
+            + requested_symbol
+        )
+
     exchange = {
         "name": "WEEX",
         "api_version": "V3",
         "contract_base_url":
             "https://api-contract.weex.com",
+
+        # Requested symbol is not automatically
+        # an authorized execution symbol.
+        "requested_symbol": requested_symbol,
+
+        # Existing configuration remains active
+        # until exchange and position checks pass.
         "market_symbol": "BTCUSDT",
         "demo_order_symbol": "BTCSUSDT",
+
+        "symbol_switch_status":
+            "PENDING_VERIFICATION",
     }
+
+    print(
+        "WEEX SYMBOL REQUESTED =",
+        requested_symbol,
+        flush=True
+    )
+
+    print(
+        "WEEX SYMBOL SWITCH STATUS =",
+        "PENDING_VERIFICATION",
+        flush=True
+    )
 
     safety = {
         "public_market_data_read_enabled": True,
