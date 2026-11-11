@@ -14578,6 +14578,404 @@ def unit_14_v3_signed_request(
 # PART 2: INDEPENDENT ACTIVE POSITION LOCKS
 # ============================================================
     
+
+
+# ============================================================
+# UNIT 14 PART 2
+# INDEPENDENT ACTIVE POSITION LOCKS
+# ORIGINAL POSITION SELECTION
+# TP1 EXCHANGE FILL VERIFICATION
+# ============================================================
+
+import threading
+
+_UNIT14_POSITION_LOCK_GUARD = threading.RLock()
+_UNIT14_POSITION_LOCKS = {}
+
+
+def unit_14_active_position_key(p):
+    if not isinstance(p, dict):
+        raise RuntimeError("POSITION RECORD INVALID")
+
+    symbol = str(p.get("symbol", "")).upper()
+    side = str(p.get("side", "")).upper()
+
+    if symbol != "BTCSUSDT":
+        raise RuntimeError("POSITION SYMBOL INVALID")
+
+    if side not in ("LONG", "SHORT"):
+        raise RuntimeError("POSITION SIDE INVALID")
+
+    # Stable while quantity and entry price change.
+    # Distinguishes simultaneous LONG and SHORT.
+    return symbol + ":" + side
+
+
+def unit_14_active_positions(rows):
+    if not isinstance(rows, list):
+        raise RuntimeError("POSITIONS RESPONSE NOT LIST")
+
+    active = {}
+
+    for p in rows:
+        if not isinstance(p, dict):
+            raise RuntimeError("POSITION RECORD INVALID")
+
+        if str(p.get("symbol", "")).upper() != "BTCSUSDT":
+            continue
+
+        size = unit_14_v3_D(
+            p.get("size"),
+            "ACTIVE POSITION SIZE",
+            True
+        )
+
+        if size <= 0:
+            continue
+
+        key = unit_14_active_position_key(p)
+
+        # Same-side duplicate records cannot safely
+        # be collapsed into a single position.
+        if key in active:
+            raise RuntimeError(
+                "AMBIGUOUS POSITION IDENTITY: " + key
+            )
+
+        active[key] = p
+
+    return active
+
+
+def unit_14_refresh_position_locks(rows):
+    active = unit_14_active_positions(rows)
+
+    with _UNIT14_POSITION_LOCK_GUARD:
+        for key, p in active.items():
+            if key not in _UNIT14_POSITION_LOCKS:
+                _UNIT14_POSITION_LOCKS[key] = {
+                    "key": key,
+                    "lock": threading.RLock(),
+                    "status": "ACTIVE",
+                    "h1_status": "NOT_STARTED",
+                    "h2_status": "NOT_STARTED",
+                    "r1_status": "NOT_STARTED",
+                    "r2_status": "NOT_STARTED",
+                    "pending_order_id": None,
+                    "position": dict(p),
+                }
+            else:
+                state = _UNIT14_POSITION_LOCKS[key]
+                state["position"] = dict(p)
+                state["status"] = "ACTIVE"
+
+        for key, state in _UNIT14_POSITION_LOCKS.items():
+            if key not in active:
+                state["status"] = "NOT_ACTIVE"
+                state["position"] = None
+
+    print(
+        "UNIT 14 ACTIVE POSITION LOCK COUNT =",
+        len(active),
+        flush=True
+    )
+
+    for key in sorted(active):
+        print(
+            "UNIT 14 ACTIVE POSITION LOCK =",
+            key,
+            flush=True
+        )
+
+    return active
+
+
+def unit_14_get_position_lock(key):
+    with _UNIT14_POSITION_LOCK_GUARD:
+        state = _UNIT14_POSITION_LOCKS.get(key)
+
+        if state is None:
+            raise RuntimeError(
+                "ACTIVE POSITION LOCK NOT FOUND: " + key
+            )
+
+        return state
+
+
+def unit_14_v3_positions():
+    rows = unit_14_v3_signed_request(
+        "GET",
+        UNIT14_V3_POSITION
+    )
+
+    return unit_14_refresh_position_locks(rows)
+
+
+def unit_14_h1_select_original(positions):
+    active = unit_14_active_positions(positions)
+
+    # Explicitly configured original side.
+    # Never silently choose the first position.
+    original_side = os.getenv(
+        "ORIGINAL_POSITION_SIDE", ""
+    ).strip().upper()
+
+    if original_side not in ("LONG", "SHORT"):
+        raise RuntimeError(
+            "SET ORIGINAL_POSITION_SIDE TO LONG OR SHORT"
+        )
+
+    return active.get("BTCSUSDT:" + original_side)
+
+
+def unit_14_v3_position():
+    active = unit_14_v3_positions()
+
+    if not active:
+        return None
+
+    original_side = os.getenv(
+        "ORIGINAL_POSITION_SIDE", ""
+    ).strip().upper()
+
+    if original_side not in ("LONG", "SHORT"):
+        raise RuntimeError(
+            "UNIT 14 ORIGINAL POSITION SIDE NOT CONFIGURED"
+        )
+
+    return active.get(
+        "BTCSUSDT:" + original_side
+    )
+
+
+def unit_14_v3_balance():
+
+    rows = unit_14_v3_signed_request(
+        "GET",
+        UNIT14_V3_BALANCE,
+    )
+
+    if not isinstance(rows, list):
+        raise RuntimeError(
+            "UNIT 14 BALANCE RESPONSE NOT LIST"
+        )
+
+    for row in rows:
+
+        if (
+            isinstance(row, dict)
+            and str(
+                row.get("asset", "")
+            ).upper() == "SUSDT"
+        ):
+            return unit_14_v3_D(
+                row.get("availableBalance"),
+                "AVAILABLE BALANCE",
+                True,
+            )
+
+    raise RuntimeError(
+        "UNIT 14 SUSDT BALANCE MISSING"
+    )
+
+
+# ============================================================
+# UNIT 14 - TP1 EXCHANGE FILL VERIFICATION
+# DOES NOT CONFUSE H1 CLOSURES WITH TP1
+# ============================================================
+
+def unit_14_tp1_verified_fill(history, cycle_id=None):
+    """Only fully exchange-filled registered TP1 orders terminate H1.
+
+    Never count H1-C, H2-C or aggregate position reductions as TP1.
+    """
+    from decimal import Decimal
+
+    if not isinstance(history, list):
+        raise RuntimeError("UNIT 14 TP1 HISTORY INVALID")
+
+    db = unit_14_execution_db()
+
+    try:
+        sql = (
+            "SELECT client_id, cycle_id, quantity "
+            "FROM execution_orders WHERE action = 'TP1'"
+        )
+        args = ()
+
+        if cycle_id is not None:
+            sql += " AND cycle_id = ?"
+            args = (cycle_id,)
+
+        rows = db.execute(sql, args).fetchall()
+
+        confirmed = []
+        partial = []
+
+        for client_id, recorded_cycle, requested_qty in rows:
+            target = Decimal(str(requested_qty))
+
+            if not target.is_finite() or target <= 0:
+                raise RuntimeError(
+                    "UNIT 14 INVALID TP1 TARGET"
+                )
+
+            matching = [
+                o for o in history
+                if str(o.get("clientOrderId", "")) == client_id
+            ]
+
+            if not matching:
+                continue
+
+            exchange_ids = {
+                str(o.get("orderId"))
+                for o in matching
+                if o.get("orderId") is not None
+            }
+
+            if len(exchange_ids) > 1:
+                raise RuntimeError(
+                    "UNIT 14 TP1 ORDER ID CONFLICT"
+                )
+
+            filled_values = []
+
+            for order in matching:
+                raw = order.get("executedQty")
+
+                if raw is None:
+                    continue
+
+                qty = Decimal(str(raw))
+
+                if (
+                    not qty.is_finite()
+                    or qty < 0
+                    or qty > target
+                ):
+                    raise RuntimeError(
+                        "UNIT 14 INVALID TP1 FILL"
+                    )
+
+                filled_values.append(qty)
+
+            if not filled_values:
+                continue
+
+            filled = max(filled_values)
+            is_complete = filled >= target
+
+            db.execute(
+                "UPDATE execution_orders "
+                "SET state = ?, confirmed_filled = ?, "
+                "updated_at = CURRENT_TIMESTAMP "
+                "WHERE client_id = ?",
+                (
+                    "FILLED" if is_complete else "PARTIAL",
+                    str(filled),
+                    client_id,
+                )
+            )
+
+            item = {
+                "client_id": client_id,
+                "cycle_id": recorded_cycle,
+                "filled_quantity": str(filled),
+                "target_quantity": str(target),
+            }
+
+            if is_complete:
+                confirmed.append(item)
+            elif filled > 0:
+                partial.append(item)
+
+        # Full TP1 fill is a cycle termination,
+        # including after restart.
+        for completed_cycle in {
+            o["cycle_id"] for o in confirmed
+        }:
+            db.execute(
+                "UPDATE execution_cycles "
+                "SET tp1_filled = 1, "
+                "state = 'TERMINATED_BY_TP1' "
+                "WHERE cycle_id = ? "
+                "AND state IN "
+                "('ACTIVE', 'TERMINATED_BY_TP1')",
+                (completed_cycle,)
+            )
+
+        return {
+            "tp1_filled": bool(confirmed),
+            "confirmed_orders": confirmed,
+            "partial_orders": partial,
+        }
+
+    finally:
+        db.close()
+
+
+# ============================================================
+# ORDER HISTORY RETRIEVAL
+# ============================================================
+
+def unit_14_v3_history():
+
+    orders = []
+
+    # Preserve working reference pagination.
+    # Do not accept partial history as complete.
+
+    for page in range(20):
+
+        query = urllib.parse.urlencode({
+            "symbol": "BTCSUSDT",
+            "limit": 1000,
+            "page": page,
+        })
+
+        batch = unit_14_v3_signed_request(
+            "GET",
+            UNIT14_V3_HISTORY,
+            query,
+        )
+
+        if not isinstance(batch, list):
+            raise RuntimeError(
+                "UNIT 14 HISTORY NOT LIST"
+            )
+
+        if not all(
+            isinstance(o, dict)
+            for o in batch
+        ):
+            raise RuntimeError(
+                "UNIT 14 MALFORMED HISTORY"
+            )
+
+        orders.extend(batch)
+
+        if len(batch) < 1000:
+
+            print(
+                "PASS: UNIT 14 ORDER HISTORY COMPLETE | "
+                "RECORDS =",
+                len(orders),
+                flush=True
+            )
+
+            return orders
+
+    raise RuntimeError(
+        "UNIT 14 HISTORY PAGINATION INCOMPLETE"
+    )
+
+
+# ============================================================
+# END UNIT 14 PART 2
+# PART 3 CONTINUES AT ZERO INDENTATION
+# ============================================================
+        
 # ============================================================
 # COMPLETE UNIT 14 V3 REPLACEMENT
 # UNIT 13 -> UNIT 14 -> UNIT 15
