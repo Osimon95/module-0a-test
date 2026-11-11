@@ -13623,6 +13623,467 @@ def fresh_reconstruction_unit_13(
     # PART 4 CONTINUES INSIDE SAME FUNCTION
     # ========================================================
     
+
+    # ========================================================
+    # UNIT 13 PART 4
+    # TP ORDER SUBMISSION AND PERSISTENT RECONCILIATION
+    # ========================================================
+
+    # ========================================================
+    # 13.4.1 UNREALIZED POSITION PERFORMANCE
+    # ========================================================
+
+    if side == "LONG":
+        unrealized_move = (
+            (mark - entry) / entry
+        ) * Decimal("100")
+    else:
+        unrealized_move = (
+            (entry - mark) / entry
+        ) * Decimal("100")
+
+    estimated_gross_roi = (
+        unrealized_move * leverage
+    )
+
+    estimated_fee_roi = (
+        Decimal("2") * fee * leverage
+    )
+
+    estimated_net_roi = (
+        estimated_gross_roi - estimated_fee_roi
+    )
+
+    result.update({
+        "unrealized_move_percent":
+            str(unrealized_move),
+
+        "estimated_gross_roi_percent":
+            str(estimated_gross_roi),
+
+        "estimated_fee_roi_percent":
+            str(estimated_fee_roi),
+
+        "estimated_net_roi_percent":
+            str(estimated_net_roi),
+
+        "net_roi_is_estimate": True,
+    })
+
+    print(
+        "UNIT 13 ESTIMATED NET ROI % =",
+        estimated_net_roi,
+        flush=True
+    )
+
+    # ========================================================
+    # 13.4.2 CHECK TP EXECUTION REQUIREMENTS
+    # ========================================================
+
+    if action == "NONE":
+
+        result["tp_execution_attempted"] = False
+        result["tp_execution_completed"] = False
+        result["exchange_write"] = False
+
+        print(
+            "UNIT 13 TP SUBMISSION = NONE",
+            flush=True
+        )
+
+        print(
+            "UNIT 13 STATUS =",
+            result["status"],
+            flush=True
+        )
+
+        return result
+
+    if action not in ("TP1", "TP2"):
+        raise RuntimeError(
+            "UNIT 13 UNSUPPORTED TP ACTION"
+        )
+
+    if (
+        close_qty <= 0
+        or close_qty < minimum
+        or close_qty > size
+        or close_qty % step != 0
+    ):
+        raise RuntimeError(
+            "UNIT 13 TP ORDER QUANTITY INVALID"
+        )
+
+    # ========================================================
+    # 13.4.3 STABLE CLIENT ORDER ID
+    # ========================================================
+
+    import hashlib
+
+    claim_hash = hashlib.sha256(
+        (
+            cycle_id
+            + "|"
+            + action
+        ).encode("utf-8")
+    ).hexdigest()[:20]
+
+    client_id = (
+        "FR13-"
+        + action
+        + "-"
+        + claim_hash
+    )[:36]
+
+    result["tp_client_order_id"] = client_id
+
+    # ========================================================
+    # 13.4.4 PERSISTENT CYCLE AND ORDER CHECK
+    # ========================================================
+
+    db = db_provider()
+
+    try:
+        db.execute("BEGIN IMMEDIATE")
+
+        cycle = db.execute(
+            """
+            SELECT state, tp1_filled
+            FROM execution_cycles
+            WHERE cycle_id = ?
+            """,
+            (cycle_id,)
+        ).fetchone()
+
+        if cycle is None:
+
+            db.execute("ROLLBACK")
+
+            raise RuntimeError(
+                "UNIT 13 TP CYCLE NOT INITIALIZED"
+            )
+
+        cycle_state = str(cycle[0]).upper()
+        cycle_tp1_confirmed = bool(cycle[1])
+
+        if action == "TP1":
+
+            if cycle_state != "ACTIVE":
+
+                db.execute("COMMIT")
+
+                result["skip_reason"] = (
+                    "TP1_CYCLE_NOT_ACTIVE"
+                )
+
+                return result
+
+            if cycle_tp1_confirmed:
+
+                db.execute("COMMIT")
+
+                result["skip_reason"] = (
+                    "TP1_ALREADY_CONFIRMED"
+                )
+
+                return result
+
+        elif action == "TP2":
+
+            if not done1:
+
+                db.execute("COMMIT")
+
+                result["skip_reason"] = (
+                    "TP1_NOT_CONFIRMED"
+                )
+
+                return result
+
+            if cycle_state not in (
+                "ACTIVE",
+                "TERMINATED_BY_TP1",
+            ):
+
+                db.execute("COMMIT")
+
+                result["skip_reason"] = (
+                    "TP2_CYCLE_STATE_INVALID"
+                )
+
+                return result
+
+        # ====================================================
+        # CHECK EXISTING TP ORDERS
+        # ====================================================
+
+        existing = db.execute(
+            """
+            SELECT
+                client_id,
+                state,
+                quantity,
+                confirmed_filled
+            FROM execution_orders
+            WHERE cycle_id = ?
+              AND action = ?
+            """,
+            (
+                cycle_id,
+                action,
+            )
+        ).fetchall()
+
+        if existing:
+
+            db.execute("COMMIT")
+
+            result["skip_reason"] = (
+                "TP_ORDER_EXISTS_RECONCILE_FIRST"
+            )
+
+            result["tp_existing_orders"] = [
+                {
+                    "client_id": row[0],
+                    "state": row[1],
+                    "quantity": row[2],
+                    "confirmed_filled": row[3],
+                }
+                for row in existing
+            ]
+
+            print(
+                "UNIT 13 EXISTING TP ORDER "
+                "REQUIRES RECONCILIATION",
+                flush=True
+            )
+
+            return result
+
+        # ====================================================
+        # CLAIM BEFORE EXCHANGE SUBMISSION
+        # ====================================================
+
+        db.execute(
+            """
+            INSERT INTO execution_orders
+            (
+                client_id,
+                cycle_id,
+                action,
+                quantity,
+                state,
+                confirmed_filled
+            )
+            VALUES (?, ?, ?, ?, 'CLAIMED', '0')
+            """,
+            (
+                client_id,
+                cycle_id,
+                action,
+                str(close_qty),
+            )
+        )
+
+        db.execute("COMMIT")
+
+    except Exception:
+
+        if db.in_transaction:
+            db.execute("ROLLBACK")
+
+        raise
+
+    finally:
+        db.close()
+
+    print(
+        "UNIT 13 PERSISTENT TP CLAIM =",
+        client_id,
+        flush=True
+    )
+
+    # ========================================================
+    # 13.4.5 BUILD WEEX DEMO REDUCE ORDER
+    # ========================================================
+
+    close_side = (
+        "SELL"
+        if side == "LONG"
+        else "BUY"
+    )
+
+    payload = {
+        "symbol": "BTCSUSDT",
+        "side": close_side,
+        "positionSide": side,
+        "type": "MARKET",
+        "quantity": format(close_qty, "f"),
+        "newClientOrderId": client_id,
+    }
+
+    # ========================================================
+    # 13.4.6 SUBMIT DEMO TP ORDER
+    # ========================================================
+
+    print(
+        "UNIT 13 DEMO TP ACTION =",
+        action,
+        flush=True
+    )
+
+    print(
+        "UNIT 13 DEMO TP QUANTITY =",
+        payload["quantity"],
+        flush=True
+    )
+
+    result["tp_execution_attempted"] = True
+
+    try:
+
+        reply = unit_13_v4_signed_request(
+            "POST",
+            UNIT13_V4_ORDER,
+            payload,
+        )
+
+    except Exception as exc:
+
+        # An HTTP failure or timeout does not prove
+        # that WEEX rejected the order.
+        # Preserve the claim and reconcile before
+        # considering another submission.
+
+        unit_14_update_execution(
+            client_id,
+            "UNKNOWN",
+        )
+
+        result.update({
+            "status": "TP_OUTCOME_UNKNOWN",
+            "skip_reason":
+                "EXCHANGE_RESPONSE_UNCERTAIN",
+            "tp_execution_completed": False,
+            "exchange_write": False,
+            "tp_submission_error": str(exc),
+        })
+
+        print(
+            "UNIT 13 TP OUTCOME UNKNOWN",
+            flush=True
+        )
+
+        return result
+
+    # ========================================================
+    # 13.4.7 VALIDATE SUBMISSION ACKNOWLEDGMENT
+    # ========================================================
+
+    if not isinstance(reply, dict):
+
+        unit_14_update_execution(
+            client_id,
+            "UNKNOWN",
+        )
+
+        result["status"] = (
+            "TP_RESPONSE_UNVERIFIED"
+        )
+
+        result["skip_reason"] = (
+            "INVALID_EXCHANGE_RESPONSE"
+        )
+
+        return result
+
+    if (
+        reply.get("success") is not True
+        or not reply.get("orderId")
+    ):
+
+        unit_14_update_execution(
+            client_id,
+            "UNKNOWN",
+        )
+
+        result["status"] = (
+            "TP_SUBMISSION_UNCONFIRMED"
+        )
+
+        result["skip_reason"] = (
+            "EXCHANGE_ACKNOWLEDGMENT_MISSING"
+        )
+
+        result["tp_exchange_response"] = reply
+
+        return result
+
+    exchange_order_id = str(
+        reply["orderId"]
+    )
+
+    # ========================================================
+    # 13.4.8 SAVE CONFIRMED ORDER ACCEPTANCE
+    # ========================================================
+
+    unit_14_update_execution(
+        client_id,
+        "SUBMITTED",
+        exchange_order_id,
+    )
+
+    result.update({
+        "status": "TP_SUBMITTED_AWAITING_FILL",
+        "skip_reason": "NONE",
+
+        "tp_order_id": exchange_order_id,
+        "tp_client_order_id": client_id,
+
+        "tp_execution_attempted": True,
+        "tp_execution_completed": False,
+
+        "demo_order_executed": False,
+        "exchange_write": True,
+
+        "tp_order_fill_confirmed": False,
+    })
+
+    # An accepted order is NOT a confirmed fill.
+    # TP1/TP2 completion is handled only after
+    # Unit 14 reconciles exchange-confirmed fills.
+
+    print(
+        "UNIT 13 TP ORDER ACCEPTED =",
+        exchange_order_id,
+        flush=True
+    )
+
+    print(
+        "UNIT 13 TP FILL CONFIRMED = FALSE",
+        flush=True
+    )
+
+    print(
+        "UNIT 13 STATUS =",
+        result["status"],
+        flush=True
+    )
+
+    print(
+        "UNIT 13 EXCHANGE WRITE =",
+        result["exchange_write"],
+        flush=True
+    )
+
+    return result
+
+
+# ============================================================
+# END UNIT 13 PART 4
+# END MAIN UNIT 13 MANAGEMENT FUNCTION
+# ============================================================
+
 # ============================================================
 # COMPLETE UNIT 13 V4 REPLACEMENT
 # UNIT 12 -> UNIT 13 -> UNIT 14
