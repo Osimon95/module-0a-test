@@ -12393,6 +12393,407 @@ print(
 # ============================================================
 
 
+
+  
+# ============================================================
+# COMPLETE UNIT 13 V4 REPLACEMENT
+# UNIT 12 -> UNIT 13 -> UNIT 14
+# ZERO INDENTATION
+#
+# WEEX DEMO EXISTING-POSITION TP MANAGEMENT
+# BOT_MODE DOES NOT CONTROL UNIT 13
+# 10 / 20 / 70 STEP-AWARE TP ALLOCATION
+# ESTIMATED NET ROI FLOORS 5% / 10%
+# TP3 TRAILING PARAMETERS TO UNIT 14
+# NO LIVE-CASH ENDPOINT
+# NO LEVERAGE OR QUANTITY RECALCULATION
+# ============================================================
+
+import os
+import json
+import time
+import hmac
+import base64
+import hashlib
+import urllib.request
+import urllib.parse
+import urllib.error
+from decimal import Decimal, ROUND_DOWN, ROUND_UP
+
+
+UNIT13_V4_BASE = "https://api-contract.weex.com"
+UNIT13_V4_POSITION = "/capi/v3/sim/position/allPosition"
+UNIT13_V4_ORDER = "/capi/v3/sim/order"
+
+
+# ============================================================
+# 1. DECIMAL VALIDATION
+# ============================================================
+
+def unit_13_v4_D(value, name="NUMBER", allow_zero=False):
+
+    if value is None or isinstance(value, bool):
+        raise RuntimeError("UNIT 13 MISSING " + name)
+
+    try:
+        x = Decimal(str(value))
+    except Exception as exc:
+        raise RuntimeError(
+            "UNIT 13 INVALID " + name
+        ) from exc
+
+    if not x.is_finite():
+        raise RuntimeError(
+            "UNIT 13 NONFINITE " + name
+        )
+
+    if x < 0 or (x == 0 and not allow_zero):
+        raise RuntimeError(
+            "UNIT 13 NONPOSITIVE " + name
+        )
+
+    return x
+
+
+# ============================================================
+# 2. STEP-AWARE TP ALLOCATION
+# EXACT SMALL-POSITION POLICY OF WORKING REFERENCE
+# ============================================================
+
+def unit_13_v4_allocation(total, step):
+
+    total = unit_13_v4_D(total, "CUM OPEN")
+    step = unit_13_v4_D(step, "QTY STEP")
+
+    if total % step != 0:
+        raise RuntimeError(
+            "UNIT 13 CUMULATIVE SIZE NOT STEP ALIGNED"
+        )
+
+    n = int(total / step)
+
+    if n == 1:
+        s1, s2, s3 = 0, 0, 1
+
+    elif n == 2:
+        s1, s2, s3 = 1, 0, 1
+
+    else:
+        s1 = max(1, int(n * 0.10))
+        s2 = max(1, int(n * 0.20))
+
+        while s1 + s2 >= n:
+            if s2 > 1:
+                s2 -= 1
+            elif s1 > 1:
+                s1 -= 1
+            else:
+                raise RuntimeError(
+                    "UNIT 13 TP ALLOCATION FAILED"
+                )
+
+        s3 = n - s1 - s2
+
+    return (
+        Decimal(s1) * step,
+        Decimal(s2) * step,
+        Decimal(s3) * step,
+    )
+
+
+# ============================================================
+# 3. NET-ROI TARGET CALCULATION
+# BASED ON EXCHANGE POSITION LEVERAGE
+# ============================================================
+
+def unit_13_v4_targets(
+    entry,
+    leverage,
+    side,
+    price_step,
+    tp1_floor,
+    tp2_floor,
+    taker_fee,
+):
+
+    D = unit_13_v4_D
+
+    entry = D(entry, "ENTRY")
+    lev = D(leverage, "LEVERAGE")
+    ps = D(price_step, "PRICE STEP")
+    p1 = D(tp1_floor, "TP1 ROI")
+    p2 = D(tp2_floor, "TP2 ROI")
+    fee = D(taker_fee, "TAKER FEE", True)
+
+    if p2 <= p1:
+        raise RuntimeError(
+            "UNIT 13 TP2 ROI MUST EXCEED TP1"
+        )
+
+    # Fee expressed as percent of notional
+    # for each side. Estimated fee ROI drag
+    # increases with exchange-reported leverage.
+
+    fee_roi = Decimal(2) * fee * lev
+
+    move1 = (p1 + fee_roi) / lev
+    move2 = (p2 + fee_roi) / lev
+
+    if side == "LONG":
+
+        raw1 = entry * (
+            1 + move1 / Decimal(100)
+        )
+        raw2 = entry * (
+            1 + move2 / Decimal(100)
+        )
+
+        t1 = (
+            raw1 / ps
+        ).to_integral_value(
+            rounding=ROUND_UP
+        ) * ps
+
+        t2 = (
+            raw2 / ps
+        ).to_integral_value(
+            rounding=ROUND_UP
+        ) * ps
+
+        if t2 <= t1:
+            t2 = t1 + ps
+
+    elif side == "SHORT":
+
+        raw1 = entry * (
+            1 - move1 / Decimal(100)
+        )
+        raw2 = entry * (
+            1 - move2 / Decimal(100)
+        )
+
+        t1 = (
+            raw1 / ps
+        ).to_integral_value(
+            rounding=ROUND_DOWN
+        ) * ps
+
+        t2 = (
+            raw2 / ps
+        ).to_integral_value(
+            rounding=ROUND_DOWN
+        ) * ps
+
+        if t2 >= t1:
+            t2 = t1 - ps
+
+    else:
+        raise RuntimeError(
+            "UNIT 13 INVALID POSITION SIDE"
+        )
+
+    if min(t1, t2) <= 0:
+        raise RuntimeError(
+            "UNIT 13 TARGET PRICE NONPOSITIVE"
+        )
+
+    return t1, t2
+
+
+# ============================================================
+# 4. WEEX SIGNED DEMO REQUESTS
+# ============================================================
+
+def unit_13_v4_signed_request(method, path, payload=None):
+
+    if (method, path) not in {
+        ("GET", UNIT13_V4_POSITION),
+        ("POST", UNIT13_V4_ORDER),
+    }:
+        raise RuntimeError(
+            "UNIT 13 NON-DEMO ENDPOINT BLOCKED"
+        )
+
+    key = os.getenv("WEEX_API_KEY") or os.getenv("API_KEY")
+    secret = (
+        os.getenv("WEEX_API_SECRET")
+        or os.getenv("API_SECRET")
+    )
+    phrase = (
+        os.getenv("WEEX_API_PASSPHRASE")
+        or os.getenv("API_PASSPHRASE")
+    )
+
+    if not all((key, secret, phrase)):
+        raise RuntimeError(
+            "UNIT 13 DEMO CREDENTIALS MISSING"
+        )
+
+    if method == "GET" and payload is not None:
+        raise RuntimeError(
+            "UNIT 13 GET BODY NOT ALLOWED"
+        )
+
+    if method == "POST" and not isinstance(
+        payload, dict
+    ):
+        raise RuntimeError(
+            "UNIT 13 POST BODY INVALID"
+        )
+
+    body = (
+        json.dumps(
+            payload,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        )
+        if payload is not None
+        else ""
+    )
+
+    timestamp = str(int(time.time() * 1000))
+    message = timestamp + method + path + body
+
+    signature = base64.b64encode(
+        hmac.new(
+            secret.encode("utf-8"),
+            message.encode("utf-8"),
+            hashlib.sha256,
+        ).digest()
+    ).decode("utf-8")
+
+    request = urllib.request.Request(
+        UNIT13_V4_BASE + path,
+        method=method,
+        data=(
+            body.encode("utf-8")
+            if method == "POST"
+            else None
+        ),
+        headers={
+            "ACCESS-KEY": key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-TIMESTAMP": timestamp,
+            "ACCESS-PASSPHRASE": phrase,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(
+            request,
+            timeout=15,
+        ) as response:
+
+            status = response.getcode()
+            raw = response.read().decode(
+                "utf-8", errors="replace"
+            )
+
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode(
+            "utf-8", errors="replace"
+        )[:400]
+        raise RuntimeError(
+            "UNIT 13 WEEX HTTP "
+            + str(exc.code) + ": " + detail
+        ) from exc
+
+    # Ambiguous POST results must NOT be
+    # automatically retried.
+
+    if not 200 <= status < 300:
+        raise RuntimeError(
+            "UNIT 13 HTTP STATUS " + str(status)
+        )
+
+    try:
+        response = json.loads(raw)
+    except ValueError as exc:
+        raise RuntimeError(
+            "UNIT 13 INVALID WEEX JSON"
+        ) from exc
+
+    return response
+
+
+# ============================================================
+# 5. PUBLIC MARK PRICE
+# ============================================================
+
+def unit_13_v4_mark_price():
+
+    query = urllib.parse.urlencode({
+        "symbol": "BTCUSDT",
+        "priceType": "MARK",
+    })
+
+    request = urllib.request.Request(
+        UNIT13_V4_BASE
+        + "/capi/v3/market/symbolPrice?"
+        + query,
+        method="GET",
+    )
+
+    with urllib.request.urlopen(
+        request,
+        timeout=15,
+    ) as response:
+
+        market = json.loads(
+            response.read().decode("utf-8")
+        )
+
+    if not isinstance(market, dict):
+        raise RuntimeError(
+            "UNIT 13 MARK PRICE RESPONSE INVALID"
+        )
+
+    if market.get("symbol") != "BTCUSDT":
+        raise RuntimeError(
+            "UNIT 13 WRONG MARKET SYMBOL"
+        )
+
+    return unit_13_v4_D(
+        market.get("price"),
+        "MARK PRICE",
+    )
+
+
+# ============================================================
+# 6. BASE RESULT FOR UNIT 14
+# ============================================================
+
+def unit_13_v4_base_result(unit_12_result, status, reason):
+
+    return {
+        "unit": 13,
+        "status": status,
+        "read_only": False,
+        "unit_12_status": unit_12_result.get(
+            "status"
+        ),
+        "active_position_exists": False,
+        "position_exists": False,
+        "tp_management_required": False,
+        "tp_execution_attempted": False,
+        "tp_execution_completed": False,
+        "tp3_armed": False,
+        "sl_execution_attempted": False,
+        "backup_execution_attempted": False,
+        "real_submission_attempted": False,
+        "exchange_write": False,
+        "skip_reason": reason,
+    }
+
+
+# ============================================================
+# END UNIT 13 PART 1
+# PART 2 CONTINUES WITH H1 ORIGINAL POSITION
+# SELECTION AND MAIN POSITION MANAGEMENT
+# ============================================================
+  
 # ============================================================
 # COMPLETE UNIT 13 V4 REPLACEMENT
 # UNIT 12 -> UNIT 13 -> UNIT 14
