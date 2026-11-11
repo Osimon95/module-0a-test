@@ -15757,6 +15757,171 @@ def unit_14_h1_execute(p, h1, qstep, minimum):
 # NEXT: BACKUP RECONCILIATION AND MAIN UNIT 14 MANAGEMENT
 # ============================================================
 
+
+
+# ============================================================
+# UNIT 14 PART 6
+# B1-B5 BACKUP RECONCILIATION
+# LIQUIDATION BUFFER TRIGGER
+# RESULT CONSTRUCTOR
+# ZERO INDENTATION
+# ============================================================
+
+
+def unit_14_v3_reconcile(history, key):
+
+    existing = set()
+    filled = set()
+
+    for stage in range(1, 6):
+
+        client_id = unit_14_v3_backup_id(
+            stage, key
+        )
+
+        matching = [
+            o for o in history
+            if str(
+                o.get("clientOrderId", "")
+            ) == client_id
+        ]
+
+        for order in matching:
+
+            status = str(
+                order.get("status", "")
+            ).upper()
+
+            executed = unit_14_v3_D(
+                order.get("executedQty", 0),
+                "EXECUTED QUANTITY",
+                True,
+            )
+
+            if status not in (
+                "CANCELED",
+                "CANCELLED",
+                "REJECTED",
+                "EXPIRED",
+            ):
+                existing.add(stage)
+
+            if status == "FILLED" and executed > 0:
+                filled.add(stage)
+
+            # A partially filled stage must not
+            # automatically advance to the next.
+
+            if executed > 0 and status != "FILLED":
+                existing.add(stage)
+
+    completed = 0
+
+    for stage in range(1, 6):
+        if stage in filled:
+            completed = stage
+        else:
+            break
+
+    if any(
+        stage > completed + 1
+        for stage in filled
+    ):
+        raise RuntimeError(
+            "UNIT 14 NONSEQUENTIAL BACKUP FILLS"
+        )
+
+    return completed, existing
+
+
+# ============================================================
+# 5. LIQUIDATION BUFFER
+# ============================================================
+
+def unit_14_v3_trigger(
+    side,
+    liquidation,
+    mark,
+    buffer_pct,
+):
+
+    D = unit_14_v3_D
+
+    liquidation = D(
+        liquidation, "LIQUIDATION PRICE"
+    )
+    mark = D(mark, "MARK PRICE")
+    buffer_pct = D(
+        buffer_pct, "BUFFER PERCENT"
+    )
+
+    fraction = buffer_pct / D(100)
+
+    if side == "LONG":
+
+        trigger = liquidation * (
+            D(1) + fraction
+        )
+
+        reached = mark <= trigger
+
+    elif side == "SHORT":
+
+        trigger = liquidation * (
+            D(1) - fraction
+        )
+
+        reached = mark >= trigger
+
+    else:
+        raise RuntimeError(
+            "UNIT 14 INVALID SIDE"
+        )
+
+    if trigger <= 0:
+        raise RuntimeError(
+            "UNIT 14 INVALID TRIGGER"
+        )
+
+    return trigger, bool(reached)
+
+
+# ============================================================
+# 6. RESULT CONSTRUCTOR
+# ============================================================
+
+def unit_14_v3_result(unit_13_result):
+
+    return {
+        "unit": 14,
+        "status": "MONITORING",
+        "unit_13_status": unit_13_result.get(
+            "status"
+        ),
+        "position_exists": False,
+        "backup_maximum": 5,
+        "backups_filled": 0,
+        "backup_next_stage": None,
+        "backup_trigger_reached": False,
+        "backup_submission_enabled": True,
+        "backup_execution_attempted": False,
+        "backup_execution_completed": False,
+        "tp3_armed": False,
+        "tp3_execution_attempted": False,
+        "tp3_execution_completed": False,
+        "real_submission_attempted": False,
+        "sl_execution_attempted": False,
+        "exchange_write": False,
+        "skip_reason": "NONE",
+    }
+
+
+# ============================================================
+# END UNIT 14 PART 6
+# PART 7: MAIN UNIT 14 MANAGEMENT FUNCTION
+# ZERO INDENTATION
+# ============================================================
+    
 # ============================================================
 # COMPLETE UNIT 14 V3 REPLACEMENT
 # UNIT 13 -> UNIT 14 -> UNIT 15
