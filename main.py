@@ -17185,6 +17185,550 @@ def fresh_reconstruction_unit_14(
     # - BACKUP DEMO ORDER EXECUTION
     # ========================================================
 
+
+ 
+    # ========================================================
+    # UNIT 14 PART 11
+    # CONDITIONAL B1-B5 BACKUP EXECUTION
+    # FOUR SPACES INDENTATION
+    # ========================================================
+
+    # ========================================================
+    # 11. BACKUP ACTIVATION AFTER FAILED FIRST RECOVERY
+    # ========================================================
+
+    cycle_id = str(
+        unit_13_result.get("tp_cycle_id") or ""
+    )
+
+    if not cycle_id:
+
+        result["status"] = (
+            "BACKUP_WAITING_CYCLE_ID"
+        )
+
+        result["skip_reason"] = (
+            "PERSISTENT_CYCLE_ID_UNAVAILABLE"
+        )
+
+        return result
+
+    db = unit_14_execution_db()
+
+    try:
+
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS
+            recovery_stage_status (
+                cycle_id TEXT PRIMARY KEY,
+                recovery_state TEXT NOT NULL,
+                evidence_order_id TEXT,
+                updated_at TEXT
+                    DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        recovery_row = db.execute(
+            """
+            SELECT recovery_state,
+                   evidence_order_id
+            FROM recovery_stage_status
+            WHERE cycle_id = ?
+            """,
+            (cycle_id,)
+        ).fetchone()
+
+    finally:
+        db.close()
+
+    recovery_state = (
+        str(recovery_row[0]).upper()
+        if recovery_row is not None
+        else "NOT_VERIFIED"
+    )
+
+    # Recovery state must be written by the
+    # exchange-reconciled recovery executor.
+    # Neither H1 order acceptance nor an adverse
+    # price movement proves recovery failure.
+
+    if recovery_state != "FIRST_RECOVERY_FAILED":
+
+        result["status"] = (
+            "BACKUPS_WAITING_RECOVERY"
+        )
+
+        result["skip_reason"] = (
+            "FIRST_RECOVERY_FAILURE_NOT_CONFIRMED"
+        )
+
+        result["recovery_state"] = recovery_state
+
+        print(
+            "UNIT 14 BACKUP ACTIVATION = WAITING",
+            flush=True
+        )
+
+        return result
+
+    result["backup_activation_verified"] = True
+
+    # ========================================================
+    # 12. NEXT BACKUP STAGE
+    # ========================================================
+
+    if completed >= max_backups:
+
+        result["status"] = "BACKUPS_COMPLETE"
+        result["skip_reason"] = (
+            "ALL_FIVE_BACKUPS_FILLED"
+        )
+
+        return result
+
+    stage = completed + 1
+
+    result["backup_next_stage"] = stage
+
+    client_id = unit_14_v3_backup_id(
+        stage,
+        key
+    )
+
+    # ========================================================
+    # 12.1 CHECK PERSISTENT EXECUTION RECORDS
+    # ========================================================
+
+    db = unit_14_execution_db()
+
+    try:
+
+        prior = db.execute(
+            """
+            SELECT state, quantity,
+                   confirmed_filled
+            FROM execution_orders
+            WHERE client_id = ?
+            """,
+            (client_id,)
+        ).fetchone()
+
+    finally:
+        db.close()
+
+    if prior is not None:
+
+        result["status"] = (
+            "BACKUP_ORDER_RECONCILIATION_REQUIRED"
+        )
+
+        result["skip_reason"] = (
+            "PERSISTENT_BACKUP_ORDER_EXISTS"
+        )
+
+        result["backup_order_state"] = prior[0]
+
+        return result
+
+    if stage in existing:
+
+        result["status"] = (
+            "BACKUP_EXCHANGE_ORDER_EXISTS"
+        )
+
+        result["skip_reason"] = (
+            "BACKUP_HISTORY_RECONCILIATION_REQUIRED"
+        )
+
+        return result
+
+    # ========================================================
+    # 13. LIQUIDATION BUFFER TRIGGER
+    # ========================================================
+
+    if liquidation <= 0:
+
+        result["status"] = (
+            "WAITING_LIQUIDATION_PRICE"
+        )
+
+        result["skip_reason"] = (
+            "LIQUIDATION_PRICE_UNAVAILABLE"
+        )
+
+        return result
+
+    trigger, reached = unit_14_v3_trigger(
+        side,
+        liquidation,
+        mark,
+        buffer_pct
+    )
+
+    result.update({
+        "backup_trigger_price": float(trigger),
+        "backup_trigger_reached": bool(reached),
+    })
+
+    print(
+        "UNIT 14 BACKUP STAGE = B" + str(stage),
+        flush=True
+    )
+
+    print(
+        "UNIT 14 LIQUIDATION PRICE =",
+        liquidation,
+        flush=True
+    )
+
+    print(
+        "UNIT 14 BACKUP TRIGGER =",
+        trigger,
+        flush=True
+    )
+
+    print(
+        "UNIT 14 BACKUP TRIGGER REACHED =",
+        reached,
+        flush=True
+    )
+
+    if not reached:
+
+        result["status"] = (
+            "WAITING_BACKUP_TRIGGER"
+        )
+
+        result["skip_reason"] = (
+            "LIQUIDATION_BUFFER_NOT_REACHED"
+        )
+
+        return result
+
+    # ========================================================
+    # 14. AVAILABLE BALANCE AND EXPOSURE CAP
+    # ========================================================
+
+    available = unit_14_v3_balance()
+
+    raw_committed = p.get(
+        "margin",
+        p.get("positionMargin")
+    )
+
+    if raw_committed is None:
+
+        result["status"] = (
+            "WAITING_MARGIN_VERIFICATION"
+        )
+
+        return result
+
+    committed = D(
+        raw_committed,
+        "COMMITTED POSITION MARGIN",
+        True
+    )
+
+    desired_margin = (
+        available * backup_percent / D(100)
+    )
+
+    # This calculation is a margin-based estimate.
+    # It must not be represented as verified
+    # account-wide exposure when other positions
+    # or reserved order margin are present.
+
+    estimated_equity = available + committed
+
+    cap_amount = (
+        estimated_equity * cap_pct / D(100)
+    )
+
+    remaining_cap = max(
+        Decimal("0"),
+        cap_amount - committed
+    )
+
+    backup_margin = min(
+        desired_margin,
+        available,
+        remaining_cap
+    )
+
+    result.update({
+        "available_balance_usdt": float(available),
+        "committed_margin_usdt": float(committed),
+        "backup_margin_usdt": float(backup_margin),
+        "estimated_exposure_cap_usdt":
+            float(cap_amount),
+        "backup_sizing_mode":
+            "PERCENT_AVAILABLE_BALANCE",
+    })
+
+    if backup_margin <= 0:
+
+        result["status"] = (
+            "WAITING_EXPOSURE_CAPACITY"
+        )
+
+        result["skip_reason"] = (
+            "NO_REMAINING_MARGIN_CAPACITY"
+        )
+
+        return result
+
+    # ========================================================
+    # 15. CALCULATE EXECUTABLE QUANTITY
+    # ========================================================
+
+    notional = backup_margin * leverage
+
+    quantity = unit_14_v3_floor(
+        notional / mark,
+        qstep
+    )
+
+    result["backup_quantity"] = str(quantity)
+
+    if quantity < minimum:
+
+        result["status"] = (
+            "BACKUP_BELOW_MINIMUM_QUANTITY"
+        )
+
+        result["skip_reason"] = (
+            "INSUFFICIENT_EXECUTABLE_SIZE"
+        )
+
+        return result
+
+    # ========================================================
+    # 16. FINAL EXCHANGE RECHECK
+    # ========================================================
+
+    latest = unit_14_v3_position()
+
+    if latest is None:
+
+        result["status"] = (
+            "POSITION_CLOSED_BEFORE_BACKUP"
+        )
+
+        return result
+
+    if (
+        unit_14_v3_trade_key(latest) != key
+        or str(
+            latest.get("side", "")
+        ).upper() != side
+    ):
+
+        result["status"] = (
+            "POSITION_CHANGED_BEFORE_BACKUP"
+        )
+
+        return result
+
+    latest_liquidation = D(
+        latest.get("liquidatePrice"),
+        "LATEST LIQUIDATION PRICE",
+        True
+    )
+
+    if latest_liquidation != liquidation:
+
+        result["status"] = (
+            "LIQUIDATION_PRICE_CHANGED"
+        )
+
+        return result
+
+    latest_available = unit_14_v3_balance()
+
+    if latest_available < backup_margin:
+
+        result["status"] = (
+            "AVAILABLE_BALANCE_CHANGED"
+        )
+
+        return result
+
+    latest_committed = D(
+        latest.get(
+            "margin",
+            latest.get("positionMargin")
+        ),
+        "LATEST COMMITTED MARGIN",
+        True
+    )
+
+    latest_cap = (
+        latest_available + latest_committed
+    ) * cap_pct / D(100)
+
+    if latest_committed + backup_margin > latest_cap:
+
+        result["status"] = (
+            "EXPOSURE_CAP_RECHECK_FAILED"
+        )
+
+        return result
+
+    # ========================================================
+    # 17. PERSISTENT BACKUP ORDER CLAIM
+    # ========================================================
+
+    latest_history = unit_14_v3_history()
+
+    if any(
+        str(o.get("clientOrderId", "")) == client_id
+        for o in latest_history
+    ):
+
+        result["status"] = (
+            "BACKUP_ALREADY_ON_EXCHANGE"
+        )
+
+        return result
+
+    # A backup cannot be safely submitted while
+    # exchange-wide margin exposure is unverified.
+    # This prevents counting only the original
+    # position while ignoring active hedge margin.
+
+    exposure_verified = (
+        result.get(
+            "account_wide_exposure_verified"
+        ) is True
+    )
+
+    if not exposure_verified:
+
+        result["status"] = (
+            "ACCOUNT_EXPOSURE_RECONCILIATION_REQUIRED"
+        )
+
+        result["skip_reason"] = (
+            "OTHER_POSITIONS_AND_RESERVED_MARGIN_UNVERIFIED"
+        )
+
+        return result
+
+    claim = unit_14_claim_execution(
+        cycle_id,
+        "B" + str(stage),
+        client_id,
+        quantity
+    )
+
+    if not claim["claimed"]:
+
+        result["status"] = (
+            "BACKUP_PERSISTENT_CLAIM_EXISTS"
+        )
+
+        return result
+
+    # ========================================================
+    # 18. WEEX DEMO BACKUP ORDER
+    # ========================================================
+
+    payload = {
+        "symbol": str(
+            latest.get("symbol", "")
+        ).upper(),
+        "side": (
+            "BUY" if side == "LONG"
+            else "SELL"
+        ),
+        "positionSide": side,
+        "type": "MARKET",
+        "quantity": format(quantity, "f"),
+        "newClientOrderId": client_id,
+    }
+
+    result["backup_execution_attempted"] = True
+
+    try:
+
+        reply = unit_14_v3_signed_request(
+            "POST",
+            UNIT14_V3_ORDER,
+            payload=payload
+        )
+
+    except Exception as exc:
+
+        unit_14_update_execution(
+            client_id,
+            "ACK_UNKNOWN"
+        )
+
+        result.update({
+            "status": "BACKUP_ACK_UNKNOWN",
+            "backup_error": str(exc),
+            "backup_execution_completed": False,
+            "skip_reason":
+                "RECONCILE_BEFORE_ANY_RETRY",
+        })
+
+        return result
+
+    if (
+        not isinstance(reply, dict)
+        or reply.get("success") is not True
+        or not reply.get("orderId")
+    ):
+
+        unit_14_update_execution(
+            client_id,
+            "ACK_UNKNOWN"
+        )
+
+        result["status"] = (
+            "BACKUP_ACK_UNVERIFIED"
+        )
+
+        return result
+
+    exchange_order_id = str(
+        reply["orderId"]
+    )
+
+    unit_14_update_execution(
+        client_id,
+        "SUBMITTED",
+        exchange_order_id
+    )
+
+    result.update({
+        "status": "BACKUP_SUBMITTED",
+        "backup_submitted_stage": stage,
+        "backup_order_id": exchange_order_id,
+        "backup_client_order_id": client_id,
+        "backup_execution_attempted": True,
+        "backup_execution_completed": False,
+        "backup_fill_confirmed": False,
+        "exchange_write": True,
+        "skip_reason": "NONE",
+    })
+
+    print(
+        "UNIT 14 B" + str(stage)
+        + " DEMO ORDER SUBMITTED =",
+        exchange_order_id,
+        flush=True
+    )
+
+    return result
+
+
+# ============================================================
+# END UNIT 14 PART 11
+# END MAIN UNIT 14 MANAGEMENT FUNCTION
+# ============================================================
+   
 # ============================================================
 # COMPLETE UNIT 14 V3 REPLACEMENT
 # UNIT 13 -> UNIT 14 -> UNIT 15
