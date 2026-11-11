@@ -20037,6 +20037,9 @@ def scan_one_cycle():
         # NEW-ENTRY PIPELINE
         # --------------------------------------------
 
+        
+        symbol_state = symbol_request_refresh()
+
         submission = None
         entry_ok = False
 
