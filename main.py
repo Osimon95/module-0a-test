@@ -20056,8 +20056,11 @@ def scan_one_cycle():
                     scan_refresh_entry_pipeline()
                 )
                 entry_ok = True
+                submission = (
+                    scan_refresh_entry_pipeline()
+                )
 
-            entry_ok = True
+                entry_ok = True
 
             SCAN_LAST_MARKET_SUCCESS = (
                 _scan_time.time()
