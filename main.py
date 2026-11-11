@@ -20045,9 +20045,17 @@ def scan_one_cycle():
 
         try:
 
-            submission = (
-                scan_refresh_entry_pipeline()
-            )
+            
+            if not symbol_new_entry_allowed():
+                submission = scan_idle_unit12_result(
+                    "SYMBOL_SWITCH_PENDING"
+                )
+                entry_ok = True
+            else:
+                submission = (
+                    scan_refresh_entry_pipeline()
+                )
+                entry_ok = True
 
             entry_ok = True
 
