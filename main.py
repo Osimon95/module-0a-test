@@ -13104,6 +13104,525 @@ def fresh_reconstruction_unit_13(
     # AND TP MANAGEMENT
     # ========================================================
    
+
+
+    # ========================================================
+    # UNIT 13 PART 3
+    # CUMULATIVE POSITION HISTORY
+    # EXCHANGE-CONFIRMED TP FILLS
+    # H1 / H2 INDEPENDENT VERIFICATION
+    # ========================================================
+
+    import hashlib
+
+    # ========================================================
+    # 13.3.1 VALIDATE EXCHANGE POSITION HISTORY
+    # ========================================================
+
+    if (
+        "cumOpenSize" not in p
+        or "cumCloseSize" not in p
+    ):
+        raise RuntimeError(
+            "UNIT 13 CUMULATIVE POSITION HISTORY MISSING"
+        )
+
+    cum_open = D(
+        p["cumOpenSize"],
+        "CUMULATIVE OPEN"
+    )
+
+    cum_close = D(
+        p["cumCloseSize"],
+        "CUMULATIVE CLOSE",
+        True
+    )
+
+    if cum_open < size:
+        raise RuntimeError(
+            "UNIT 13 CUMULATIVE OPEN BELOW ACTIVE SIZE"
+        )
+
+    if cum_close > cum_open:
+        raise RuntimeError(
+            "UNIT 13 CUMULATIVE CLOSE EXCEEDS OPEN"
+        )
+
+    # Cumulative close is retained for reconciliation.
+    # It must NEVER establish TP1 or TP2 completion.
+
+    # ========================================================
+    # 13.3.2 ORIGINAL POSITION CYCLE IDENTITY
+    # MUST MATCH UNIT 14
+    # ========================================================
+
+    symbol = str(
+        p.get("symbol", "")
+    ).strip().upper()
+
+    original_side = str(
+        p.get("side", "")
+    ).strip().upper()
+
+    position_id = str(
+        p.get("id") or ""
+    ).strip()
+
+    created = str(
+        p.get("createdTime") or ""
+    ).strip()
+
+    if (
+        symbol != "BTCSUSDT"
+        or original_side not in ("LONG", "SHORT")
+        or not position_id
+        or not created
+    ):
+        raise RuntimeError(
+            "UNIT 13 STABLE POSITION IDENTITY MISSING"
+        )
+
+    identity = "|".join((
+        symbol,
+        original_side,
+        position_id,
+        created
+    ))
+
+    cycle_id = hashlib.sha256(
+        identity.encode("utf-8")
+    ).hexdigest()[:32]
+
+    # ========================================================
+    # 13.3.3 STEP-AWARE TP ALLOCATION
+    # ========================================================
+
+    q1, q2, q3 = unit_13_v4_allocation(
+        cum_open,
+        step
+    )
+
+    # ========================================================
+    # 13.3.4 TP TARGET PRICES
+    # ========================================================
+
+    t1, t2 = unit_13_v4_targets(
+        entry,
+        leverage,
+        side,
+        price_step,
+        tp1_floor,
+        tp2_floor,
+        fee
+    )
+
+    mark = unit_13_v4_mark_price()
+
+    # ========================================================
+    # 13.3.5 READ PERSISTENT EXECUTION HISTORY
+    # ========================================================
+
+    db_provider = globals().get(
+        "unit_14_execution_db"
+    )
+
+    if not callable(db_provider):
+        raise RuntimeError(
+            "UNIT 13 UNIT 14 DATABASE INTERFACE MISSING"
+        )
+
+    db = db_provider()
+
+    try:
+        cycle_row = db.execute(
+            """
+            SELECT state, tp1_filled
+            FROM execution_cycles
+            WHERE cycle_id = ?
+            """,
+            (cycle_id,)
+        ).fetchone()
+
+        order_rows = db.execute(
+            """
+            SELECT
+                action,
+                quantity,
+                confirmed_filled,
+                state,
+                client_id
+            FROM execution_orders
+            WHERE cycle_id = ?
+              AND action IN ('TP1', 'TP2')
+            """,
+            (cycle_id,)
+        ).fetchall()
+
+    finally:
+        db.close()
+
+    # ========================================================
+    # 13.3.6 VALIDATE TP ORDER FILL RECORDS
+    # ========================================================
+
+    tp1_filled_qty = Decimal("0")
+    tp2_filled_qty = Decimal("0")
+
+    tp1_pending = False
+    tp2_pending = False
+
+    for row in order_rows:
+
+        order_action = str(row[0]).upper()
+
+        order_quantity = D(
+            row[1],
+            "REGISTERED TP ORDER QUANTITY"
+        )
+
+        confirmed_qty = D(
+            row[2],
+            "EXCHANGE CONFIRMED TP FILL",
+            True
+        )
+
+        order_state = str(row[3]).upper()
+
+        if confirmed_qty > order_quantity:
+            raise RuntimeError(
+                "UNIT 13 CONFIRMED FILL EXCEEDS ORDER"
+            )
+
+        if order_state == "FILLED":
+            if confirmed_qty != order_quantity:
+                raise RuntimeError(
+                    "UNIT 13 FILLED ORDER QUANTITY MISMATCH"
+                )
+
+        if order_action == "TP1":
+
+            tp1_filled_qty += confirmed_qty
+
+            if order_state in (
+                "CLAIMED",
+                "SUBMITTED",
+                "PARTIAL",
+                "UNKNOWN",
+            ):
+                tp1_pending = True
+
+        elif order_action == "TP2":
+
+            tp2_filled_qty += confirmed_qty
+
+            if order_state in (
+                "CLAIMED",
+                "SUBMITTED",
+                "PARTIAL",
+                "UNKNOWN",
+            ):
+                tp2_pending = True
+
+    # ========================================================
+    # 13.3.7 EXCLUSIVE TP COMPLETION RULE
+    # ========================================================
+
+    # A TP order's confirmed_filled value must have
+    # been reconciled against WEEX exchange order
+    # history by Unit 14.
+    #
+    # H1-C / H2-C and all other position reductions
+    # are excluded because they are not TP1/TP2 orders.
+
+    done1 = (
+        q1 == 0
+        or tp1_filled_qty >= q1
+    )
+
+    done2 = (
+        q2 == 0
+        or tp2_filled_qty >= q2
+    )
+
+    # ========================================================
+    # 13.3.8 RECONCILE CYCLE TERMINATION
+    # ========================================================
+
+    if cycle_row is not None:
+
+        cycle_state = str(
+            cycle_row[0]
+        ).upper()
+
+        cycle_tp1 = bool(cycle_row[1])
+
+        if cycle_tp1 and not done1:
+            raise RuntimeError(
+                "UNIT 13 TP1 CYCLE FLAG WITHOUT "
+                "SUFFICIENT CONFIRMED TP1 FILLS"
+            )
+
+        if (
+            cycle_state == "TERMINATED_BY_TP1"
+            and not done1
+        ):
+            raise RuntimeError(
+                "UNIT 13 TERMINATED CYCLE "
+                "WITHOUT CONFIRMED TP1"
+            )
+
+        if (
+            done1
+            and q1 > 0
+            and cycle_state == "ACTIVE"
+        ):
+
+            db = db_provider()
+
+            try:
+                db.execute("BEGIN IMMEDIATE")
+
+                db.execute(
+                    """
+                    UPDATE execution_cycles
+                    SET
+                        tp1_filled = 1,
+                        state = 'TERMINATED_BY_TP1'
+                    WHERE cycle_id = ?
+                      AND state = 'ACTIVE'
+                    """,
+                    (cycle_id,)
+                )
+
+                db.execute("COMMIT")
+
+            except Exception:
+
+                if db.in_transaction:
+                    db.execute("ROLLBACK")
+
+                raise
+
+            finally:
+                db.close()
+
+    # ========================================================
+    # 13.3.9 PRICE TARGET CONDITIONS
+    # ========================================================
+
+    reached1 = (
+        mark >= t1
+        if side == "LONG"
+        else mark <= t1
+    )
+
+    reached2 = (
+        mark >= t2
+        if side == "LONG"
+        else mark <= t2
+    )
+
+    # ========================================================
+    # 13.3.10 SELECT NEXT TP ACTION
+    # ========================================================
+
+    action = "NONE"
+    close_qty = Decimal("0")
+
+    remaining_tp1 = max(
+        Decimal("0"),
+        q1 - tp1_filled_qty
+    )
+
+    remaining_tp2 = max(
+        Decimal("0"),
+        q2 - tp2_filled_qty
+    )
+
+    # TP2 is considered only after TP1 completion.
+    # A pending TP order must first be reconciled.
+
+    if (
+        done1
+        and q2 > 0
+        and reached2
+        and not done2
+        and not tp2_pending
+    ):
+
+        action = "TP2"
+        close_qty = remaining_tp2
+
+    elif (
+        q1 > 0
+        and reached1
+        and not done1
+        and not tp1_pending
+    ):
+
+        action = "TP1"
+        close_qty = remaining_tp1
+
+    # ========================================================
+    # 13.3.11 QUANTITY PRECISION
+    # ========================================================
+
+    if close_qty > 0:
+
+        close_qty = (
+            min(close_qty, size) / step
+        ).to_integral_value(
+            rounding=ROUND_DOWN
+        ) * step
+
+    if close_qty < minimum:
+        action = "NONE"
+        close_qty = Decimal("0")
+
+    # ========================================================
+    # 13.3.12 TP3 ELIGIBILITY
+    # ========================================================
+
+    armed = bool(
+        done1
+        and done2
+        and q3 > 0
+        and size > 0
+    )
+
+    # ========================================================
+    # 13.3.13 UNIT 14 HANDOVER RESULT
+    # ========================================================
+
+    result = unit_13_v4_base_result(
+        unit_12_result,
+        (
+            "TP3_ARMED"
+            if armed
+            else "MONITORING"
+        ),
+        (
+            "DYNAMIC_TP3_RUNTIME_REQUIRED"
+            if armed
+            else "MONITORING_EXISTING_POSITION"
+        ),
+    )
+
+    result.update({
+        "active_position_exists": True,
+        "position_exists": True,
+        "tp_management_required": True,
+
+        "tp_cycle_id": cycle_id,
+        "original_position_side": original_side,
+        "position_side": side,
+
+        "position_size": float(size),
+        "average_entry_price": float(entry),
+        "position_leverage": float(leverage),
+        "mark_price": float(mark),
+
+        "cumulative_open_quantity": str(cum_open),
+        "cumulative_closed_quantity": str(cum_close),
+
+        "tp1_target": float(t1),
+        "tp2_target": float(t2),
+        "tp1_target_price": str(t1),
+        "tp2_target_price": str(t2),
+
+        "tp1_quantity": float(q1),
+        "tp2_quantity": float(q2),
+        "tp3_quantity": float(q3),
+
+        "tp1_confirmed_filled_quantity":
+            str(tp1_filled_qty),
+
+        "tp2_confirmed_filled_quantity":
+            str(tp2_filled_qty),
+
+        "tp1_completed": done1,
+        "tp2_completed": done2,
+
+        "tp1_order_pending": tp1_pending,
+        "tp2_order_pending": tp2_pending,
+
+        "tp3_armed": armed,
+
+        "tp3_trailing_percent":
+            float(trail_ref),
+
+        "tp3_trailing_reference_percent":
+            float(trail_ref),
+
+        "tp3_trailing_min_percent":
+            float(trail_min),
+
+        "tp3_trailing_max_percent":
+            float(trail_max),
+
+        "tp3_trailing_dynamic": True,
+
+        "tp1_net_roi_floor_percent":
+            float(tp1_floor),
+
+        "tp2_net_roi_floor_percent":
+            float(tp2_floor),
+
+        "tp_action": action,
+        "tp_close_quantity": str(close_qty),
+
+        "h1_termination_by_tp1": bool(
+            done1 and q1 > 0
+        ),
+    })
+
+    print(
+        "UNIT 13 CYCLE ID =",
+        cycle_id,
+        flush=True
+    )
+
+    print(
+        "UNIT 13 TP1 CONFIRMED FILL =",
+        tp1_filled_qty,
+        flush=True
+    )
+
+    print(
+        "UNIT 13 TP2 CONFIRMED FILL =",
+        tp2_filled_qty,
+        flush=True
+    )
+
+    print(
+        "UNIT 13 TP1 COMPLETE =",
+        done1,
+        flush=True
+    )
+
+    print(
+        "UNIT 13 TP2 COMPLETE =",
+        done2,
+        flush=True
+    )
+
+    print(
+        "UNIT 13 TP ACTION =",
+        action,
+        flush=True
+    )
+
+    print(
+        "UNIT 13 H1 TERMINATED BY TP1 =",
+        bool(done1 and q1 > 0),
+        flush=True
+    )
+
+    # ========================================================
+    # END UNIT 13 PART 3
+    # PART 4 CONTINUES INSIDE SAME FUNCTION
+    # ========================================================
+    
 # ============================================================
 # COMPLETE UNIT 13 V4 REPLACEMENT
 # UNIT 12 -> UNIT 13 -> UNIT 14
