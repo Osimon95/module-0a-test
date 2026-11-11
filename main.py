@@ -15215,6 +15215,226 @@ def unit_14_update_execution(
 # NEXT: H1 PERSISTENT CYCLE INITIALIZATION
 # ============================================================
 
+
+
+# ============================================================
+# UNIT 14 PART 4
+# H1 PERSISTENT CYCLE INITIALIZATION
+# ATR TRIGGER VERIFICATION
+# ZERO INDENTATION
+# ============================================================
+
+
+def unit_14_h1_initialize_cycle(p, atr_value):
+    import hashlib
+    from decimal import Decimal
+
+    D = unit_14_v3_D
+    if not isinstance(p, dict):
+        raise RuntimeError('H1 POSITION INVALID')
+
+    symbol = str(p.get('symbol', '')).upper()
+    side = str(p.get('side', '')).upper()
+
+    if symbol != 'BTCSUSDT' or side not in ('LONG', 'SHORT'):
+        raise RuntimeError('H1 INVALID DEMO POSITION')
+
+    position_id = str(p.get('id') or '').strip()
+    created = str(p.get('createdTime') or '').strip()
+
+    if not position_id or not created:
+        raise RuntimeError('H1 STABLE EXCHANGE IDENTITY MISSING')
+
+    identity = '|'.join((symbol, side, position_id, created))
+    cycle_id = hashlib.sha256(identity.encode()).hexdigest()[:32]
+
+    db = unit_14_execution_db()
+
+    try:
+        db.execute('BEGIN IMMEDIATE')
+
+        row = db.execute('''
+            SELECT symbol, original_side, original_quantity,
+                   original_entry, frozen_atr, tp1_filled, state
+            FROM execution_cycles WHERE cycle_id = ?
+        ''', (cycle_id,)).fetchone()
+
+        if row is None:
+            size = D(p.get('size'), 'H1 ORIGINAL SIZE')
+            cum_open = D(p.get('cumOpenSize'), 'H1 CUM OPEN')
+            cum_close = D(
+                p.get('cumCloseSize', '0'),
+                'H1 CUM CLOSE', True
+            )
+            open_value = D(p.get('openValue'), 'H1 OPEN VALUE')
+            atr = D(atr_value, 'H1 ATR14')
+
+            if size <= 0 or cum_open != size or cum_close != 0:
+                raise RuntimeError(
+                    'H1 POSITION NOT FRESH - INITIALIZATION BLOCKED'
+                )
+
+            if open_value <= 0 or atr <= 0:
+                raise RuntimeError('H1 INVALID ENTRY OR ATR')
+
+            conflict = db.execute('''
+                SELECT cycle_id FROM execution_cycles
+                WHERE symbol = ? AND original_side = ?
+                  AND state = 'ACTIVE' AND cycle_id != ?
+            ''', (symbol, side, cycle_id)).fetchone()
+
+            if conflict:
+                raise RuntimeError(
+                    'H1 PREVIOUS CYCLE RECONCILIATION REQUIRED'
+                )
+
+            row = (
+                symbol, side, str(size),
+                str(open_value / size), str(atr),
+                0, 'ACTIVE'
+            )
+
+            db.execute('''
+                INSERT INTO execution_cycles
+                (cycle_id, symbol, original_side, original_quantity,
+                 original_entry, frozen_atr, tp1_filled, state)
+                VALUES (?, ?, ?, ?, ?, ?, 0, 'ACTIVE')
+            ''', (cycle_id, *row[:5]))
+
+            print(
+                'UNIT 14 H1 NEW CYCLE SAVED =',
+                cycle_id, flush=True
+            )
+
+        else:
+            print(
+                'UNIT 14 H1 FROZEN CYCLE RESTORED =',
+                cycle_id, flush=True
+            )
+
+        db.execute('COMMIT')
+
+        return {
+            'cycle_id': cycle_id,
+            'symbol': row[0],
+            'side': row[1],
+            'original_quantity': Decimal(row[2]),
+            'original_entry': Decimal(row[3]),
+            'frozen_atr': Decimal(row[4]),
+            'tp1_filled': bool(row[5]),
+            'state': row[6],
+        }
+
+    except Exception:
+        if db.in_transaction:
+            db.execute('ROLLBACK')
+        raise
+    finally:
+        db.close()
+
+
+def unit_14_h1_check(p, mark, qstep, minimum):
+    from decimal import Decimal
+
+    D = unit_14_v3_D
+    snapshot = globals().get(
+        'FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT'
+    )
+
+    if not isinstance(snapshot, dict) or snapshot.get('atr14') is None:
+        print('UNIT 14 H1 STATUS = ATR_UNAVAILABLE', flush=True)
+        return None
+
+    scan = globals().get('UNIT14_H1_ANALYSIS_SCAN')
+    current_scan = globals().get('SCAN_NUMBER')
+
+    if scan is None or current_scan is None or scan != current_scan:
+        print('UNIT 14 H1 STATUS = STALE_ATR_BLOCKED', flush=True)
+        return None
+
+    cycle = unit_14_h1_initialize_cycle(p, snapshot['atr14'])
+
+    if cycle['state'] != 'ACTIVE' or cycle['tp1_filled']:
+        return {
+            'cycle_id': cycle['cycle_id'],
+            'reached': False,
+            'quantity_executable': False,
+            'status': 'TERMINATED_BY_TP1_OR_CYCLE_CLOSED',
+        }
+
+    side = cycle['side']
+    entry = cycle['original_entry']
+    atr = cycle['frozen_atr']
+    original_quantity = cycle['original_quantity']
+
+    mark = D(mark, 'H1 MARK')
+    qstep = D(qstep, 'H1 QSTEP')
+    minimum = D(minimum, 'H1 MINIMUM')
+
+    if qstep <= 0 or minimum <= 0:
+        raise RuntimeError('H1 INVALID QUANTITY PRECISION')
+
+    quantity = unit_14_v3_floor(
+        original_quantity / Decimal('2'), qstep
+    )
+
+    if side == 'SHORT':
+        trigger = entry + atr
+        reached = mark >= trigger
+        opposite = 'LONG'
+    else:
+        trigger = entry - atr
+        reached = mark <= trigger
+        opposite = 'SHORT'
+
+    executable = quantity >= minimum and quantity > 0
+
+    result = {
+        'cycle_id': cycle['cycle_id'],
+        'side': side,
+        'entry': entry,
+        'atr14': atr,
+        'trigger': trigger,
+        'reached': reached,
+        'close_quantity': quantity,
+        'hedge_side': opposite,
+        'quantity_executable': executable,
+        'execution_authorized': False,
+    }
+
+    print(
+        'UNIT 14 H1 CYCLE ID =',
+        result['cycle_id'], flush=True
+    )
+    print(
+        'UNIT 14 H1 ORIGINAL QUANTITY =',
+        original_quantity, flush=True
+    )
+    print(
+        'UNIT 14 H1 FROZEN ATR =',
+        atr, flush=True
+    )
+    print(
+        'UNIT 14 H1 TRIGGER =',
+        trigger, flush=True
+    )
+    print(
+        'UNIT 14 H1 TRIGGER REACHED =',
+        reached, flush=True
+    )
+    print(
+        'UNIT 14 H1 ACTION QUANTITY =',
+        quantity, flush=True
+    )
+
+    return result
+
+
+# ============================================================
+# END UNIT 14 PART 4
+# PART 5: H1 DEMO ORDER EXECUTION
+# ============================================================
+    
 # ============================================================
 # COMPLETE UNIT 14 V3 REPLACEMENT
 # UNIT 13 -> UNIT 14 -> UNIT 15
