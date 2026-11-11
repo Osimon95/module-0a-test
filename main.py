@@ -15922,6 +15922,226 @@ def unit_14_v3_result(unit_13_result):
 # ZERO INDENTATION
 # ============================================================
     
+
+
+# ============================================================
+# UNIT 14 PART 7
+# MAIN POSITION MANAGEMENT
+# CONFIGURATION AND EXCHANGE POSITION RETRIEVAL
+# ============================================================
+
+def fresh_reconstruction_unit_14(
+    config,
+    unit_13_result,
+):
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 14 V3 DYNAMIC BACKUP MANAGEMENT START",
+        flush=True
+    )
+
+    if not isinstance(config, dict):
+        raise RuntimeError(
+            "UNIT 14 CONFIG INVALID"
+        )
+
+    if not isinstance(unit_13_result, dict):
+        raise RuntimeError(
+            "UNIT 14 UNIT 13 RESULT INVALID"
+        )
+
+    exchange = config.get("exchange", {})
+    strategy = config.get("strategy", {})
+    precision = config.get("market_precision", {})
+
+    if (
+        config.get("execution_environment") != "DEMO"
+        or exchange.get("name") != "WEEX"
+        or exchange.get("api_version") != "V3"
+        or exchange.get("market_symbol") != "BTCUSDT"
+        or exchange.get("demo_order_symbol")
+            != "BTCSUSDT"
+    ):
+        raise RuntimeError(
+            "UNIT 14 NON-DEMO CONFIG BLOCKED"
+        )
+
+    D = unit_14_v3_D
+
+    qstep = D(
+        precision.get("quantity_step"),
+        "QTY STEP"
+    )
+
+    minimum = D(
+        precision.get("minimum_quantity"),
+        "MINIMUM QUANTITY"
+    )
+
+    max_backups = int(
+        strategy.get("max_backups", 5)
+    )
+
+    # Percentage of CURRENT available balance,
+    # not fixed multiples of initial margin.
+
+    backup_percent = D(
+        os.getenv(
+            "BACKUP_AVAILABLE_BALANCE_PERCENT",
+            str(
+                strategy.get(
+                    "backup_available_balance_percent",
+                    "0.5"
+                )
+            )
+        ),
+        "BACKUP BALANCE PERCENT"
+    )
+
+    buffer_pct = D(
+        strategy.get(
+            "backup_buffer_percent",
+            "0.3"
+        ),
+        "BUFFER PERCENT"
+    )
+
+    cap_pct = D(
+        strategy.get(
+            "exposure_cap_percent",
+            "35"
+        ),
+        "EXPOSURE CAP"
+    )
+
+    trail_ref = D(
+        strategy.get(
+            "tp3_trailing_reference_percent",
+            "0.20"
+        ),
+        "TRAIL REFERENCE"
+    )
+
+    trail_min = D(
+        strategy.get(
+            "tp3_trailing_min_percent",
+            "0.10"
+        ),
+        "TRAIL MINIMUM"
+    )
+
+    trail_max = D(
+        strategy.get(
+            "tp3_trailing_max_percent",
+            "0.40"
+        ),
+        "TRAIL MAXIMUM"
+    )
+
+    # ========================================================
+    # UNIT 14 V3 - DYNAMIC SETTINGS VALIDATION
+    # ALIGNED WITH UNIT 2 V9
+    # ORIGINAL FIVE-BACKUP ENGINE PRESERVED
+    # ========================================================
+
+    if max_backups != 5:
+        raise RuntimeError(
+            "UNIT 14 INVALID BACKUP COUNT: "
+            + str(max_backups)
+        )
+
+    if not 0 < backup_percent <= 100:
+        raise RuntimeError(
+            "UNIT 14 INVALID BACKUP BALANCE PERCENT: "
+            + str(backup_percent)
+        )
+
+    if not 0 < cap_pct <= 100:
+        raise RuntimeError(
+            "UNIT 14 INVALID EXPOSURE CAP PERCENT: "
+            + str(cap_pct)
+        )
+
+    if not 0 < trail_min <= trail_ref <= trail_max:
+        raise RuntimeError(
+            "UNIT 14 INVALID TP3 TRAILING RANGE: "
+            + str((
+                trail_min,
+                trail_ref,
+                trail_max
+            ))
+        )
+
+    print(
+        "UNIT 14 DYNAMIC CONFIG VALIDATION = PASS",
+        flush=True
+    )
+
+    print(
+        "UNIT 14 EXPOSURE CAP % =",
+        cap_pct,
+        flush=True
+    )
+
+    result = unit_14_v3_result(
+        unit_13_result
+    )
+
+    print(
+        "UNIT 14 BACKUPS = 5",
+        flush=True
+    )
+    print(
+        "UNIT 14 BACKUP SIZING = "
+        "PERCENT_AVAILABLE_BALANCE",
+        flush=True
+    )
+    print(
+        "UNIT 14 BACKUP BALANCE % =",
+        backup_percent,
+        flush=True
+    )
+    print(
+        "UNIT 14 BUFFER % =",
+        buffer_pct,
+        flush=True
+    )
+    print(
+        "UNIT 14 EXPOSURE CAP % =",
+        cap_pct,
+        flush=True
+    )
+    print(
+        "UNIT 14 UNIT 13 STATUS =",
+        unit_13_result.get("status"),
+        flush=True
+    )
+    print(
+        "UNIT 14 MANAGEMENT INDEPENDENT "
+        "OF BOT_MODE = TRUE",
+        flush=True
+    )
+
+    # ========================================================
+    # 8. FRESH EXCHANGE POSITION
+    # ========================================================
+
+    p = unit_14_v3_position()
+
+    # ========================================================
+    # END UNIT 14 PART 7
+    #
+    # PART 8 CONTINUES INSIDE THIS FUNCTION
+    # WITH FOUR SPACES OF INDENTATION
+    #
+    # NEXT:
+    #   - ORIGINAL POSITION ABSENT
+    #   - OPPOSITE HEDGE STILL ACTIVE
+    #   - RESTORE PERSISTED H1 CYCLE
+    #   - RECONCILE H1-C / H1-H
+    # ========================================================
+
 # ============================================================
 # COMPLETE UNIT 14 V3 REPLACEMENT
 # UNIT 13 -> UNIT 14 -> UNIT 15
