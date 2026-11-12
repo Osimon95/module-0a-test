@@ -7954,6 +7954,34 @@ def fresh_reconstruction_unit_8(
         flush=True
     )
 
+    
+    required = sizing.get(
+        "tp1_minimum_margin_required",
+        sizing["minimum_margin_required"]
+    )
+
+    shortfall = max(
+        Decimal("0"),
+        required - margin
+    )
+
+    output["margin_rejection_details"] = {
+        "direction": str(
+            unit_7_result.get(
+                "direction", "UNKNOWN"
+            )
+        ),
+        "requested_margin": str(margin),
+        "minimum_margin": str(required),
+        "shortfall": str(shortfall),
+    }
+
+    if margin < required:
+        return finish(
+            "BLOCKED",
+            "ENTRY_MARGIN_BELOW_TP1_MINIMUM"
+        )
+
     if not sizing["minimum_quantity_pass"]:
         return finish(
             "BLOCKED",
