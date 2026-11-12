@@ -9131,11 +9131,25 @@ def fresh_reconstruction_unit_9(
     # 14. ORIGINAL UNIT 10 EXECUTION CANDIDATE
     # ========================================================
 
+    
     execution_candidate = {
         "active_mode": mode,
         "direction": direction,
         "trade_plan": plan,
         "execution_environment": "DEMO",
+        "entry_margin_usdt": str(entry_margin),
+        "minimum_entry_margin": str(
+            minimum_entry_margin
+        ),
+        "tp1_minimum_entry_margin": str(
+            required_margin
+        ),
+        "tp1_execution_quantity": str(
+            tp1_quantity
+        ),
+        "entry_margin_accepted": True,
+        "entry_margin_reason":
+            "ENTRY_MARGIN_ACCEPTED",
     }
 
     result.update({
