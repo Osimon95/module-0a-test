@@ -12208,16 +12208,14 @@ def fresh_reconstruction_unit_12(
 # 9. HYBRID ADAPTER
 # ============================================================
 
+
 def fresh_unit_12_hybrid_execution_adapter(
     execution_config,
     unit_11_result,
 ):
-
-    result = (
-        fresh_reconstruction_unit_12(
-            execution_config,
-            unit_11_result,
-        )
+    result = fresh_reconstruction_unit_12(
+        execution_config,
+        unit_11_result,
     )
 
     if not isinstance(result, dict):
@@ -12232,8 +12230,18 @@ def fresh_unit_12_hybrid_execution_adapter(
             "UNIT 12 LIVE CASH SAFETY FAILURE"
         )
 
-    if result.get("status") == "DEMO_SUBMITTED":
+    status = str(
+        result.get("status", "UNKNOWN")
+    ).upper()
 
+    reason = str(
+        result.get(
+            "skip_reason",
+            "NONE"
+        )
+    )
+
+    if status == "DEMO_SUBMITTED":
         if (
             result.get(
                 "demo_submission_completed"
@@ -12246,12 +12254,112 @@ def fresh_unit_12_hybrid_execution_adapter(
 
     print(
         "UNIT 12 HYBRID ADAPTER STATUS =",
-        result["status"],
+        status,
         flush=True
     )
 
-    return result
+    # Telegram notification only for meaningful
+    # order outcomes, not ordinary idle scans.
+    accepted = status == "DEMO_SUBMITTED"
 
+    rejected_statuses = {
+        "BLOCKED",
+        "REJECTED",
+        "ORDER_REJECTED",
+        "POSITION_CHECK_FAILED",
+        "ACTIVE_POSITION_BLOCK",
+        "ORDER_FAILED",
+    }
+
+    uncertain_statuses = {
+        "ORDER_UNCERTAIN",
+        "SUBMISSION_UNCERTAIN",
+    }
+
+    notify = (
+        accepted
+        or status in rejected_statuses
+        or status in uncertain_statuses
+    )
+
+    if notify:
+        exchange = execution_config.get(
+            "exchange", {}
+        )
+
+        symbol = str(
+            exchange.get(
+                "market_symbol",
+                "UNKNOWN"
+            )
+        )
+
+        if accepted:
+            heading = "DEMO ENTRY ACCEPTED"
+        elif status in uncertain_statuses:
+            heading = "DEMO ENTRY STATUS UNCERTAIN"
+        else:
+            heading = "DEMO ENTRY REJECTED"
+
+        message = (
+            heading
+            + "\nSymbol: " + symbol
+            + "\nDirection: "
+            + str(result.get(
+                "direction", "UNKNOWN"
+            ))
+            + "\nStatus: " + status
+            + "\nReason: " + reason
+            + "\nOrder ID: "
+            + str(result.get(
+                "order_id", "NONE"
+            ))
+            + "\nClient Order ID: "
+            + str(result.get(
+                "client_order_id", "NONE"
+            ))
+        )
+
+        # Do not resend identical outcomes
+        # on every 30-second scan.
+        event_key = (
+            symbol,
+            status,
+            str(result.get(
+                "client_order_id", ""
+            )),
+            reason,
+        )
+
+        previous = globals().get(
+            "_LAST_ENTRY_TELEGRAM_EVENT"
+        )
+
+        if event_key != previous:
+            telegram = globals().get(
+                "unit15_telegram"
+            )
+
+            if callable(telegram):
+                try:
+                    delivered = telegram(
+                        message
+                    )
+
+                    if delivered:
+                        globals()[
+                            "_LAST_ENTRY_TELEGRAM_EVENT"
+                        ] = event_key
+
+                except Exception as exc:
+                    print(
+                        "ENTRY TELEGRAM ERROR =",
+                        type(exc).__name__,
+                        str(exc)[:120],
+                        flush=True
+                    )
+
+    return result
 
 # ============================================================
 # 10. LOCAL VALIDATION
