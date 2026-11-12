@@ -10386,7 +10386,7 @@ def unit_10_validation_v3():
 
     tests = []
 
-        def record(name, condition):
+    def record(name, condition):
         nonlocal passed, failed
 
         if condition:
