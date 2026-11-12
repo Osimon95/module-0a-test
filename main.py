@@ -8433,6 +8433,964 @@ def unit_9_v4_entry_margin(unit_7_result=None):
 # 3. UNIT 9 MAIN FUNCTION
 # ============================================================
 
+
+def fresh_reconstruction_unit_9(
+    config,
+    unit_8_result,
+):
+    """
+    UNIT 9 V5 - UNIVERSAL DEMO ENTRY ADMISSION
+
+    Preserves Unit 10 output contract.
+
+    Responsibilities:
+    - Read adjustable Render entry margin
+    - Preserve Unit 8 margin and sizing decisions
+    - Validate active market/demo contract identity
+    - Verify TP1-executable minimum margin
+    - Validate quantity, leverage, balance and exposure
+    - Preserve five independent dynamic backups
+    - Produce execution candidate for Unit 10
+
+    No exchange order is submitted in Unit 9.
+    """
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 9 V5 UNIVERSAL ENTRY START",
+        flush=True
+    )
+
+    from decimal import Decimal
+    import os
+
+    if not isinstance(config, dict):
+        raise RuntimeError("UNIT9_INVALID_CONFIG")
+
+    if not isinstance(unit_8_result, dict):
+        raise RuntimeError("UNIT9_INVALID_UNIT8")
+
+    exchange = config.get("exchange")
+    safety = config.get("safety")
+    strategy = config.get("strategy")
+
+    if not all(
+        isinstance(section, dict)
+        for section in (exchange, safety, strategy)
+    ):
+        raise RuntimeError(
+            "UNIT9_CONFIG_SECTIONS_MISSING"
+        )
+
+    if (
+        str(config.get(
+            "execution_environment", ""
+        )).upper() != "DEMO"
+        or str(exchange.get(
+            "name", ""
+        )).upper() != "WEEX"
+        or safety.get(
+            "real_order_submission_enabled"
+        ) is not False
+    ):
+        raise RuntimeError(
+            "UNIT9_DEMO_SAFETY_INVALID"
+        )
+
+    market_symbol = str(
+        exchange.get("market_symbol") or ""
+    ).strip().upper()
+
+    demo_symbol = str(
+        exchange.get("demo_order_symbol") or ""
+    ).strip().upper()
+
+    # ========================================================
+    # PRESERVE ORIGINAL UNIT 8 INPUT CONTRACT
+    # ========================================================
+
+    required_fields = (
+        "status",
+        "active_mode",
+        "direction",
+        "signal_qualified",
+        "execution_intent",
+        "trade_plan_ready",
+        "trade_plan",
+        "skip_reason",
+        "read_only",
+    )
+
+    missing = [
+        key for key in required_fields
+        if key not in unit_8_result
+    ]
+
+    if missing:
+        raise RuntimeError(
+            "UNIT9_MISSING_UNIT8_FIELDS: "
+            + str(missing)
+        )
+
+    if (
+        unit_8_result.get("read_only") is not True
+        or unit_8_result.get(
+            "exchange_write"
+        ) is not False
+        or unit_8_result.get(
+            "order_payload_created"
+        ) is not False
+    ):
+        raise RuntimeError(
+            "UNIT9_UPSTREAM_WRITE_SAFETY_FAILED"
+        )
+
+    mode = str(
+        unit_8_result.get("active_mode", "NONE")
+    ).upper()
+
+    direction = str(
+        unit_8_result.get("direction", "NONE")
+    ).upper()
+
+    status = str(
+        unit_8_result.get("status", "BLOCKED")
+    ).upper()
+
+    reason = str(
+        unit_8_result.get(
+            "skip_reason", "NONE"
+        )
+    )
+
+    qualified = (
+        unit_8_result.get(
+            "signal_qualified"
+        ) is True
+    )
+
+    intent = (
+        unit_8_result.get(
+            "execution_intent"
+        ) is True
+    )
+
+    plan_ready = (
+        unit_8_result.get(
+            "trade_plan_ready"
+        ) is True
+    )
+
+    # ========================================================
+    # ORIGINAL UNIT 10 OUTPUT CONTRACT
+    # ========================================================
+
+    result = {
+        "status": "IDLE",
+        "active_mode": mode,
+        "direction": direction,
+        "signal_qualified": qualified,
+        "execution_intent": False,
+        "trade_plan_ready": False,
+        "trade_plan": None,
+        "execution_ready": False,
+        "execution_candidate": None,
+        "skip_reason": "NONE",
+        "order_payload_created": False,
+        "tp_execution_requested": False,
+        "sl_execution_requested": False,
+        "read_only": True,
+
+        "unit_9_version":
+            "UNIT9_V5_UNIVERSAL_MARGIN",
+
+        "market_symbol": market_symbol,
+        "demo_order_symbol": demo_symbol,
+
+        "entry_margin_usdt": None,
+        "entry_margin_source": None,
+        "entry_margin_verified": False,
+        "entry_margin_accepted": False,
+        "entry_margin_reason": "NOT_EVALUATED",
+        "minimum_entry_margin": None,
+        "tp1_minimum_entry_margin": None,
+        "entry_margin_shortfall": None,
+
+        "leverage_source":
+            "RENDER_MANUAL_WEEX_DEMO",
+
+        "exchange_leverage_verified": False,
+        "trade_authorized": False,
+        "exchange_write": False,
+    }
+
+    def finish(state, why):
+
+        result["status"] = str(state)
+        result["skip_reason"] = str(why)
+
+        if state != "READY":
+            result["execution_ready"] = False
+            result["execution_intent"] = False
+            result["trade_authorized"] = False
+            result["exchange_write"] = False
+
+        print(
+            "UNIT 9 STATUS =",
+            state,
+            flush=True
+        )
+
+        print(
+            "UNIT 9 REASON =",
+            why,
+            flush=True
+        )
+
+        print(
+            "UNIT 9 ENTRY MARGIN =",
+            result["entry_margin_usdt"],
+            flush=True
+        )
+
+        print(
+            "UNIT 9 MINIMUM MARGIN =",
+            result["tp1_minimum_entry_margin"],
+            flush=True
+        )
+
+        print(
+            "UNIT 9 ENTRY ADMISSION =",
+            result["entry_margin_reason"],
+            flush=True
+        )
+
+        print(
+            "UNIT 9 EXECUTION READY =",
+            result["execution_ready"],
+            flush=True
+        )
+
+        print(
+            "UNIT 9 EXCHANGE WRITE = NONE",
+            flush=True
+        )
+
+        print("=" * 80, flush=True)
+
+        return result
+
+    # ========================================================
+    # 1. ADJUSTABLE RENDER ENTRY MARGIN
+    # ========================================================
+
+    upstream_unit_7 = globals().get(
+        "FRESH_RECONSTRUCTION_SIZING_CANDIDATE"
+    )
+
+    try:
+        entry_margin, entry_source = (
+            unit_9_v4_entry_margin(
+                upstream_unit_7
+            )
+        )
+    except ValueError:
+        return finish(
+            "BLOCKED",
+            "ENTRY_MARGIN_CONFIG_INVALID"
+        )
+
+    result["entry_margin_usdt"] = str(
+        entry_margin
+    )
+
+    result["entry_margin_source"] = (
+        entry_source
+    )
+
+    # ========================================================
+    # 2. PRESERVE IDLE / UPSTREAM REJECTION
+    # ========================================================
+
+    if status == "IDLE":
+        return finish("IDLE", reason)
+
+    if status == "BLOCKED":
+
+        result["entry_margin_reason"] = str(
+            unit_8_result.get(
+                "entry_margin_reason"
+            ) or reason
+        )
+
+        result["minimum_entry_margin"] = (
+            unit_8_result.get(
+                "minimum_entry_margin"
+            )
+        )
+
+        result["tp1_minimum_entry_margin"] = (
+            unit_8_result.get(
+                "tp1_minimum_entry_margin"
+            )
+        )
+
+        details = unit_8_result.get(
+            "margin_rejection_details"
+        )
+
+        if isinstance(details, dict):
+            result["entry_margin_shortfall"] = (
+                details.get("shortfall")
+            )
+
+        return finish(
+            "BLOCKED",
+            result["entry_margin_reason"]
+        )
+
+    if status != "READY":
+        return finish(
+            "BLOCKED",
+            "UNIT8_STATUS_INVALID"
+        )
+
+    if not all((
+        qualified,
+        intent,
+        plan_ready,
+        unit_8_result.get(
+            "demo_balance_verified"
+        ) is True,
+        unit_8_result.get(
+            "demo_positions_verified"
+        ) is True,
+        unit_8_result.get(
+            "position_flat_verified"
+        ) is True,
+        unit_8_result.get(
+            "leverage_configured"
+        ) is True,
+    )):
+        return finish(
+            "BLOCKED",
+            "UNIT8_READY_CONTRACT_INCOMPLETE"
+        )
+
+    if (
+        mode not in (
+            "STRUCTURE",
+            "BREAKOUT",
+            "SCALP"
+        )
+        or direction not in (
+            "LONG",
+            "SHORT"
+        )
+    ):
+        return finish(
+            "BLOCKED",
+            "INVALID_MODE_OR_DIRECTION"
+        )
+
+    # ========================================================
+    # 3. VERIFIED ACTIVE SYMBOL
+    # ========================================================
+
+    if not market_symbol or not demo_symbol:
+        return finish(
+            "BLOCKED",
+            "ACTIVE_SYMBOL_MISSING"
+        )
+
+    verified_market = str(
+        unit_8_result.get(
+            "market_symbol"
+        ) or ""
+    ).strip().upper()
+
+    verified_demo = str(
+        unit_8_result.get(
+            "demo_order_symbol"
+        ) or ""
+    ).strip().upper()
+
+    if (
+        verified_market != market_symbol
+        or verified_demo != demo_symbol
+    ):
+        return finish(
+            "BLOCKED",
+            "ACTIVE_SYMBOL_NOT_VERIFIED"
+        )
+
+    # A pending symbol must not enter execution.
+    controller = globals().get(
+        "symbol_state_read"
+    )
+
+    if callable(controller):
+        try:
+            symbol_state = controller()
+        except Exception:
+            return finish(
+                "BLOCKED",
+                "SYMBOL_CONTROLLER_UNAVAILABLE"
+            )
+
+        if not isinstance(symbol_state, dict):
+            return finish(
+                "BLOCKED",
+                "SYMBOL_STATE_INVALID"
+            )
+
+        active = str(
+            symbol_state.get(
+                "active_symbol"
+            ) or ""
+        ).upper()
+
+        pending = str(
+            symbol_state.get(
+                "pending_symbol"
+            ) or ""
+        ).upper()
+
+        if (
+            active != market_symbol
+            or (
+                pending
+                and pending != active
+            )
+        ):
+            return finish(
+                "BLOCKED",
+                "SYMBOL_SWITCH_PENDING"
+            )
+
+    # ========================================================
+    # 4. TRADE PLAN
+    # ========================================================
+
+    plan = unit_8_result.get(
+        "trade_plan"
+    )
+
+    if not isinstance(plan, dict):
+        return finish(
+            "BLOCKED",
+            "TRADE_PLAN_MISSING"
+        )
+
+    if (
+        plan.get("active_mode") != mode
+        or plan.get("direction") != direction
+        or plan.get(
+            "execution_environment"
+        ) != "DEMO"
+    ):
+        return finish(
+            "BLOCKED",
+            "TRADE_PLAN_IDENTITY_MISMATCH"
+        )
+
+    sizing = plan.get(
+        "position_sizing"
+    )
+
+    if not isinstance(sizing, dict):
+        return finish(
+            "BLOCKED",
+            "POSITION_SIZING_MISSING"
+        )
+
+    # ========================================================
+    # 5. NUMERIC VALIDATION
+    # ========================================================
+
+    try:
+        D = unit_9_v4_decimal
+
+        plan_margin = D(
+            sizing.get("margin_allocation"),
+            "PLAN_MARGIN"
+        )
+
+        quantity = D(
+            plan.get("quantity"),
+            "PLAN_QUANTITY"
+        )
+
+        sized_quantity = D(
+            sizing.get("quantity"),
+            "SIZING_QUANTITY"
+        )
+
+        step = D(
+            sizing.get("quantity_step"),
+            "QUANTITY_STEP"
+        )
+
+        minimum = D(
+            sizing.get("minimum_quantity"),
+            "MINIMUM_QUANTITY"
+        )
+
+        leverage = D(
+            sizing.get("leverage_target"),
+            "PLAN_LEVERAGE"
+        )
+
+        price = D(
+            sizing.get("live_mark_price"),
+            "MARK_PRICE"
+        )
+
+        multiplier = D(
+            sizing.get("contract_multiplier"),
+            "CONTRACT_MULTIPLIER"
+        )
+
+        available = D(
+            unit_8_result.get(
+                "available_balance"
+            ),
+            "AVAILABLE_BALANCE",
+            allow_zero=True
+        )
+
+        equity = D(
+            unit_8_result.get(
+                "account_equity"
+            ),
+            "ACCOUNT_EQUITY",
+            allow_zero=True
+        )
+
+        cap = D(
+            unit_8_result.get(
+                "exposure_cap_percent"
+            ),
+            "EXPOSURE_CAP"
+        )
+
+        minimum_margin = D(
+            sizing.get(
+                "minimum_entry_margin"
+            ),
+            "MINIMUM_ENTRY_MARGIN"
+        )
+
+        tp1_minimum = D(
+            sizing.get(
+                "tp1_minimum_entry_margin"
+            ),
+            "TP1_MINIMUM_ENTRY_MARGIN"
+        )
+
+        tp1_quantity = D(
+            sizing.get(
+                "tp1_execution_quantity"
+            ),
+            "TP1_EXECUTION_QUANTITY"
+        )
+
+        tp1_percent = D(
+            sizing.get(
+                "tp1_allocation_percent",
+                os.getenv(
+                    "TP1_ALLOCATION_PERCENT",
+                    strategy.get(
+                        "tp1_allocation_percent",
+                        10
+                    )
+                )
+            ),
+            "TP1_ALLOCATION_PERCENT"
+        )
+
+    except (ValueError, TypeError) as exc:
+        print(
+            "UNIT 9 NUMERIC VALIDATION =",
+            str(exc),
+            flush=True
+        )
+
+        return finish(
+            "BLOCKED",
+            "CONTRACT_OR_MARGIN_DATA_UNVERIFIED"
+        )
+
+    # ========================================================
+    # 6. MARGIN ADMISSION
+    # ========================================================
+
+    required_margin = max(
+        minimum_margin,
+        tp1_minimum
+    )
+
+    shortfall = max(
+        Decimal("0"),
+        required_margin - entry_margin
+    )
+
+    result["minimum_entry_margin"] = str(
+        minimum_margin
+    )
+
+    result["tp1_minimum_entry_margin"] = str(
+        required_margin
+    )
+
+    result["entry_margin_shortfall"] = str(
+        shortfall
+    )
+
+    if plan_margin != entry_margin:
+        result["entry_margin_reason"] = (
+            "UNIT8_ENTRY_MARGIN_MISMATCH"
+        )
+        return finish(
+            "BLOCKED",
+            result["entry_margin_reason"]
+        )
+
+    result["entry_margin_verified"] = True
+
+    if (
+        entry_margin < required_margin
+        or sizing.get(
+            "entry_margin_accepted"
+        ) is not True
+    ):
+        result["entry_margin_reason"] = (
+            "ENTRY_MARGIN_BELOW_TP1_MINIMUM"
+            if entry_margin < required_margin
+            else "UNIT8_MARGIN_ADMISSION_FAILED"
+        )
+
+        return finish(
+            "BLOCKED",
+            result["entry_margin_reason"]
+        )
+
+    if not (
+        Decimal("0") < tp1_percent
+        <= Decimal("100")
+    ):
+        return finish(
+            "BLOCKED",
+            "TP1_ALLOCATION_INVALID"
+        )
+
+    result["entry_margin_accepted"] = True
+    result["entry_margin_reason"] = (
+        "ENTRY_MARGIN_ACCEPTED"
+    )
+
+    # ========================================================
+    # 7. CONTRACT QUANTITY VALIDATION
+    # ========================================================
+
+    if (
+        quantity != sized_quantity
+        or quantity < minimum
+        or quantity % step != 0
+        or tp1_quantity < minimum
+        or tp1_quantity % step != 0
+        or tp1_quantity > quantity
+    ):
+        return finish(
+            "BLOCKED",
+            "CONTRACT_QUANTITY_INVALID"
+        )
+
+    # Check that TP1 allocation is executable
+    # after rounding to exchange quantity step.
+    calculated_tp1 = (
+        (
+            quantity
+            * tp1_percent
+            / Decimal("100")
+        ) // step
+    ) * step
+
+    if (
+        calculated_tp1 < minimum
+        or tp1_quantity > calculated_tp1
+    ):
+        return finish(
+            "BLOCKED",
+            "TP1_QUANTITY_NOT_EXECUTABLE"
+        )
+
+    # ========================================================
+    # 8. DIRECTIONAL LEVERAGE
+    # ========================================================
+
+    render_leverage = (
+        unit_8_result.get(
+            "weex_demo_long_leverage"
+        )
+        if direction == "LONG"
+        else unit_8_result.get(
+            "weex_demo_short_leverage"
+        )
+    )
+
+    try:
+        selected_leverage = D(
+            render_leverage,
+            "RENDER_LEVERAGE"
+        )
+    except ValueError:
+        return finish(
+            "BLOCKED",
+            "RENDER_LEVERAGE_INVALID"
+        )
+
+    if leverage != selected_leverage:
+        return finish(
+            "BLOCKED",
+            "LEVERAGE_MISMATCH"
+        )
+
+    if (
+        unit_8_result.get(
+            "leverage_source"
+        ) != "RENDER_MANUAL_WEEX_DEMO"
+        or sizing.get(
+            "leverage_source"
+        ) != "RENDER_MANUAL_WEEX_DEMO"
+    ):
+        return finish(
+            "BLOCKED",
+            "LEVERAGE_SOURCE_INVALID"
+        )
+
+    # ========================================================
+    # 9. BALANCE AND EXPOSURE
+    # ========================================================
+
+    if cap > Decimal("100"):
+        return finish(
+            "BLOCKED",
+            "EXPOSURE_CAP_ABOVE_100"
+        )
+
+    if entry_margin > available:
+        return finish(
+            "BLOCKED",
+            "INSUFFICIENT_AVAILABLE_BALANCE"
+        )
+
+    maximum_entry_budget = (
+        equity * cap / Decimal("100")
+    )
+
+    if entry_margin > maximum_entry_budget:
+        return finish(
+            "BLOCKED",
+            "ENTRY_EXCEEDS_EXPOSURE_BUDGET"
+        )
+
+    # Valid for verified linear USDT contracts.
+    actual_margin_requirement = (
+        quantity
+        * price
+        * multiplier
+        / leverage
+    )
+
+    if actual_margin_requirement > (
+        entry_margin + Decimal("0.00000001")
+    ):
+        return finish(
+            "BLOCKED",
+            "QUANTITY_EXCEEDS_ENTRY_MARGIN"
+        )
+
+    # ========================================================
+    # 10. INDEPENDENT DYNAMIC BACKUPS
+    # ========================================================
+
+    if (
+        unit_8_result.get(
+            "max_backups"
+        ) != 5
+        or sizing.get(
+            "max_backups"
+        ) != 5
+        or sizing.get(
+            "backup_sizing_mode"
+        ) != "PERCENT_AVAILABLE_BALANCE"
+        or sizing.get(
+            "backup_margin_reserved"
+        ) is not False
+    ):
+        return finish(
+            "BLOCKED",
+            "DYNAMIC_BACKUP_POLICY_INVALID"
+        )
+
+    # Unit 14 determines backup sizes using
+    # fresh balance at each actual trigger.
+
+    # ========================================================
+    # 11. PRESERVE UNIT 10 EXECUTION CANDIDATE
+    # ========================================================
+
+    execution_candidate = {
+        "active_mode": mode,
+        "direction": direction,
+        "trade_plan": plan,
+        "execution_environment": "DEMO",
+
+        "market_symbol": market_symbol,
+        "demo_order_symbol": demo_symbol,
+        "contract_multiplier": str(
+            multiplier
+        ),
+
+        "entry_margin_usdt": str(
+            entry_margin
+        ),
+
+        "minimum_entry_margin": str(
+            minimum_margin
+        ),
+
+        "tp1_minimum_entry_margin": str(
+            required_margin
+        ),
+
+        "tp1_execution_quantity": str(
+            tp1_quantity
+        ),
+
+        "entry_margin_accepted": True,
+        "entry_margin_reason":
+            "ENTRY_MARGIN_ACCEPTED",
+
+        "actual_margin_requirement": str(
+            actual_margin_requirement
+        ),
+    }
+
+    result.update({
+        "status": "READY",
+        "active_mode": mode,
+        "direction": direction,
+        "signal_qualified": True,
+        "execution_intent": True,
+        "trade_plan_ready": True,
+        "trade_plan": plan,
+        "execution_ready": True,
+        "execution_candidate":
+            execution_candidate,
+
+        "skip_reason": "NONE",
+
+        "quantity": float(quantity),
+        "selected_leverage": float(
+            leverage
+        ),
+
+        "margin_budget_prechecked": True,
+        "margin_budget_fresh_verified": False,
+
+        "trade_authorized": False,
+        "exchange_write": False,
+    })
+
+    print(
+        "UNIT 9 MARKET SYMBOL =",
+        market_symbol,
+        flush=True
+    )
+
+    print(
+        "UNIT 9 DEMO ORDER SYMBOL =",
+        demo_symbol,
+        flush=True
+    )
+
+    print(
+        "UNIT 9 REQUESTED MARGIN =",
+        entry_margin,
+        flush=True
+    )
+
+    print(
+        "UNIT 9 TP1 MINIMUM MARGIN =",
+        required_margin,
+        flush=True
+    )
+
+    print(
+        "UNIT 9 CONTRACT QUANTITY =",
+        quantity,
+        flush=True
+    )
+
+    print(
+        "UNIT 9 CONTRACT MULTIPLIER =",
+        multiplier,
+        flush=True
+    )
+
+    print(
+        "UNIT 9 ACTUAL MARGIN =",
+        actual_margin_requirement,
+        flush=True
+    )
+
+    print(
+        "UNIT 9 TP1 EXECUTABLE QUANTITY =",
+        tp1_quantity,
+        flush=True
+    )
+
+    print(
+        "UNIT 9 ENTRY MARGIN ACCEPTED = TRUE",
+        flush=True
+    )
+
+    print(
+        "UNIT 9 MAX BACKUPS = 5",
+        flush=True
+    )
+
+    print(
+        "UNIT 9 BACKUP MARGIN RESERVED = FALSE",
+        flush=True
+    )
+
+    print(
+        "UNIT 9 EXECUTION READY = TRUE",
+        flush=True
+    )
+
+    print(
+        "UNIT 9 TRADE AUTHORIZED = FALSE",
+        flush=True
+    )
+
+    print(
+        "UNIT 9 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+
+    print(
+        "FRESH RECONSTRUCTION UNIT 9 RESULT = PASS",
+        flush=True
+    )
+
+    print("=" * 80, flush=True)
+
+    return result
+
 def fresh_reconstruction_unit_9(
     config,
     unit_8_result,
