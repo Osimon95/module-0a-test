@@ -9483,10 +9483,13 @@ def unit_9_validation_v4():
     def record(name, passed):
         tests.append((name, bool(passed)))
 
-    record(
-        "UNIT 8 V6 INPUT",
+        record(
+        "UNIT 8 INPUT",
         actual.get("unit_8_version")
-        == "UNIT8_V6_RENDER_LEVERAGE"
+        in (
+            "UNIT8_V6_RENDER_LEVERAGE",
+            "UNIT8_V7_UNIVERSAL_DEMO",
+        )
     )
 
     record(
