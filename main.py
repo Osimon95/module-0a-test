@@ -9873,7 +9873,7 @@ def fresh_reconstruction_unit_10(
             + str(missing)
         )
 
-        if unit_9_result.get("unit_9_version") not in (
+    if unit_9_result.get("unit_9_version") not in (
         "UNIT9_V4_DYNAMIC_ENTRY",
         "UNIT9_V5_UNIVERSAL_MARGIN",
     ):
