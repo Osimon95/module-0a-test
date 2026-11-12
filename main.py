@@ -20206,6 +20206,24 @@ def scan_one_cycle():
         
         symbol_state = symbol_request_refresh()
 
+        
+        if symbol_state["pending_symbol"]:
+            switch_check = (
+                symbol_position_switch_check()
+            )
+
+            print(
+                "SYMBOL SWITCH POSITION ELIGIBLE =",
+                switch_check["eligible"],
+                flush=True
+            )
+
+            print(
+                "SYMBOL SWITCH POSITION REASON =",
+                switch_check["reason"],
+                flush=True
+            )
+
         submission = None
         entry_ok = False
 
