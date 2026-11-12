@@ -14755,10 +14755,15 @@ def unit_14_v3_positions():
 
 
 def unit_14_h1_select_original(positions):
-    active = unit_14_active_positions(positions)
+    if isinstance(positions, list):
+        active = unit_14_active_positions(positions)
+    elif isinstance(positions, dict):
+        active = positions
+    else:
+        raise RuntimeError(
+            "UNIT 14 POSITIONS INVALID"
+        )
 
-    # Explicitly configured original side.
-    # Never silently choose the first position.
     original_side = os.getenv(
         "ORIGINAL_POSITION_SIDE", ""
     ).strip().upper()
@@ -14768,9 +14773,21 @@ def unit_14_h1_select_original(positions):
             "SET ORIGINAL_POSITION_SIDE TO LONG OR SHORT"
         )
 
-    return active.get("BTCSUSDT:" + original_side)
+    config = FRESH_RECONSTRUCTION_CONFIG
+    exchange = config.get("exchange", {})
 
+    original_symbol = str(
+        exchange.get(
+            "demo_order_symbol",
+            "BTCSUSDT"
+        )
+    ).strip().upper()
 
+    key = original_symbol + ":" + original_side
+
+    return active.get(key)
+
+)
 def unit_14_v3_position():
     active = unit_14_v3_positions()
 
