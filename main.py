@@ -7403,6 +7403,79 @@ def fresh_reconstruction_unit_8(
         "exchange_write": False,
     }
 
+    
+    def notify_margin_rejection(reason):
+        details = output.get(
+            "margin_rejection_details"
+        )
+
+        if not isinstance(details, dict):
+            return
+
+        if reason not in (
+            "ENTRY_MARGIN_BELOW_TP1_MINIMUM",
+            "QUANTITY_BELOW_EXCHANGE_MINIMUM",
+        ):
+            return
+
+        symbol = str(
+            exchange.get("market_symbol", "UNKNOWN")
+        )
+
+        event_key = (
+            symbol,
+            str(details["direction"]),
+            str(details["requested_margin"]),
+            str(details["minimum_margin"]),
+            reason,
+        )
+
+        if globals().get(
+            "_LAST_MARGIN_REJECTION_EVENT"
+        ) == event_key:
+            return
+
+        message = (
+            "DEMO ENTRY REJECTED\n"
+            f"Symbol: {symbol}\n"
+            f"Direction: {details['direction']}\n"
+            f"Requested margin: "
+            f"{details['requested_margin']} USDT\n"
+            f"Minimum required: "
+            f"{details['minimum_margin']} USDT\n"
+            f"Additional margin needed: "
+            f"{details['shortfall']} USDT\n"
+            f"Reason: {reason}\n"
+            "Action: Increase "
+            "INITIAL_ENTRY_MARGIN_USDT "
+            "to at least the required amount."
+        )
+
+        sender = globals().get("unit15_telegram")
+
+        if not callable(sender):
+            print(
+                "UNIT 8 TELEGRAM SENDER UNAVAILABLE",
+                flush=True
+            )
+            return
+
+        try:
+            if sender(message):
+                globals()[
+                    "_LAST_MARGIN_REJECTION_EVENT"
+                ] = event_key
+                print(
+                    "UNIT 8 MARGIN REJECTION TELEGRAM = SENT",
+                    flush=True
+                )
+        except Exception as exc:
+            print(
+                "UNIT 8 MARGIN TELEGRAM ERROR =",
+                repr(exc),
+                flush=True
+            )
+
     def finish(status, reason):
 
         output["status"] = status
