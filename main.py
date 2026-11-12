@@ -10373,6 +10373,7 @@ def fresh_unit_10_hybrid_adapter(
 # 14. UNIT 10 VALIDATION
 # ============================================================
 
+
 def unit_10_validation_v3():
 
     print("=" * 80, flush=True)
@@ -10383,8 +10384,6 @@ def unit_10_validation_v3():
 
     config = FRESH_RECONSTRUCTION_CONFIG
     actual = FRESH_RECONSTRUCTION_UNIT_9_RESULT
-
-    tests = []
 
     passed = 0
     failed = 0
@@ -10401,12 +10400,13 @@ def unit_10_validation_v3():
 
         print(
             f"UNIT 10 TEST: {name} = {verdict}",
-            flush=True,
+            flush=True
         )
 
-        record(
+    record(
         "UNIT 9 V4/V5 HANDOVER",
-        actual.get("unit_9_version") in (
+        isinstance(actual, dict)
+        and actual.get("unit_9_version") in (
             "UNIT9_V4_DYNAMIC_ENTRY",
             "UNIT9_V5_UNIVERSAL_MARGIN",
         )
@@ -10414,8 +10414,8 @@ def unit_10_validation_v3():
 
     record(
         "WEEX DEMO CONFIGURATION",
-        config.get("execution_environment")
-        == "DEMO"
+        isinstance(config, dict)
+        and config.get("execution_environment") == "DEMO"
         and config.get("exchange", {}).get(
             "demo_order_symbol"
         ) == "BTCSUSDT"
@@ -10423,7 +10423,8 @@ def unit_10_validation_v3():
 
     record(
         "ORIGINAL UNIT 9 INPUT CONTRACT",
-        all(
+        isinstance(actual, dict)
+        and all(
             key in actual
             for key in (
                 "status",
@@ -10451,8 +10452,18 @@ def unit_10_validation_v3():
         ) is False
     )
 
-    # Use actual Unit 9 state without fabricating
-    # an actionable signal or order.
+    # Preserve actual Unit 9 output.
+    # No fabricated signal or order.
+
+    if failed:
+        print(
+            "UNIT 10 PRE-ADAPTER VALIDATION FAILED =",
+            failed,
+            flush=True
+        )
+        raise RuntimeError(
+            "UNIT 10 INPUT VALIDATION FAILED"
+        )
 
     output = fresh_unit_10_hybrid_adapter(
         config,
@@ -10513,21 +10524,6 @@ def unit_10_validation_v3():
         is False
     )
 
-    passed = sum(
-        1 for _, ok in tests if ok
-    )
-
-    failed = len(tests) - passed
-
-    for name, ok in tests:
-        print(
-            "UNIT 10 TEST:",
-            name,
-            "=",
-            "PASS" if ok else "FAIL",
-            flush=True
-        )
-
     print(
         "UNIT 10 TESTS PASSED =",
         passed,
@@ -10541,6 +10537,10 @@ def unit_10_validation_v3():
     )
 
     if failed:
+        print(
+            "UNIT 10 VALIDATION V3 RESULT = FAIL",
+            flush=True
+        )
         raise RuntimeError(
             "UNIT 10 V3 VALIDATION FAILED"
         )
