@@ -8801,6 +8801,105 @@ def fresh_reconstruction_unit_9(
             "BLOCKED",
             "POSITION_SIZING_MISSING"
         )
+        
+    # ========================================================
+    # TP1-EXECUTABLE ENTRY MARGIN ADMISSION
+    # ========================================================
+
+    try:
+        minimum_entry_margin = unit_9_v4_decimal(
+            sizing.get("minimum_entry_margin"),
+            "MINIMUM_ENTRY_MARGIN"
+        )
+
+        tp1_minimum_margin = unit_9_v4_decimal(
+            sizing.get("tp1_minimum_entry_margin"),
+            "TP1_MINIMUM_ENTRY_MARGIN"
+        )
+
+        tp1_quantity = unit_9_v4_decimal(
+            sizing.get("tp1_execution_quantity"),
+            "TP1_EXECUTION_QUANTITY"
+        )
+
+    except ValueError as exc:
+        print(
+            "UNIT 9 MINIMUM MARGIN DATA ERROR =",
+            str(exc),
+            flush=True
+        )
+
+        return finish(
+            "BLOCKED",
+            "TP1_MINIMUM_MARGIN_UNVERIFIED"
+        )
+
+    required_margin = max(
+        minimum_entry_margin,
+        tp1_minimum_margin
+    )
+
+    shortfall = max(
+        Decimal("0"),
+        required_margin - entry_margin
+    )
+
+    result["minimum_entry_margin"] = str(
+        minimum_entry_margin
+    )
+
+    result["tp1_minimum_entry_margin"] = str(
+        required_margin
+    )
+
+    result["entry_margin_shortfall"] = str(
+        shortfall
+    )
+
+    print(
+        "UNIT 9 REQUESTED ENTRY MARGIN =",
+        entry_margin,
+        flush=True
+    )
+
+    print(
+        "UNIT 9 TP1 MINIMUM MARGIN =",
+        required_margin,
+        flush=True
+    )
+
+    print(
+        "UNIT 9 ENTRY MARGIN SHORTFALL =",
+        shortfall,
+        flush=True
+    )
+
+    if (
+        entry_margin < required_margin
+        or sizing.get(
+            "entry_margin_accepted"
+        ) is not True
+    ):
+        result["entry_margin_reason"] = (
+            "ENTRY_MARGIN_BELOW_TP1_MINIMUM"
+            if entry_margin < required_margin
+            else "UNIT8_MARGIN_ADMISSION_FAILED"
+        )
+
+        return finish(
+            "BLOCKED",
+            result["entry_margin_reason"]
+        )
+
+    result["entry_margin_accepted"] = True
+    result["entry_margin_reason"] = (
+        "ENTRY_MARGIN_ACCEPTED"
+    )
+
+    result["tp1_execution_quantity"] = str(
+        tp1_quantity
+    )
+
 
     # ========================================================
     # 9. VERIFY UNIT 8 ENTRY MARGIN MATCHES CONFIG
