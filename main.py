@@ -10389,10 +10389,12 @@ def unit_10_validation_v3():
     def record(name, condition):
         tests.append((name, bool(condition)))
 
-    record(
-        "UNIT 9 V4 HANDOVER",
-        actual.get("unit_9_version")
-        == "UNIT9_V4_DYNAMIC_ENTRY"
+        record(
+        "UNIT 9 V4/V5 HANDOVER",
+        actual.get("unit_9_version") in (
+            "UNIT9_V4_DYNAMIC_ENTRY",
+            "UNIT9_V5_UNIVERSAL_MARGIN",
+        )
     )
 
     record(
