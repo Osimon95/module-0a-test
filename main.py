@@ -10386,8 +10386,20 @@ def unit_10_validation_v3():
 
     tests = []
 
-    def record(name, condition):
-        tests.append((name, bool(condition)))
+        def record(name, condition):
+        nonlocal passed, failed
+
+        if condition:
+            passed += 1
+            verdict = "PASS"
+        else:
+            failed += 1
+            verdict = "FAIL"
+
+        print(
+            f"UNIT 10 TEST: {name} = {verdict}",
+            flush=True,
+        )
 
         record(
         "UNIT 9 V4/V5 HANDOVER",
