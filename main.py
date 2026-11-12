@@ -20909,15 +20909,12 @@ def scan_one_cycle():
                     "SYMBOL_SWITCH_PENDING"
                 )
                 entry_ok = True
+            
+            
             else:
                 submission = (
                     scan_refresh_entry_pipeline()
                 )
-                entry_ok = True
-                submission = (
-                    scan_refresh_entry_pipeline()
-                )
-
                 entry_ok = True
 
             SCAN_LAST_MARKET_SUCCESS = (
