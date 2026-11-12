@@ -9873,11 +9873,12 @@ def fresh_reconstruction_unit_10(
             + str(missing)
         )
 
-    if unit_9_result.get(
-        "unit_9_version"
-    ) != "UNIT9_V4_DYNAMIC_ENTRY":
+        if unit_9_result.get("unit_9_version") not in (
+        "UNIT9_V4_DYNAMIC_ENTRY",
+        "UNIT9_V5_UNIVERSAL_MARGIN",
+    ):
         raise RuntimeError(
-            "UNIT 10 REQUIRES UNIT 9 V4"
+            "UNIT 10 UNSUPPORTED UNIT 9 VERSION"
         )
 
     if unit_9_result["read_only"] is not True:
