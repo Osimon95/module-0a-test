@@ -14786,8 +14786,7 @@ def unit_14_h1_select_original(positions):
     key = original_symbol + ":" + original_side
 
     return active.get(key)
-
-)
+    )
 def unit_14_v3_position():
     active = unit_14_v3_positions()
 
