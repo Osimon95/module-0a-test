@@ -7480,6 +7480,10 @@ def fresh_reconstruction_unit_8(
 
         output["status"] = status
         output["skip_reason"] = reason
+        
+        if status == "BLOCKED":
+            notify_margin_rejection(reason)
+
 
         print(
             "UNIT 8 STATUS =",
