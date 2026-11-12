@@ -20661,17 +20661,69 @@ def symbol_request_refresh():
     return state
 
 
+
 def symbol_new_entry_allowed():
+
     state = symbol_state_read()
 
-    if state is None:
+    if not isinstance(state, dict):
         return False
 
-    return (
-        state["pending_symbol"] is None
-        and state["requested_symbol"]
-        == state["active_symbol"]
+    requested = state.get("requested_symbol")
+    active = state.get("active_symbol")
+    pending = state.get("pending_symbol")
+
+    if (
+        not requested
+        or requested != active
+        or pending is not None
+    ):
+        return False
+
+    config = globals().get(
+        "FRESH_RECONSTRUCTION_CONFIG"
     )
+
+    if not isinstance(config, dict):
+        return False
+
+    exchange = config.get("exchange", {})
+
+    if not isinstance(exchange, dict):
+        return False
+
+    configured_market = exchange.get(
+        "market_symbol"
+    )
+
+    configured_demo = exchange.get(
+        "demo_order_symbol"
+    )
+
+    if configured_market != active:
+        print(
+            "SYMBOL ENTRY BLOCKED: MARKET CONFIG MISMATCH",
+            flush=True
+        )
+        return False
+
+    # The existing execution pipeline has only
+    # been configured for this BTC demo mapping.
+    # Other symbols require verified adapters.
+    if (
+        active == "BTCUSDT"
+        and configured_demo == "BTCSUSDT"
+    ):
+        return True
+
+    print(
+        "SYMBOL ENTRY BLOCKED: "
+        "DEMO EXECUTION ADAPTER NOT INTEGRATED",
+        active,
+        flush=True
+    )
+
+    return False
 
 
 # ============================================================
