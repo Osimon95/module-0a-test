@@ -9480,17 +9480,23 @@ def unit_9_validation_v4():
 
     tests = []
 
-    def record(name, passed):
-        tests.append((name, bool(passed)))
+        passed = 0
+    failed = 0
 
-        record(
-        "UNIT 8 INPUT",
-        actual.get("unit_8_version")
-        in (
-            "UNIT8_V6_RENDER_LEVERAGE",
-            "UNIT8_V7_UNIVERSAL_DEMO",
+    def record(name, condition):
+        nonlocal passed, failed
+
+        if condition:
+            passed += 1
+            verdict = "PASS"
+        else:
+            failed += 1
+            verdict = "FAIL"
+
+        print(
+            f"UNIT 9 TEST: {name} = {verdict}",
+            flush=True,
         )
-    )
 
     record(
         "DEMO ONLY",
