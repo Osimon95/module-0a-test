@@ -20053,6 +20053,100 @@ def symbol_new_entry_allowed():
 
 
 # ============================================================
+# SYMBOL SWITCH - EXISTING POSITION CHECK
+# READ ONLY / NO ORDER SUBMISSION
+# ============================================================
+
+def symbol_position_switch_check():
+    state = symbol_state_read()
+
+    if state is None:
+        return {
+            "eligible": False,
+            "reason": "SYMBOL_STATE_UNAVAILABLE"
+        }
+
+    active_symbol = state["active_symbol"]
+
+    try:
+        rows = unit_14_v3_signed_request(
+            "GET",
+            UNIT14_V3_POSITION
+        )
+    except Exception as exc:
+        print(
+            "SYMBOL POSITION CHECK ERROR =",
+            repr(exc),
+            flush=True
+        )
+        return {
+            "eligible": False,
+            "reason": "POSITION_READ_FAILED"
+        }
+
+    if not isinstance(rows, list):
+        return {
+            "eligible": False,
+            "reason": "INVALID_POSITION_RESPONSE"
+        }
+
+    active_positions = []
+
+    for position in rows:
+        if not isinstance(position, dict):
+            return {
+                "eligible": False,
+                "reason": "INVALID_POSITION_RECORD"
+            }
+
+        try:
+            quantity = unit_14_v3_D(
+                position.get("size"),
+                "POSITION SIZE",
+                True
+            )
+        except Exception:
+            return {
+                "eligible": False,
+                "reason": "POSITION_SIZE_UNVERIFIED"
+            }
+
+        if quantity > 0:
+            active_positions.append(position)
+
+    if active_positions:
+        print(
+            "SYMBOL SWITCH WAITING: ACTIVE POSITIONS =",
+            len(active_positions),
+            flush=True
+        )
+
+        return {
+            "eligible": False,
+            "reason": "EXISTING_POSITION_ACTIVE",
+            "positions": active_positions
+        }
+
+    print(
+        "SYMBOL SWITCH POSITION CHECK = FLAT",
+        flush=True
+    )
+
+    print(
+        "SYMBOL CURRENT ACTIVE =",
+        active_symbol,
+        flush=True
+    )
+
+    return {
+        "eligible": True,
+        "reason": "POSITIONS_FLAT",
+        "positions": []
+    }
+
+
+
+# ============================================================
 # END SYMBOL SWITCH CONTROLLER - PART 1
 # ============================================================
 
