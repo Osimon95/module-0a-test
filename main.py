@@ -8697,10 +8697,37 @@ def fresh_reconstruction_unit_9(
             reason
         )
 
+    
     if status == "BLOCKED":
+
+        result["minimum_entry_margin"] = (
+            unit_8_result.get(
+                "minimum_entry_margin"
+            )
+        )
+
+        result["tp1_minimum_entry_margin"] = (
+            unit_8_result.get(
+                "tp1_minimum_entry_margin"
+            )
+        )
+
+        result["entry_margin_reason"] = (
+            unit_8_result.get(
+                "entry_margin_reason"
+            ) or reason
+        )
+
+        result["entry_margin_shortfall"] = (
+            unit_8_result.get(
+                "margin_rejection_details",
+                {}
+            ).get("shortfall")
+        )
+
         return finish(
             "BLOCKED",
-            reason
+            result["entry_margin_reason"]
         )
 
     if status != "READY":
