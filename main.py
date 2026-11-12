@@ -8581,6 +8581,13 @@ def fresh_reconstruction_unit_9(
         "entry_margin_usdt": None,
         "entry_margin_source": None,
         "entry_margin_verified": False,
+        
+        "entry_margin_accepted": False,
+        "entry_margin_reason": "NOT_EVALUATED",
+        "minimum_entry_margin": None,
+        "tp1_minimum_entry_margin": None,
+        "entry_margin_shortfall": None,
+
 
         "leverage_source":
             "RENDER_MANUAL_WEEX_DEMO",
