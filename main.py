@@ -759,7 +759,7 @@ def unit_3_resolve_symbol(config):
 
     exchange = config.get("exchange", {})
 
-        requested = unit_3_normalize_symbol(
+    requested = unit_3_normalize_symbol(
         exchange.get("requested_symbol")
         or os.getenv("WEEX_SYMBOL", "")
     )
