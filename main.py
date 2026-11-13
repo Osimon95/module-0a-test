@@ -3040,3 +3040,1053 @@ FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE = (
 # ============================================================
 
 
+
+# ============================================================
+# START COMPLETE UNIT 6 V11 REPLACEMENT
+# DYNAMIC HYBRID SIGNAL + NET PROFIT ASSESSMENT
+# UNIT 4 V6 -> UNIT 5 V10 -> UNIT 6 -> UNIT 7
+# NO EXCHANGE ORDERS IN THIS UNIT
+# ============================================================
+
+import os
+import math
+import copy
+
+
+def unit_6_v11_number(value, name, default=None):
+    if value is None:
+        value = default
+    if isinstance(value, bool):
+        raise ValueError("UNIT 6 INVALID " + name)
+    try:
+        value = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(
+            "UNIT 6 INVALID " + name
+        ) from exc
+    if not math.isfinite(value):
+        raise ValueError(
+            "UNIT 6 NONFINITE " + name
+        )
+    return value
+
+
+def unit_6_v11_side(value):
+    if value > 0:
+        return "LONG"
+    if value < 0:
+        return "SHORT"
+    return "NONE"
+
+
+def unit_6_v11_clamp(value, low, high):
+    return max(low, min(high, value))
+
+
+def unit_6_v11_env_number(name, default):
+    return unit_6_v11_number(
+        os.getenv(name, str(default)),
+        name
+    )
+
+
+def fresh_reconstruction_unit_6(
+    unit_2_config,
+    unit_4_analysis,
+    unit_5_candidate
+):
+    print("=" * 80, flush=True)
+    print(
+        "FRESH RECONSTRUCTION UNIT 6 V11 START",
+        flush=True
+    )
+
+    if not all(isinstance(x, dict) for x in (
+        unit_2_config,
+        unit_4_analysis,
+        unit_5_candidate
+    )):
+        raise RuntimeError(
+            "UNIT 6 INVALID HANDOVER INPUT"
+        )
+
+    config = unit_2_config
+    analysis = unit_4_analysis
+    candidate = unit_5_candidate
+
+    strategy = config.get("strategy", {})
+    qualification = config.get(
+        "qualification", {}
+    )
+    scalp = qualification.get("scalp", {})
+
+    if not isinstance(strategy, dict):
+        raise RuntimeError(
+            "UNIT 6 STRATEGY INVALID"
+        )
+    if not isinstance(qualification, dict):
+        qualification = {}
+    if not isinstance(scalp, dict):
+        scalp = {}
+
+    symbol = str(
+        candidate.get("symbol", "")
+    ).strip().upper()
+
+    analysis_symbol = str(
+        analysis.get("symbol", "")
+    ).strip().upper()
+
+    if not symbol or symbol != analysis_symbol:
+        raise RuntimeError(
+            "UNIT 6 MARKET SYMBOL MISMATCH"
+        )
+
+    def a(key, default=None):
+        return unit_6_v11_number(
+            analysis.get(key), key, default
+        )
+
+    def c(key, default=None):
+        return unit_6_v11_number(
+            candidate.get(key), key, default
+        )
+
+    price = a("latest_close")
+    mark = a("live_mark_price")
+    ema19 = a("ema19")
+    ema50 = a("ema50")
+    ema100 = a("ema100")
+    ema200 = a("ema200")
+    atr = a("atr14")
+
+    if min(
+        price, mark, ema19, ema50,
+        ema100, ema200, atr
+    ) <= 0:
+        raise RuntimeError(
+            "UNIT 6 INVALID MARKET VALUES"
+        )
+
+    atr_pct = atr / mark * 100.0
+
+    move_1m = a("move_1m_pct", 0)
+    move_5m = a("move_5m_pct", 0)
+    move_15m = a("move_15m_pct", 0)
+
+    # ========================================================
+    # 6.1 CANDIDATE CLASSIFICATION
+    # ========================================================
+
+    mode = str(
+        candidate.get(
+            "candidate_mode", "NONE"
+        )
+    ).upper()
+
+    stage = str(
+        candidate.get(
+            "candidate_stage", "REJECTED"
+        )
+    ).upper()
+
+    side = str(
+        candidate.get(
+            "direction", "NONE"
+        )
+    ).upper()
+
+    valid_modes = (
+        "NONE", "BREAKOUT",
+        "STRUCTURE", "SCALP"
+    )
+
+    if mode not in valid_modes:
+        raise RuntimeError(
+            "UNIT 6 INVALID STRATEGY MODE"
+        )
+
+    if side not in (
+        "NONE", "LONG", "SHORT"
+    ):
+        raise RuntimeError(
+            "UNIT 6 INVALID DIRECTION"
+        )
+
+    breakout_ready = bool(
+        candidate.get(
+            "breakout_ready", False
+        )
+    )
+
+    structure_ready = bool(
+        candidate.get(
+            "structure_ready", False
+        )
+    )
+
+    scalp_ready = bool(
+        candidate.get(
+            "scalp_ready", False
+        )
+    )
+
+    higher_developing = bool(
+        candidate.get(
+            "higher_mode_developing", False
+        )
+    )
+
+    market_confirmed = bool(
+        candidate.get("qualified", False)
+        and stage == "QUALIFIED"
+        and side in ("LONG", "SHORT")
+        and (
+            (mode == "BREAKOUT" and breakout_ready)
+            or
+            (mode == "STRUCTURE" and structure_ready)
+        )
+    )
+
+    # ========================================================
+    # 6.2 FRESHNESS
+    # ========================================================
+
+    max_age = unit_6_v11_number(
+        config.get(
+            "market_data_policy", {}
+        ).get(
+            "max_market_age_seconds", 120
+        ),
+        "MAX_MARKET_AGE"
+    )
+
+    age = candidate.get(
+        "candidate_age_seconds"
+    )
+
+    if age is None:
+        age_ok = False
+        age_value = None
+    else:
+        age_value = unit_6_v11_number(
+            age, "CANDIDATE_AGE"
+        )
+        age_ok = (
+            0 <= age_value <= max_age
+        )
+
+    fresh = bool(
+        candidate.get(
+            "candle_data_fresh", True
+        )
+        and age_ok
+    )
+
+    # ========================================================
+    # 6.3 SCALP PERSISTENCE AND QUALITY
+    # ========================================================
+
+    scalp_side = str(
+        candidate.get(
+            "scalp_direction",
+            candidate.get(
+                "scalp_direction_candidate",
+                "NONE"
+            )
+        )
+    ).upper()
+
+    if scalp_side not in (
+        "LONG", "SHORT", "NONE"
+    ):
+        scalp_side = "NONE"
+
+    directions = (
+        unit_6_v11_side(move_1m),
+        unit_6_v11_side(move_5m),
+        unit_6_v11_side(move_15m)
+    )
+
+    persistence_window = 3
+
+    persistence_required = int(
+        unit_6_v11_number(
+            scalp.get(
+                "persistence_required", 2
+            ),
+            "PERSISTENCE_REQUIRED"
+        )
+    )
+
+    persistence_required = max(
+        1, min(3, persistence_required)
+    )
+
+    confirmations = sum(
+        d == scalp_side
+        for d in directions
+    ) if scalp_side != "NONE" else 0
+
+    persistence_pass = (
+        confirmations >= persistence_required
+    )
+
+    sideways = bool(
+        analysis.get(
+            "sideways_candidate", False
+        )
+    )
+
+    sideways_required = bool(
+        scalp.get(
+            "require_sideways_market", True
+        )
+    )
+
+    sideways_pass = (
+        sideways or not sideways_required
+    )
+
+    momentum_conflict = bool(
+        scalp_side != "NONE"
+        and directions[1] not in (
+            scalp_side, "NONE"
+        )
+    )
+
+    ema_separation_pct = (
+        abs(ema19 - ema50) / ema50 * 100
+    )
+
+    compression_atr = a(
+        "ema_compression_atr",
+        abs(ema19 - ema50) / atr
+    )
+
+    compression_limit = unit_6_v11_number(
+        scalp.get(
+            "ema_compression_atr_max", 0.7
+        ),
+        "COMPRESSION_LIMIT"
+    )
+
+    ema_compressed = (
+        compression_atr <= compression_limit
+    )
+
+    extension_atr = (
+        abs(price - ema19) / atr
+    )
+
+    spike_ratio = (
+        abs(move_1m)
+        / max(
+            abs(move_5m) / 5.0,
+            0.000001
+        )
+    )
+
+    extreme_extension = (
+        extension_atr > 1.5
+    )
+    extreme_spike = spike_ratio > 2.0
+    late_impulse = bool(
+        extreme_extension and extreme_spike
+    )
+
+    price_action_score = 0.0
+    persistence_score = 0.0
+    location_score = 0.0
+    ema_score = 0.0
+    volatility_score = 0.0
+
+    if scalp_side in ("LONG", "SHORT"):
+
+        if directions[1] == scalp_side:
+            price_action_score += 15
+        if directions[0] == scalp_side:
+            price_action_score += 10
+
+        min_move = unit_6_v11_number(
+            scalp.get(
+                "preliminary_move_5m_percent",
+                0.015
+            ),
+            "MIN_SCALP_MOVE"
+        )
+
+        if abs(move_5m) >= min_move:
+            price_action_score += 5
+
+        persistence_score = (
+            20.0 * confirmations / 3.0
+        )
+
+        if (
+            (scalp_side == "LONG" and price >= ema19)
+            or
+            (scalp_side == "SHORT" and price <= ema19)
+        ):
+            location_score += 10
+
+        if (
+            (scalp_side == "LONG" and price >= ema100)
+            or
+            (scalp_side == "SHORT" and price <= ema100)
+        ):
+            location_score += 5
+
+        if ema_compressed:
+            ema_score += 10
+
+        if (
+            (scalp_side == "LONG" and ema19 >= ema50)
+            or
+            (scalp_side == "SHORT" and ema19 <= ema50)
+        ):
+            ema_score += 5
+
+        if not extreme_extension:
+            volatility_score += 10
+        if not extreme_spike:
+            volatility_score += 5
+        if not late_impulse:
+            volatility_score += 5
+
+    quality_score = round(
+        unit_6_v11_clamp(
+            price_action_score
+            + persistence_score
+            + location_score
+            + ema_score
+            + volatility_score,
+            0, 100
+        ),
+        2
+    )
+
+    quality_minimum = unit_6_v11_number(
+        scalp.get(
+            "quality_threshold", 70
+        ),
+        "QUALITY_MINIMUM"
+    )
+
+    quality_pass = (
+        quality_score >= quality_minimum
+    )
+
+    quality_details = {
+        "price_action_score":
+            price_action_score,
+        "persistence_score":
+            round(persistence_score, 2),
+        "ema_location_score":
+            location_score,
+        "ema_quality_score":
+            ema_score,
+        "volatility_score":
+            volatility_score,
+        "extreme_extension":
+            extreme_extension,
+        "extreme_spike":
+            extreme_spike,
+        "late_impulse":
+            late_impulse,
+        "ema_separation_pct":
+            ema_separation_pct
+    }
+
+    scalp_market_confirmed = bool(
+        mode == "SCALP"
+        and stage == "PENDING_UNIT_6"
+        and scalp_ready
+        and scalp_side in ("LONG", "SHORT")
+        and not higher_developing
+        and sideways_pass
+        and persistence_pass
+        and not momentum_conflict
+        and not late_impulse
+        and quality_pass
+    )
+
+    if scalp_market_confirmed:
+        market_confirmed = True
+        side = scalp_side
+
+    # ========================================================
+    # 6.4 ADJUSTABLE LEVERAGE
+    # READ CONFIGURATION, NEVER MUTATE WEEX LEVERAGE
+    # ========================================================
+
+    leverage_key = (
+        "WEEX_LEVERAGE_LONG"
+        if side == "LONG"
+        else "WEEX_LEVERAGE_SHORT"
+        if side == "SHORT"
+        else None
+    )
+
+    leverage = None
+    leverage_ready = False
+
+    if leverage_key is not None:
+        raw_leverage = os.getenv(
+            leverage_key
+        )
+
+        if raw_leverage is not None:
+            leverage = unit_6_v11_number(
+                raw_leverage, leverage_key
+            )
+            leverage_ready = (
+                0 < leverage <= 200
+            )
+
+    # ========================================================
+    # 6.5 CONFIGURED NET ROI TARGETS
+    # ========================================================
+
+    tp1_roi = unit_6_v11_number(
+        strategy.get(
+            "tp1_net_roi_floor_percent",
+            10.0
+        ),
+        "TP1_NET_ROI"
+    )
+
+    tp2_roi = unit_6_v11_number(
+        strategy.get(
+            "tp2_net_roi_floor_percent",
+            30.0
+        ),
+        "TP2_NET_ROI"
+    )
+
+    if tp1_roi < 0 or tp2_roi < tp1_roi:
+        raise RuntimeError(
+            "UNIT 6 INVALID TP ROI CONFIGURATION"
+        )
+
+    # ========================================================
+    # 6.6 COST MODEL
+    # Percentages refer to position notional.
+    # ========================================================
+
+    round_trip_fee = c(
+        "estimated_round_trip_fee_pct",
+        0.16
+    )
+
+    extra_cost = unit_6_v11_env_number(
+        "UNIT6_EXTRA_COST_PCT",
+        0.0
+    )
+
+    if round_trip_fee < 0 or extra_cost < 0:
+        raise RuntimeError(
+            "UNIT 6 NEGATIVE COST CONFIGURATION"
+        )
+
+    total_cost = (
+        round_trip_fee + extra_cost
+    )
+
+    # ========================================================
+    # 6.7 PROJECTED MOVEMENT
+    #
+    # This is a configurable ATR-based screening estimate,
+    # not a prediction or guaranteed remaining movement.
+    # ========================================================
+
+    atr_multiplier = unit_6_v11_env_number(
+        "UNIT6_ATR_PROJECTION_MULTIPLIER",
+        2.0
+    )
+
+    if atr_multiplier <= 0:
+        raise RuntimeError(
+            "UNIT 6 INVALID ATR MULTIPLIER"
+        )
+
+    estimated_move = (
+        atr_pct * atr_multiplier
+    )
+
+    # Also retain historical movement for comparison.
+    if mode == "BREAKOUT":
+        historical_move = abs(
+            c("breakout_move_pct", move_5m)
+        )
+    elif mode == "STRUCTURE":
+        historical_move = abs(
+            c("structure_move_pct", move_15m)
+        )
+    elif mode == "SCALP":
+        historical_move = abs(
+            c("scalp_move_pct", move_1m)
+        )
+    else:
+        historical_move = 0.0
+        estimated_move = 0.0
+
+    # ========================================================
+    # 6.8 NET PROFIT ASSESSMENT
+    # ========================================================
+
+    estimated_net_roi = None
+    required_tp1_move = None
+    required_tp2_move = None
+
+    fee_coverage_pass = None
+    tp1_profit_pass = False
+    tp2_profit_pass = False
+    profit_qualified = False
+
+    if (
+        mode != "NONE"
+        and leverage_ready
+    ):
+        estimated_net_roi = (
+            (estimated_move - total_cost)
+            * leverage
+        )
+
+        required_tp1_move = (
+            total_cost + tp1_roi / leverage
+        )
+
+        required_tp2_move = (
+            total_cost + tp2_roi / leverage
+        )
+
+        fee_coverage_pass = (
+            estimated_move > total_cost
+        )
+
+        tp1_profit_pass = (
+            estimated_net_roi >= tp1_roi
+        )
+
+        tp2_profit_pass = (
+            estimated_net_roi >= tp2_roi
+        )
+
+        profit_qualified = (
+            fee_coverage_pass
+            and tp1_profit_pass
+        )
+
+    # ========================================================
+    # 6.9 ADMISSION ARBITRATION
+    # ========================================================
+
+    execution_intent = False
+    signal_qualified = False
+    active_mode = "NONE"
+    direction = "NONE"
+
+    admission_reason = (
+        "NO_ACCEPTABLE_CANDIDATE"
+    )
+
+    if not fresh:
+        admission_reason = (
+            "MARKET_EVIDENCE_STALE"
+        )
+
+    elif not market_confirmed:
+        admission_reason = str(
+            candidate.get(
+                "qualification_reason",
+                "MARKET_NOT_CONFIRMED"
+            )
+        )
+
+    elif not leverage_ready:
+        admission_reason = (
+            "LEVERAGE_CONFIGURATION_PENDING"
+        )
+
+    elif not fee_coverage_pass:
+        admission_reason = (
+            "ESTIMATED_MOVEMENT_BELOW_COST"
+        )
+
+    elif not tp1_profit_pass:
+        admission_reason = (
+            "ESTIMATED_NET_ROI_BELOW_TP1"
+        )
+
+    else:
+        execution_intent = True
+        signal_qualified = True
+        active_mode = mode
+        direction = side
+        admission_reason = (
+            "NET_PROFIT_SCREEN_PASSED"
+        )
+
+    # ========================================================
+    # 6.10 UNIT 7 OUTPUT CONTRACT
+    # ========================================================
+
+    result = {
+        "symbol": symbol,
+        "execution_intent":
+            execution_intent,
+        "signal_qualified":
+            signal_qualified,
+        "active_mode": active_mode,
+        "direction": direction,
+        "admission_reason":
+            admission_reason,
+
+        "candidate_mode": mode,
+        "candidate_stage": stage,
+        "market_confirmed":
+            market_confirmed,
+        "profit_qualified":
+            profit_qualified,
+        "entry_qualified":
+            signal_qualified,
+
+        "unit_5_reason":
+            candidate.get(
+                "qualification_reason",
+                "UNKNOWN"
+            ),
+
+        "higher_mode_developing":
+            higher_developing,
+
+        "unit_5_evidence_version":
+            candidate.get(
+                "strategy_evidence_version"
+            ),
+        "unit_4_evidence_version":
+            analysis.get(
+                "strategy_evidence_version"
+            ),
+
+        "classification_version":
+            "UNIT6_V9_ADJUSTABLE",
+        "classification_revision":
+            "UNIT6_V11_NET_PROFIT",
+
+        "market_data_fresh": fresh,
+
+        "leverage_target": None,
+        "leverage_regime":
+            "WEEX_EXCHANGE_SETTING",
+        "configured_leverage":
+            leverage,
+        "leverage_source":
+            leverage_key,
+        "leverage_configured":
+            leverage_ready,
+
+        "sideways_regime": sideways,
+        "ema_compressed": ema_compressed,
+        "compression_threshold_pct":
+            compression_limit,
+
+        "momentum_conflict":
+            momentum_conflict,
+        "persistence_window":
+            persistence_window,
+        "persistence_required":
+            persistence_required,
+        "persistence_confirmations":
+            confirmations,
+        "persistence_directions":
+            directions,
+        "persistence_pass":
+            persistence_pass,
+
+        "fifteen_minute_support_pass":
+            directions[2] == scalp_side,
+
+        "scalp_quality_score":
+            quality_score,
+        "scalp_quality_minimum":
+            quality_minimum,
+        "scalp_quality_pass":
+            quality_pass,
+        "scalp_quality_details":
+            quality_details,
+
+        "estimated_move_pct":
+            estimated_move,
+        "historical_move_pct":
+            historical_move,
+        "estimated_round_trip_fee_pct":
+            round_trip_fee,
+        "additional_cost_pct":
+            extra_cost,
+        "total_cost_pct":
+            total_cost,
+        "required_move_pct":
+            required_tp1_move,
+        "required_tp1_move_pct":
+            required_tp1_move,
+        "required_tp2_move_pct":
+            required_tp2_move,
+        "estimated_net_roi_pct":
+            estimated_net_roi,
+        "tp1_net_roi_target_pct":
+            tp1_roi,
+        "tp2_net_roi_target_pct":
+            tp2_roi,
+        "tp1_profit_qualified":
+            tp1_profit_pass,
+        "tp2_profit_qualified":
+            tp2_profit_pass,
+        "fee_coverage_pass":
+            fee_coverage_pass,
+        "fee_estimate_verified": False,
+        "projection_method":
+            "ATR_MULTIPLIER_HEURISTIC",
+
+        "position_sizing_performed": False,
+        "order_payload_created": False,
+        "exchange_write": False,
+        "read_only": True,
+        "trade_authorized": False
+    }
+
+    # ========================================================
+    # 6.11 RENDER DIAGNOSTICS
+    # ========================================================
+
+    print(
+        "UNIT 6 SYMBOL =", symbol,
+        flush=True
+    )
+    print(
+        "UNIT 6 MARKET MODE =", mode,
+        flush=True
+    )
+    print(
+        "UNIT 6 MARKET CONFIRMED =",
+        market_confirmed, flush=True
+    )
+    print(
+        "UNIT 6 DIRECTION =", side,
+        flush=True
+    )
+    print(
+        "UNIT 6 MARKET DATA FRESH =",
+        fresh, flush=True
+    )
+    print(
+        "UNIT 6 LEVERAGE =",
+        leverage, flush=True
+    )
+    print(
+        "UNIT 6 ATR % =",
+        round(atr_pct, 6), flush=True
+    )
+    print(
+        "UNIT 6 PROJECTED MOVE % =",
+        round(estimated_move, 6),
+        flush=True
+    )
+    print(
+        "UNIT 6 PROJECTION METHOD =",
+        "ATR_MULTIPLIER_HEURISTIC",
+        flush=True
+    )
+    print(
+        "UNIT 6 ROUND TRIP COST % =",
+        round(total_cost, 6),
+        flush=True
+    )
+    print(
+        "UNIT 6 ESTIMATED NET ROI % =",
+        estimated_net_roi, flush=True
+    )
+    print(
+        "UNIT 6 TP1 NET ROI TARGET % =",
+        tp1_roi, flush=True
+    )
+    print(
+        "UNIT 6 TP2 NET ROI TARGET % =",
+        tp2_roi, flush=True
+    )
+    print(
+        "UNIT 6 TP1 PROFIT SCREEN =",
+        tp1_profit_pass, flush=True
+    )
+    print(
+        "UNIT 6 TP2 PROFIT SCREEN =",
+        tp2_profit_pass, flush=True
+    )
+    print(
+        "UNIT 6 SCALP QUALITY =",
+        quality_score, flush=True
+    )
+    print(
+        "UNIT 6 SCALP PERSISTENCE =",
+        confirmations, "/",
+        persistence_required,
+        flush=True
+    )
+    print(
+        "UNIT 6 SIGNAL QUALIFIED =",
+        signal_qualified, flush=True
+    )
+    print(
+        "UNIT 6 EXECUTION INTENT =",
+        execution_intent, flush=True
+    )
+    print(
+        "UNIT 6 ADMISSION REASON =",
+        admission_reason, flush=True
+    )
+    print(
+        "UNIT 6 TO UNIT 7 HANDOVER = READY",
+        flush=True
+    )
+    print(
+        "UNIT 6 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+    print(
+        "FRESH RECONSTRUCTION UNIT 6 RESULT = PASS",
+        flush=True
+    )
+    print("=" * 80, flush=True)
+
+    return result
+
+
+# ============================================================
+# 6.12 DETERMINISTIC VALIDATION
+# ============================================================
+
+def unit_6_validation_v11():
+    cfg = {
+        "strategy": {
+            "tp1_net_roi_floor_percent": 10,
+            "tp2_net_roi_floor_percent": 30
+        },
+        "qualification": {
+            "scalp": {}
+        },
+        "market_data_policy": {
+            "max_market_age_seconds": 120
+        }
+    }
+
+    analysis = {
+        "symbol": "AVAXUSDT",
+        "latest_close": 8.2,
+        "live_mark_price": 8.2,
+        "ema19": 8.18,
+        "ema50": 8.16,
+        "ema100": 8.1,
+        "ema200": 8.0,
+        "atr14": 0.01,
+        "move_1m_pct": 0.05,
+        "move_5m_pct": 0.10,
+        "move_15m_pct": 0.20,
+        "sideways_candidate": False
+    }
+
+    candidate = {
+        "symbol": "AVAXUSDT",
+        "candidate_mode": "STRUCTURE",
+        "candidate_stage": "QUALIFIED",
+        "direction": "LONG",
+        "qualified": True,
+        "structure_ready": True,
+        "breakout_ready": False,
+        "scalp_ready": False,
+        "higher_mode_developing": False,
+        "candle_data_fresh": True,
+        "candidate_age_seconds": 5,
+        "estimated_round_trip_fee_pct": 0.16,
+        "qualification_reason":
+            "STRUCTURE_CONFIRMED"
+    }
+
+    # Tests do not submit orders.
+    old_long = os.environ.get(
+        "WEEX_LEVERAGE_LONG"
+    )
+
+    try:
+        os.environ[
+            "WEEX_LEVERAGE_LONG"
+        ] = "10"
+
+        output = fresh_reconstruction_unit_6(
+            copy.deepcopy(cfg),
+            copy.deepcopy(analysis),
+            copy.deepcopy(candidate)
+        )
+
+        assert output["symbol"] == "AVAXUSDT"
+        assert output["market_confirmed"] is True
+        assert output["order_payload_created"] is False
+        assert output["exchange_write"] is False
+        assert output["classification_revision"] == (
+            "UNIT6_V11_NET_PROFIT"
+        )
+
+        idle = copy.deepcopy(candidate)
+        idle.update({
+            "candidate_mode": "NONE",
+            "candidate_stage": "REJECTED",
+            "direction": "NONE",
+            "qualified": False,
+            "structure_ready": False
+        })
+
+        idle_output = fresh_reconstruction_unit_6(
+            cfg, analysis, idle
+        )
+
+        assert idle_output[
+            "execution_intent"
+        ] is False
+
+        assert idle_output[
+            "active_mode"
+        ] == "NONE"
+
+    finally:
+        if old_long is None:
+            os.environ.pop(
+                "WEEX_LEVERAGE_LONG", None
+            )
+        else:
+            os.environ[
+                "WEEX_LEVERAGE_LONG"
+            ] = old_long
+
+    print(
+        "UNIT 6 V11 VALIDATION = PASS",
+        flush=True
+    )
+    return True
+
+
+FRESH_UNIT_6_VALIDATION_READY = (
+    unit_6_validation_v11()
+)
+
+FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE = (
+    fresh_reconstruction_unit_6(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT,
+        FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE
+    )
+)
+
+# ============================================================
+# END COMPLETE UNIT 6 V11 REPLACEMENT
+# UNIT 7 STARTS AT ZERO INDENTATION
+# ============================================================
