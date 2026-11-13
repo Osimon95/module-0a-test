@@ -152,11 +152,12 @@ FRESH_RECONSTRUCTION_UNIT_1_READY = (
 
 
 # ============================================================
-# START COMPLETE UNIT 2 V13
-# WEEX DEMO CENTRAL CONFIGURATION
-# GROUPED RENDER SETTINGS
-# ATR-DYNAMIC BACKUP BUFFER
-# ORIGINAL DOWNSTREAM KEYS PRESERVED
+# START COMPLETE UNIT 2 V14
+# WEEX DEMO - CENTRAL CONFIGURATION
+# GROUPED RENDER VARIABLES
+# DEFERRED SYMBOL SWITCHING
+# ATR-DYNAMIC BACKUP CONFIGURATION
+# ORIGINAL DOWNSTREAM INTERFACES PRESERVED
 # ZERO INDENTATION
 # ============================================================
 
@@ -166,7 +167,7 @@ from decimal import Decimal, InvalidOperation
 
 
 # ============================================================
-# NUMERIC UTILITIES
+# 1. NUMERIC CONFIGURATION HELPERS
 # ============================================================
 
 def unit_2_v9_number(value, name, allow_zero=False):
@@ -187,7 +188,7 @@ def unit_2_v9_number(value, name, allow_zero=False):
     return number
 
 
-def unit_2_v13_setting(
+def unit_2_v14_setting(
     name,
     default,
     aliases=(),
@@ -211,18 +212,10 @@ def unit_2_v13_setting(
 
 
 # ============================================================
-# GROUPED RENDER VALUE PARSER
-#
-# Example:
-# TP_ALLOCATION_PERCENT=TP1:10, TP2:20
-#
-# Also accepts:
-# TP1=10,TP2=20
-#
-# No extra dependencies or packages.
+# 2. GROUPED RENDER PARSER
 # ============================================================
 
-def unit_2_v13_group(
+def unit_2_v14_group(
     env_name,
     defaults,
     aliases=None
@@ -231,11 +224,11 @@ def unit_2_v13_group(
     result = {}
 
     for key, default in defaults.items():
-        legacy_key = aliases.get(key)
+        legacy_name = aliases.get(key)
 
-        if legacy_key:
-            result[key] = unit_2_v13_setting(
-                legacy_key,
+        if legacy_name:
+            result[key] = unit_2_v14_setting(
+                legacy_name,
                 default,
                 allow_zero=True
             )
@@ -250,6 +243,7 @@ def unit_2_v13_group(
         return result
 
     supplied = set()
+    explicit_tp3 = None
 
     for entry in raw.split(","):
         entry = entry.strip()
@@ -267,9 +261,13 @@ def unit_2_v13_group(
             )
 
         key = key.strip().upper()
-        value = value.strip()
 
-        if key not in defaults:
+        allowed = set(defaults)
+
+        if env_name == "TP_ALLOCATION_PERCENT":
+            allowed.add("TP3")
+
+        if key not in allowed:
             raise ValueError(
                 env_name + " UNKNOWN KEY: " + key
             )
@@ -281,23 +279,227 @@ def unit_2_v13_group(
 
         supplied.add(key)
 
-        result[key] = unit_2_v9_number(
+        number = unit_2_v9_number(
             value,
             env_name + "." + key,
             allow_zero=True
         )
 
+        if key == "TP3":
+            explicit_tp3 = number
+        else:
+            result[key] = number
+
+    # TP3 is always derived from TP1 and TP2.
+    # A legacy TP3 value is accepted but cannot
+    # create a competing configuration source.
+
+    if explicit_tp3 is not None:
+        derived = (
+            Decimal("100")
+            - result["TP1"]
+            - result["TP2"]
+        )
+
+        if explicit_tp3 != derived:
+            print(
+                "UNIT 2 LEGACY TP3 OVERRIDDEN =",
+                explicit_tp3,
+                "DERIVED TP3 =",
+                derived,
+                flush=True
+            )
+
     return result
 
 
+# Preserve earlier grouped parser interface.
+unit_2_v13_group = unit_2_v14_group
+
+
 # ============================================================
-# PURE ATR-DYNAMIC BACKUP BUFFER
-#
-# Calculated only when fresh ATR14 and price
-# are available. No global mutation.
+# 3. SYMBOL NORMALIZATION
 # ============================================================
 
-def unit_2_v13_atr_backup_buffer(
+def unit_2_v14_symbol(value):
+    symbol = str(value or "").strip().upper()
+
+    if not re.fullmatch(
+        r"[A-Z0-9]{2,25}USDT",
+        symbol
+    ):
+        raise ValueError(
+            "INVALID REQUESTED SYMBOL: " + symbol
+        )
+
+    return symbol
+
+
+# ============================================================
+# 4. PURE SYMBOL-SWITCH DECISION FUNCTION
+#
+# This function never calls WEEX or Telegram.
+#
+# It consumes VERIFIED exchange facts supplied
+# by the existing account/contract adapter.
+#
+# The coordinator must persist and apply the
+# returned decision atomically.
+# ============================================================
+
+def unit_2_v14_symbol_decision(
+    requested_symbol,
+    active_symbol,
+    contract_supported=None,
+    position_flat=None,
+    orders_clear=None
+):
+    requested = unit_2_v14_symbol(
+        requested_symbol
+    )
+
+    active = (
+        unit_2_v14_symbol(active_symbol)
+        if active_symbol else None
+    )
+
+    base = {
+        "requested_symbol": requested,
+        "active_symbol": active,
+        "pending_symbol": None,
+        "activate": False,
+        "persist_required": False,
+        "notification_required": False,
+        "notification_status": None,
+        "status": None,
+        "reason": None,
+    }
+
+    def decision(
+        status,
+        reason,
+        pending=None,
+        activate=False,
+        persist=False,
+        notify=False
+    ):
+        return {
+            **base,
+            "pending_symbol": pending,
+            "activate": activate,
+            "persist_required": persist,
+            "notification_required": notify,
+            "notification_status": status,
+            "status": status,
+            "reason": reason,
+        }
+
+    # A request for the active symbol does not
+    # require a new exchange order or switch.
+
+    if active == requested:
+        return decision(
+            "ALREADY_ACTIVE",
+            "REQUESTED_SYMBOL_ALREADY_ACTIVE"
+        )
+
+    # Unknown verification is not rejection.
+    # It must not be treated as position flat.
+
+    if contract_supported is None:
+        return decision(
+            "VERIFICATION_PENDING",
+            "DEMO_CONTRACT_NOT_YET_VERIFIED",
+            pending=requested
+        )
+
+    if contract_supported is False:
+        return decision(
+            "REJECTED",
+            "UNSUPPORTED_WEEX_DEMO_CONTRACT",
+            notify=True
+        )
+
+    # Contract support must come from an actual
+    # verified demo-futures contract lookup.
+
+    if contract_supported is not True:
+        return decision(
+            "VERIFICATION_PENDING",
+            "INVALID_CONTRACT_VERIFICATION",
+            pending=requested
+        )
+
+    if position_flat is None or orders_clear is None:
+        return decision(
+            "VERIFICATION_PENDING",
+            "POSITION_OR_ORDER_STATUS_UNKNOWN",
+            pending=requested
+        )
+
+    # Existing exposure or unresolved orders:
+    # queue the request, preserve active symbol.
+
+    if position_flat is False or orders_clear is False:
+        return decision(
+            "ACCEPTED_QUEUED",
+            "EXISTING_EXPOSURE_OR_PENDING_ORDERS",
+            pending=requested,
+            persist=True,
+            notify=True
+        )
+
+    # Only confirmed flat and clear conditions
+    # can permit activation.
+
+    if position_flat is True and orders_clear is True:
+        return decision(
+            "ACCEPTED_ACTIVATE",
+            "SUPPORTED_AND_EXCHANGE_CONFIRMED_FLAT",
+            activate=True,
+            persist=True,
+            notify=True
+        )
+
+    return decision(
+        "VERIFICATION_PENDING",
+        "INVALID_POSITION_VERIFICATION",
+        pending=requested
+    )
+
+
+# ============================================================
+# 5. TELEGRAM MESSAGE BUILDER
+#
+# Existing Telegram sender is responsible
+# for delivery and retry.
+# ============================================================
+
+def unit_2_v14_symbol_message(decision):
+    status = decision.get("status", "UNKNOWN")
+    requested = decision.get(
+        "requested_symbol", "UNKNOWN"
+    )
+    active = decision.get(
+        "active_symbol"
+    ) or "UNRESOLVED"
+
+    reason = decision.get("reason", "UNKNOWN")
+
+    return (
+        "WEEX DEMO SYMBOL SWITCH\n"
+        "Requested: " + requested + "\n"
+        "Previous active: " + active + "\n"
+        "Status: " + status + "\n"
+        "Reason: " + reason
+    )
+
+
+# ============================================================
+# 6. ATR-DYNAMIC BACKUP BUFFER
+# ============================================================
+
+def unit_2_v14_atr_backup_buffer(
     atr14,
     market_price,
     multiplier=1.0
@@ -314,22 +516,24 @@ def unit_2_v13_atr_backup_buffer(
         multiplier, "ATR_MULTIPLIER"
     )
 
-    atr_percent = (
-        atr / price * Decimal("100")
+    buffer_percent = (
+        atr / price
+        * Decimal("100")
+        * factor
     )
-
-    buffer_percent = atr_percent * factor
 
     if buffer_percent >= Decimal("100"):
         raise ValueError(
-            "ATR BUFFER OUTSIDE VALID PRICE RANGE"
+            "ATR BUFFER OUTSIDE VALID RANGE"
         )
 
     return {
         "mode": "ATR_DYNAMIC",
         "atr14": float(atr),
         "market_price": float(price),
-        "atr_percent": float(atr_percent),
+        "atr_percent": float(
+            atr / price * Decimal("100")
+        ),
         "atr_multiplier": float(factor),
         "backup_buffer_percent":
             float(buffer_percent),
@@ -346,43 +550,42 @@ def unit_2_v13_atr_backup_buffer(
     }
 
 
-# Preserve previous helper names.
-unit_2_v12_atr_backup_buffer = (
-    unit_2_v13_atr_backup_buffer
+unit_2_v13_atr_backup_buffer = (
+    unit_2_v14_atr_backup_buffer
 )
-
+unit_2_v12_atr_backup_buffer = (
+    unit_2_v14_atr_backup_buffer
+)
 unit_2_v11_atr_backup_buffer = (
-    unit_2_v13_atr_backup_buffer
+    unit_2_v14_atr_backup_buffer
 )
 
 
 # ============================================================
-# CENTRAL CONFIGURATION
+# 7. CENTRAL CONFIGURATION
 # ============================================================
 
 def fresh_reconstruction_unit_2():
 
     print("=" * 80, flush=True)
     print(
-        "FRESH RECONSTRUCTION UNIT 2 V13 START",
+        "FRESH RECONSTRUCTION UNIT 2 V14 START",
         flush=True
     )
 
-    # --------------------------------------------------------
-    # SYMBOL REQUEST
-    # --------------------------------------------------------
+    requested_symbol = unit_2_v14_symbol(
+        os.getenv("WEEX_SYMBOL", "BTCUSDT")
+    )
 
-    requested_symbol = os.getenv(
-        "WEEX_SYMBOL", "BTCUSDT"
-    ).strip().upper()
-
-    if not re.fullmatch(
-        r"[A-Z0-9]{2,25}USDT",
-        requested_symbol
-    ):
-        raise ValueError(
-            "INVALID WEEX_SYMBOL: " + requested_symbol
-        )
+    # Unit 2 cannot infer the confirmed active
+    # symbol from the Render request.
+    #
+    # BTC values below are legacy bootstrap
+    # compatibility fields only.
+    #
+    # The SQLite/exchange coordinator must
+    # restore the real active symbol before
+    # new-entry execution.
 
     exchange = {
         "name": "WEEX",
@@ -392,57 +595,60 @@ def fresh_reconstruction_unit_2():
 
         "requested_symbol": requested_symbol,
 
-        # Original BTC configuration remains
-        # until the existing symbol controller
-        # reconciles the requested symbol.
         "market_symbol": "BTCUSDT",
         "demo_order_symbol": "BTCSUSDT",
 
         "symbol_switch_status":
-            "PENDING_VERIFICATION"
-            if requested_symbol != "BTCUSDT"
-            else "CURRENT_CONFIGURATION",
+            "BOOTSTRAP_RECONCILIATION_REQUIRED",
+
+        "active_symbol_confirmed": False,
+        "symbol_switch_mode": "AUTO_DEFERRED",
+        "symbol_switch_requires_flat": True,
+        "symbol_switch_requires_orders_clear": True,
+        "symbol_switch_requires_demo_support": True,
+        "symbol_switch_state_storage": "SQLITE",
+        "symbol_switch_notification": "TELEGRAM",
+        "symbol_switch_decision_function":
+            "unit_2_v14_symbol_decision",
+        "symbol_switch_message_function":
+            "unit_2_v14_symbol_message",
     }
 
     # --------------------------------------------------------
     # INDEPENDENT RENDER SETTINGS
     # --------------------------------------------------------
 
-    initial_margin = unit_2_v13_setting(
+    initial_margin = unit_2_v14_setting(
         "INITIAL_ENTRY_MARGIN_USDT",
         "0.5",
         aliases=("ENTRY_FIXED_USDT",)
     )
 
-    backup_margin = unit_2_v13_setting(
+    backup_margin = unit_2_v14_setting(
         "BACKUP_MARGIN_PERCENT",
         "0.5"
     )
 
-    exposure_cap = unit_2_v13_setting(
+    exposure_cap = unit_2_v14_setting(
         "EXPOSURE_CAP_PERCENT",
         "50"
     )
 
     if backup_margin > 100:
         raise ValueError(
-            "BACKUP_MARGIN_PERCENT EXCEEDS 100"
+            "BACKUP MARGIN EXCEEDS 100%"
         )
 
     if exposure_cap > 100:
         raise ValueError(
-            "EXPOSURE_CAP_PERCENT EXCEEDS 100"
+            "EXPOSURE CAP EXCEEDS 100%"
         )
 
     # --------------------------------------------------------
-    # GROUP 1: TAKE-PROFIT ALLOCATION
-    #
-    # TP_ALLOCATION_PERCENT=TP1:10, TP2:20
-    #
-    # TP3 is automatically calculated.
+    # GROUPED TP ALLOCATION
     # --------------------------------------------------------
 
-    allocation = unit_2_v13_group(
+    allocation = unit_2_v14_group(
         "TP_ALLOCATION_PERCENT",
         {
             "TP1": "10",
@@ -463,23 +669,20 @@ def fresh_reconstruction_unit_2():
         - tp2_allocation
     )
 
-    if (
-        tp1_allocation <= 0
-        or tp2_allocation <= 0
-        or tp3_allocation <= 0
-    ):
+    if min(
+        tp1_allocation,
+        tp2_allocation,
+        tp3_allocation
+    ) <= 0:
         raise ValueError(
-            "TP ALLOCATIONS MUST BE POSITIVE "
-            "AND TOTAL 100"
+            "INVALID TP ALLOCATION"
         )
 
     # --------------------------------------------------------
-    # GROUP 2: NET ROI PROFIT TARGETS
-    #
-    # TP_NET_ROI_PERCENT=TP1:20, TP2:40
+    # GROUPED TP NET ROI
     # --------------------------------------------------------
 
-    roi = unit_2_v13_group(
+    roi = unit_2_v14_group(
         "TP_NET_ROI_PERCENT",
         {
             "TP1": "20",
@@ -496,17 +699,14 @@ def fresh_reconstruction_unit_2():
 
     if tp1_roi <= 0 or tp2_roi <= tp1_roi:
         raise ValueError(
-            "TP2 ROI MUST EXCEED POSITIVE TP1 ROI"
+            "INVALID TP NET ROI TARGETS"
         )
 
     # --------------------------------------------------------
-    # GROUP 3: TP3 TRAILING
-    #
-    # Optional:
-    # TP_TRAILING_PERCENT=REF:0.20, MIN:0.10, MAX:0.40
+    # GROUPED TP3 TRAILING
     # --------------------------------------------------------
 
-    trailing = unit_2_v13_group(
+    trailing = unit_2_v14_group(
         "TP_TRAILING_PERCENT",
         {
             "REF": "0.20",
@@ -521,17 +721,14 @@ def fresh_reconstruction_unit_2():
         <= trailing["MAX"]
     ):
         raise ValueError(
-            "INVALID TP TRAILING RANGE"
+            "INVALID TP3 TRAILING SETTINGS"
         )
 
     # --------------------------------------------------------
-    # ATR BACKUP COMPATIBILITY
-    #
-    # Legacy value retained for old consumers.
-    # It is not an ATR-derived trigger.
+    # LEGACY BACKUP BUFFER COMPATIBILITY
     # --------------------------------------------------------
 
-    legacy_buffer = unit_2_v13_setting(
+    legacy_buffer = unit_2_v14_setting(
         "BACKUP_BUFFER_PERCENT",
         "0.3"
     )
@@ -543,8 +740,6 @@ def fresh_reconstruction_unit_2():
 
     # --------------------------------------------------------
     # STRATEGY
-    #
-    # All established downstream keys remain.
     # --------------------------------------------------------
 
     strategy = {
@@ -562,11 +757,10 @@ def fresh_reconstruction_unit_2():
         "backup_buffer_mode": "ATR_DYNAMIC",
         "backup_buffer_atr_multiplier": 1.0,
         "backup_buffer_calculation":
-            "unit_2_v13_atr_backup_buffer",
+            "unit_2_v14_atr_backup_buffer",
         "backup_buffer_ready": False,
 
         "max_backups": 5,
-
         "backup_sizing_mode":
             "PERCENT_AVAILABLE_BALANCE",
 
@@ -592,7 +786,6 @@ def fresh_reconstruction_unit_2():
             float(exposure_cap),
 
         "exposure_cap_max_percent": 100.0,
-
         "exposure_cap_basis":
             "TRADING_ACCOUNT_EQUITY",
 
@@ -634,12 +827,10 @@ def fresh_reconstruction_unit_2():
         "loss_cooldown_seconds": 300,
 
         "one_direction_only": True,
-
         "entry_direction_lock_scope":
             "NEW_ENTRIES_ONLY",
 
         "hedge_direction_independent": True,
-
         "anti_duplicate_orders": True,
         "active_trade_mode_lock": True,
         "exclusive_mode": True,
@@ -647,7 +838,7 @@ def fresh_reconstruction_unit_2():
     }
 
     # --------------------------------------------------------
-    # ORIGINAL PRECISION FALLBACK
+    # MARKET PRECISION FALLBACK
     # --------------------------------------------------------
 
     market_precision = {
@@ -657,7 +848,7 @@ def fresh_reconstruction_unit_2():
     }
 
     # --------------------------------------------------------
-    # ORIGINAL HYBRID QUALIFICATION CONTRACT
+    # ORIGINAL SIGNAL QUALIFICATION SETTINGS
     # --------------------------------------------------------
 
     qualification = {
@@ -699,7 +890,6 @@ def fresh_reconstruction_unit_2():
             "max_spike_count": 2,
             "false_breakout_rejection": True,
             "volume_confirmation_enabled": False,
-            "minimum_volume_ratio": 1.20,
             "candidate_expiry_seconds": 120,
         },
 
@@ -755,10 +945,7 @@ def fresh_reconstruction_unit_2():
     }
 
     # --------------------------------------------------------
-    # UNIT 2 LOCAL CAPABILITIES
-    #
-    # These must not become global vetoes
-    # on authorized demo execution.
+    # UNIT-LOCAL CAPABILITIES
     # --------------------------------------------------------
 
     safety = {
@@ -789,12 +976,27 @@ def fresh_reconstruction_unit_2():
     }
 
     # --------------------------------------------------------
-    # STARTUP REPORT
+    # CONFIGURATION REPORT
     # --------------------------------------------------------
 
     print(
         "UNIT 2 REQUESTED SYMBOL =",
         requested_symbol,
+        flush=True
+    )
+
+    print(
+        "UNIT 2 SYMBOL SWITCH MODE = AUTO_DEFERRED",
+        flush=True
+    )
+
+    print(
+        "UNIT 2 ACTIVE SYMBOL = BOOTSTRAP_UNCONFIRMED",
+        flush=True
+    )
+
+    print(
+        "UNIT 2 SYMBOL RECONCILIATION = REQUIRED",
         flush=True
     )
 
@@ -806,28 +1008,23 @@ def fresh_reconstruction_unit_2():
 
     print(
         "UNIT 2 TP ALLOCATION =",
-        tp1_allocation,
-        "/",
-        tp2_allocation,
-        "/",
+        tp1_allocation, "/",
+        tp2_allocation, "/",
         tp3_allocation,
         flush=True
     )
 
     print(
         "UNIT 2 TP NET ROI =",
-        tp1_roi,
-        "/",
+        tp1_roi, "/",
         tp2_roi,
         flush=True
     )
 
     print(
         "UNIT 2 TP3 TRAILING =",
-        trailing["REF"],
-        "/",
-        trailing["MIN"],
-        "/",
+        trailing["REF"], "/",
+        trailing["MIN"], "/",
         trailing["MAX"],
         flush=True
     )
@@ -844,18 +1041,18 @@ def fresh_reconstruction_unit_2():
     )
 
     print(
-        "UNIT 2 ATR BUFFER READY = False",
-        flush=True
-    )
-
-    print(
         "UNIT 2 EXPOSURE CAP % =",
         exposure_cap,
         flush=True
     )
 
     print(
-        "UNIT 2 DEMO EXECUTION = DOWNSTREAM",
+        "UNIT 2 SYMBOL SWITCH EXECUTION = DOWNSTREAM",
+        flush=True
+    )
+
+    print(
+        "UNIT 2 EXCHANGE WRITE = NONE",
         flush=True
     )
 
@@ -868,7 +1065,7 @@ def fresh_reconstruction_unit_2():
 
 
 # ============================================================
-# RUN UNIT 2
+# 8. UNIT 2 EXECUTION
 # ============================================================
 
 FRESH_RECONSTRUCTION_CONFIG = (
@@ -877,7 +1074,7 @@ FRESH_RECONSTRUCTION_CONFIG = (
 
 
 # ============================================================
-# UNIT 3 COMPATIBILITY
+# 9. UNIT 3 COMPATIBILITY
 # ============================================================
 
 FRESH_UNIT_2_OPTIMIZATION_READY = (
@@ -907,15 +1104,16 @@ if not FRESH_UNIT_2_OPTIMIZATION_READY:
     )
 
 print(
-    "UNIT 2 V13 OPTIMIZATION READY =",
+    "UNIT 2 V14 OPTIMIZATION READY =",
     FRESH_UNIT_2_OPTIMIZATION_READY,
     flush=True
 )
 
 
 # ============================================================
-# END COMPLETE UNIT 2 V13
+# END COMPLETE UNIT 2 V14
 # UNIT 3 FOLLOWS
 # ZERO INDENTATION
 # ============================================================
+
 
