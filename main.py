@@ -1348,3 +1348,282 @@ FRESH_RECONSTRUCTION_MARKET_SNAPSHOT = (
 # UNIT 4 FOLLOWS
 # ZERO INDENTATION
 # ============================================================
+
+
+
+# ============================================================
+# START COMPLETE UNIT 4 V6
+# DYNAMIC WEEX MARKET ANALYSIS
+# ZERO INDENTATION
+# ============================================================
+
+import json
+import math
+import time
+import urllib.parse
+import urllib.request
+import urllib.error
+
+UNIT_4_V5_TUNING = {
+    "common": {
+        "direction_votes_required": 2,
+        "market_age_seconds_max": 120.0,
+        "candle_age_seconds_max": 120.0,
+    },
+    "breakout": {
+        "enabled": True,
+        "developing_candidate_enabled": True,
+        "lookback_candles": 20,
+        "proximity_atr": 0.50,
+        "confirmation_atr": 0.10,
+        "maximum_extension_atr": 3.0,
+        "minimum_atr_percent": 0.0,
+        "direction_votes_required": 2,
+        "fast_momentum_minutes": 5,
+        "slow_momentum_minutes": 15,
+        "require_fast_momentum": True,
+        "require_slow_momentum": False,
+    },
+    "structure": {
+        "enabled": True,
+        "ema_alignment_mode": "EARLY",
+        "direction_votes_required": 2,
+        "minimum_ema_separation_percent": 0.0,
+        "pullback_tolerance_atr": 0.75,
+        "allow_continuation_entry": True,
+        "maximum_extension_atr": 2.0,
+        "fast_momentum_minutes": 5,
+        "slow_momentum_minutes": 15,
+        "require_fast_momentum": True,
+        "require_slow_momentum": True,
+    },
+    "scalp": {
+        "enabled": True,
+        "require_sideways_market": True,
+        "range_lookback_candles": 20,
+        "ema_compression_atr_max": 0.70,
+        "range_atr_max": 8.0,
+        "momentum_atr_max": 1.50,
+        "preliminary_ema_separation_percent": 0.03,
+        "preliminary_move_5m_percent": 0.015,
+        "quality_threshold": 70.0,
+        "minimum_fee_coverage_multiplier": 2.0,
+    },
+}
+
+
+def unit_4_v5_number(value, name):
+    if isinstance(value, bool):
+        raise RuntimeError("UNIT 4 INVALID NUMBER: " + name)
+    try:
+        result = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise RuntimeError("UNIT 4 INVALID NUMBER: " + name) from exc
+    if not math.isfinite(result):
+        raise RuntimeError("UNIT 4 NONFINITE NUMBER: " + name)
+    return result
+
+
+def unit_4_v5_positive(value, name, allow_zero=True):
+    result = unit_4_v5_number(value, name)
+    if result < 0 or (result == 0 and not allow_zero):
+        raise RuntimeError("UNIT 4 INVALID RANGE: " + name)
+    return result
+
+
+def unit_4_v5_integer(value, name, minimum, maximum):
+    result = unit_4_v5_number(value, name)
+    if not result.is_integer() or not minimum <= result <= maximum:
+        raise RuntimeError("UNIT 4 INVALID INTEGER: " + name)
+    return int(result)
+
+
+def unit_4_v5_ema(prices, period):
+    if len(prices) < period:
+        raise RuntimeError("UNIT 4 INSUFFICIENT EMA HISTORY")
+    current = sum(prices[:period]) / period
+    alpha = 2.0 / (period + 1.0)
+    for price in prices[period:]:
+        current = alpha * price + (1 - alpha) * current
+    return current
+
+
+def unit_4_v5_same_direction(move, direction):
+    if direction == "LONG":
+        return move > 0
+    if direction == "SHORT":
+        return move < 0
+    return False
+
+
+def unit_4_v5_normalize_candles(rows, market_time_ms):
+    if not isinstance(rows, list):
+        raise RuntimeError("UNIT 4 INVALID KLINE RESPONSE")
+
+    candles = []
+    for row in rows:
+        if not isinstance(row, (list, tuple)) or len(row) < 7:
+            raise RuntimeError("UNIT 4 INVALID KLINE ROW")
+        candle = {
+            "open_time_ms": int(row[0]),
+            "open": unit_4_v5_number(row[1], "OPEN"),
+            "high": unit_4_v5_number(row[2], "HIGH"),
+            "low": unit_4_v5_number(row[3], "LOW"),
+            "close": unit_4_v5_number(row[4], "CLOSE"),
+            "volume": unit_4_v5_number(row[5], "VOLUME"),
+            "close_time_ms": int(row[6]),
+        }
+        if not (
+            0 < candle["low"]
+            <= min(candle["open"], candle["close"])
+            <= max(candle["open"], candle["close"])
+            <= candle["high"]
+        ):
+            raise RuntimeError("UNIT 4 INVALID OHLC DATA")
+        if candle["volume"] < 0 or candle["close_time_ms"] <= candle["open_time_ms"]:
+            raise RuntimeError("UNIT 4 INVALID CANDLE DATA")
+        candles.append(candle)
+
+    candles.sort(key=lambda item: item["open_time_ms"])
+
+    for i in range(1, len(candles)):
+        if (
+            candles[i]["open_time_ms"] - candles[i - 1]["open_time_ms"]
+        ) != 60000:
+            raise RuntimeError("UNIT 4 CANDLE GAP OR DUPLICATE")
+
+    closed = [
+        candle for candle in candles
+        if candle["close_time_ms"] <= market_time_ms
+    ]
+    if len(closed) < 200:
+        raise RuntimeError("UNIT 4 INSUFFICIENT CLOSED HISTORY")
+    return candles, closed
+
+
+def fresh_reconstruction_unit_4():
+    print("=" * 80, flush=True)
+    print("FRESH RECONSTRUCTION UNIT 4 V6 START", flush=True)
+
+    config = FRESH_RECONSTRUCTION_CONFIG
+    market = FRESH_RECONSTRUCTION_MARKET_SNAPSHOT
+    tuning = UNIT_4_V5_TUNING
+
+    if not isinstance(config, dict):
+        raise RuntimeError("UNIT 4 CONFIG MISSING")
+    if not isinstance(market, dict):
+        raise RuntimeError("UNIT 4 MARKET SNAPSHOT MISSING")
+
+    exchange = config.get("exchange", {})
+    qualification = config.get("qualification", {})
+    safety = config.get("safety", {})
+
+    if not all(
+        isinstance(section, dict)
+        for section in (exchange, qualification, safety)
+    ):
+        raise RuntimeError("UNIT 4 CONFIG STRUCTURE INVALID")
+
+    # Unit 3 is authoritative for the public-data symbol.
+    market_symbol = str(market.get("symbol") or "").strip().upper()
+
+    if not market_symbol:
+        raise RuntimeError("UNIT 4 MARKET SYMBOL MISSING")
+
+    if (
+        market.get("exchange") != "WEEX"
+        or market.get("api_version") != "V3"
+        or market.get("price_type") != "MARK"
+        or market.get("read_only") is not True
+    ):
+        raise RuntimeError("UNIT 4 UNIT 3 HANDOVER INVALID")
+
+    if (
+        exchange.get("name") != "WEEX"
+        or exchange.get("api_version") != "V3"
+        or safety.get("public_market_data_read_enabled") is not True
+    ):
+        raise RuntimeError("UNIT 4 PUBLIC MARKET CONFIG INVALID")
+
+    b = tuning["breakout"]
+    s = tuning["structure"]
+    p = tuning["scalp"]
+    c = tuning["common"]
+
+    max_age = unit_4_v5_positive(
+        c["market_age_seconds_max"], "MARKET AGE LIMIT", False
+    )
+    max_candle_age = unit_4_v5_positive(
+        c["candle_age_seconds_max"], "CANDLE AGE LIMIT", False
+    )
+
+    market_time_ms = int(
+        unit_4_v5_positive(
+            market["exchange_time_ms"], "MARKET TIMESTAMP", False
+        )
+    )
+    live_mark = unit_4_v5_positive(
+        market["price"], "MARK PRICE", False
+    )
+
+    current_time_ms = int(time.time() * 1000)
+    if not 0 <= current_time_ms - market_time_ms <= max_age * 1000:
+        raise RuntimeError("UNIT 4 STALE UNIT 3 MARK PRICE")
+
+    base_url = str(
+        exchange.get("contract_base_url")
+        or "https://api-contract.weex.com"
+    ).rstrip("/")
+
+    endpoint = "/capi/v3/market/markPriceKlines"
+    query = urllib.parse.urlencode({
+        "symbol": market_symbol,
+        "interval": "1m",
+        "limit": 300,
+    })
+
+    request = urllib.request.Request(
+        base_url + endpoint + "?" + query,
+        method="GET",
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "WEEX-Unit4-Dynamic-V6",
+        }
+    )
+
+    started = time.monotonic()
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            http_status = response.getcode()
+            payload = response.read().decode("utf-8")
+    except (urllib.error.HTTPError, urllib.error.URLError) as exc:
+        raise RuntimeError("UNIT 4 WEEX CANDLE REQUEST FAILED") from exc
+
+    latency_ms = (time.monotonic() - started) * 1000.0
+
+    if http_status != 200:
+        raise RuntimeError("UNIT 4 WEEX HTTP STATUS NOT 200")
+
+    try:
+        rows = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("UNIT 4 WEEX JSON INVALID") from exc
+
+    candles, closed = unit_4_v5_normalize_candles(
+        rows, market_time_ms
+    )
+
+    latest = closed[-1]
+    previous = closed[-2]
+    candle_age_seconds = (
+        market_time_ms - latest["close_time_ms"]
+    ) / 1000.0
+
+    if not 0 <= candle_age_seconds <= max_candle_age:
+        raise RuntimeError("UNIT 4 CLOSED CANDLE STALE")
+
+    prices = [item["close"] for item in closed]
+    ema19 = unit_4_v5_ema(prices, 19)
+    ema50 = unit_4_v5_ema(prices, 50)
+    ema100 = unit_4_v5_ema(prices, 100)
+    ema200 = unit_4_v5_ema(prices, 200)
