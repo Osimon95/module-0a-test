@@ -1627,3 +1627,491 @@ def fresh_reconstruction_unit_4():
     ema50 = unit_4_v5_ema(prices, 50)
     ema100 = unit_4_v5_ema(prices, 100)
     ema200 = unit_4_v5_ema(prices, 200)
+
+
+    
+    latest_close = latest["close"]
+    previous_close = previous["close"]
+    separation = abs(ema19 - ema50) / ema50 * 100.0
+
+    if ema19 > ema50 > ema200:
+        ema_structure = "BULLISH"
+    elif ema19 < ema50 < ema200:
+        ema_structure = "BEARISH"
+    else:
+        ema_structure = "MIXED"
+
+    moves = {}
+    for period in (1, 5, 15, 30, 60, 120):
+        reference = prices[-period - 1]
+        moves[period] = (
+            latest_close - reference
+        ) / reference * 100.0
+
+    true_ranges = []
+    for i in range(1, len(closed)):
+        candle = closed[i]
+        previous_price = closed[i - 1]["close"]
+        true_ranges.append(max(
+            candle["high"] - candle["low"],
+            abs(candle["high"] - previous_price),
+            abs(candle["low"] - previous_price)
+        ))
+
+    atr14 = sum(true_ranges[-14:]) / 14.0
+    if atr14 <= 0:
+        raise RuntimeError("UNIT 4 ATR14 INVALID")
+
+    atr_percent = atr14 / latest_close * 100.0
+
+    ema_vote = (
+        "LONG" if ema19 > ema50
+        else "SHORT" if ema19 < ema50
+        else "NONE"
+    )
+    momentum_sum = moves[5] + moves[15]
+    momentum_vote = (
+        "LONG" if momentum_sum > 0
+        else "SHORT" if momentum_sum < 0
+        else "NONE"
+    )
+    price_vote = (
+        "LONG" if latest_close > ema19
+        else "SHORT" if latest_close < ema19
+        else "NONE"
+    )
+
+    votes = (ema_vote, momentum_vote, price_vote)
+    long_votes = votes.count("LONG")
+    short_votes = votes.count("SHORT")
+
+    common_votes_required = unit_4_v5_integer(
+        c["direction_votes_required"],
+        "COMMON DIRECTION VOTES", 1, 3
+    )
+
+    direction = "NONE"
+    if (
+        long_votes >= common_votes_required
+        and long_votes > short_votes
+    ):
+        direction = "LONG"
+    elif (
+        short_votes >= common_votes_required
+        and short_votes > long_votes
+    ):
+        direction = "SHORT"
+
+    def votes_sufficient(side, required):
+        count = long_votes if side == "LONG" else short_votes
+        return count >= unit_4_v5_integer(
+            required, "STRATEGY DIRECTION VOTES", 1, 3
+        )
+
+    def momentum_at(period):
+        period = unit_4_v5_integer(
+            period, "MOMENTUM PERIOD", 1, 120
+        )
+        if period not in moves:
+            raise RuntimeError("UNIT 4 UNSUPPORTED MOMENTUM PERIOD")
+        return moves[period]
+
+    # BREAKOUT
+    breakout_lookback = unit_4_v5_integer(
+        b["lookback_candles"], "BREAKOUT LOOKBACK", 2, 45
+    )
+    reference_candles = closed[-breakout_lookback - 1:-1]
+    support = min(item["low"] for item in reference_candles)
+    resistance = max(item["high"] for item in reference_candles)
+
+    proximity = unit_4_v5_positive(
+        b["proximity_atr"], "BREAKOUT PROXIMITY"
+    )
+    confirmation = unit_4_v5_positive(
+        b["confirmation_atr"], "BREAKOUT CONFIRMATION"
+    )
+    breakout_max_extension = unit_4_v5_positive(
+        b["maximum_extension_atr"], "BREAKOUT EXTENSION", False
+    )
+    breakout_atr_min = unit_4_v5_positive(
+        b["minimum_atr_percent"], "BREAKOUT MIN ATR"
+    )
+
+    def breakout_eligible(side):
+        fast_ok = (
+            not b["require_fast_momentum"]
+            or unit_4_v5_same_direction(
+                momentum_at(b["fast_momentum_minutes"]), side
+            )
+        )
+        slow_ok = (
+            not b["require_slow_momentum"]
+            or unit_4_v5_same_direction(
+                momentum_at(b["slow_momentum_minutes"]), side
+            )
+        )
+        return bool(
+            b["enabled"]
+            and direction == side
+            and votes_sufficient(side, b["direction_votes_required"])
+            and fast_ok and slow_ok
+            and atr_percent >= breakout_atr_min
+        )
+
+    breakout_long_eligible = breakout_eligible("LONG")
+    breakout_short_eligible = breakout_eligible("SHORT")
+
+    long_breakout_distance = (
+        latest_close - resistance
+    ) / atr14
+    short_breakout_distance = (
+        support - latest_close
+    ) / atr14
+
+    breakout_confirmed_long = bool(
+        breakout_long_eligible
+        and confirmation < long_breakout_distance
+        <= breakout_max_extension
+    )
+    breakout_confirmed_short = bool(
+        breakout_short_eligible
+        and confirmation < short_breakout_distance
+        <= breakout_max_extension
+    )
+
+    breakout_developing_long = bool(
+        b["developing_candidate_enabled"]
+        and breakout_long_eligible
+        and -proximity <= long_breakout_distance <= confirmation
+    )
+    breakout_developing_short = bool(
+        b["developing_candidate_enabled"]
+        and breakout_short_eligible
+        and -proximity <= short_breakout_distance <= confirmation
+    )
+
+    # STRUCTURE
+    alignment = str(s["ema_alignment_mode"]).upper()
+    if alignment not in ("STRICT", "EARLY"):
+        raise RuntimeError("UNIT 4 INVALID STRUCTURE ALIGNMENT MODE")
+
+    structure_side = "NONE"
+    if alignment == "STRICT":
+        if ema19 > ema50 > ema200:
+            structure_side = "LONG"
+        elif ema19 < ema50 < ema200:
+            structure_side = "SHORT"
+    else:
+        if ema19 > ema50:
+            structure_side = "LONG"
+        elif ema19 < ema50:
+            structure_side = "SHORT"
+
+    structure_min_separation = unit_4_v5_positive(
+        s["minimum_ema_separation_percent"],
+        "STRUCTURE MIN EMA SEPARATION"
+    )
+    structure_pullback = unit_4_v5_positive(
+        s["pullback_tolerance_atr"], "STRUCTURE PULLBACK"
+    )
+    structure_max_extension = unit_4_v5_positive(
+        s["maximum_extension_atr"],
+        "STRUCTURE MAX EXTENSION", False
+    )
+
+    fast_structure_move = momentum_at(
+        s["fast_momentum_minutes"]
+    )
+    slow_structure_move = momentum_at(
+        s["slow_momentum_minutes"]
+    )
+
+    def structure_eligible(side):
+        fast_ok = (
+            not s["require_fast_momentum"]
+            or unit_4_v5_same_direction(
+                fast_structure_move, side
+            )
+        )
+        slow_ok = (
+            not s["require_slow_momentum"]
+            or unit_4_v5_same_direction(
+                slow_structure_move, side
+            )
+        )
+        signed_distance = (
+            latest_close - ema19
+            if side == "LONG"
+            else ema19 - latest_close
+        ) / atr14
+        pullback_ok = (
+            abs(signed_distance) <= structure_pullback
+        )
+        continuation_ok = (
+            s["allow_continuation_entry"]
+            and 0 <= signed_distance <= structure_max_extension
+        )
+        return bool(
+            s["enabled"]
+            and structure_side == side
+            and direction == side
+            and votes_sufficient(side, s["direction_votes_required"])
+            and fast_ok and slow_ok
+            and separation >= structure_min_separation
+            and abs(signed_distance) <= structure_max_extension
+            and (pullback_ok or continuation_ok)
+        )
+
+    structure_developing_long = structure_eligible("LONG")
+    structure_developing_short = structure_eligible("SHORT")
+
+    structure_fast_confirmed = unit_4_v5_same_direction(
+        fast_structure_move, structure_side
+    )
+    structure_slow_confirmed = unit_4_v5_same_direction(
+        slow_structure_move, structure_side
+    )
+
+    # SCALP / SIDEWAYS
+    scalp_lookback = unit_4_v5_integer(
+        p["range_lookback_candles"], "SCALP LOOKBACK", 2, 45
+    )
+    scalp_history = closed[-scalp_lookback - 1:-1]
+    scalp_high = max(item["high"] for item in scalp_history)
+    scalp_low = min(item["low"] for item in scalp_history)
+
+    ema_cluster = (
+        max(ema19, ema50, ema100, ema200)
+        - min(ema19, ema50, ema100, ema200)
+    )
+    compression_atr = ema_cluster / atr14
+    scalp_range_atr = (scalp_high - scalp_low) / atr14
+    momentum15_atr = abs(latest_close - prices[-16]) / atr14
+
+    higher_mode_developing = any((
+        breakout_confirmed_long,
+        breakout_confirmed_short,
+        breakout_developing_long,
+        breakout_developing_short,
+        structure_developing_long,
+        structure_developing_short,
+    ))
+
+    sideways_candidate = bool(
+        p["enabled"]
+        and compression_atr <= unit_4_v5_positive(
+            p["ema_compression_atr_max"], "SCALP EMA COMPRESSION"
+        )
+        and scalp_range_atr <= unit_4_v5_positive(
+            p["range_atr_max"], "SCALP RANGE"
+        )
+        and momentum15_atr <= unit_4_v5_positive(
+            p["momentum_atr_max"], "SCALP MOMENTUM"
+        )
+        and not higher_mode_developing
+    )
+
+    price_extension_atr = abs(latest_close - ema19) / atr14
+    price_overextended = (
+        price_extension_atr > structure_max_extension
+    )
+
+    # Preserve downstream qualification settings.
+    common_cfg = qualification.setdefault("common", {})
+    breakout_cfg = qualification.setdefault("breakout", {})
+    structure_cfg = qualification.setdefault("structure", {})
+    scalp_cfg = qualification.setdefault("scalp", {})
+
+    common_cfg["direction_votes_required"] = common_votes_required
+
+    breakout_cfg.update({
+        "enabled": bool(b["enabled"]),
+        "developing_candidate_enabled":
+            bool(b["developing_candidate_enabled"]),
+        "support_resistance_lookback": breakout_lookback,
+        "developing_proximity_atr": proximity,
+        "confirmation_distance_atr": confirmation,
+        "max_price_extension_atr": breakout_max_extension,
+        "minimum_atr_percent": breakout_atr_min,
+        "direction_votes_required": b["direction_votes_required"],
+        "fast_momentum_minutes": b["fast_momentum_minutes"],
+        "slow_momentum_minutes": b["slow_momentum_minutes"],
+        "require_fast_momentum": b["require_fast_momentum"],
+        "require_slow_momentum": b["require_slow_momentum"],
+    })
+
+    structure_cfg.update({
+        "enabled": bool(s["enabled"]),
+        "ema_alignment_mode": alignment,
+        "direction_votes_required": s["direction_votes_required"],
+        "minimum_ema_separation_percent":
+            structure_min_separation,
+        "pullback_tolerance_atr": structure_pullback,
+        "allow_continuation_entry":
+            bool(s["allow_continuation_entry"]),
+        "max_price_extension_atr": structure_max_extension,
+        "fast_momentum_minutes": s["fast_momentum_minutes"],
+        "slow_momentum_minutes": s["slow_momentum_minutes"],
+        "require_fast_momentum": s["require_fast_momentum"],
+        "require_slow_momentum": s["require_slow_momentum"],
+    })
+
+    scalp_cfg.update({
+        "enabled": bool(p["enabled"]),
+        "require_sideways_market":
+            bool(p["require_sideways_market"]),
+        "ema_compression_atr_max": p["ema_compression_atr_max"],
+        "range20_atr_max": p["range_atr_max"],
+        "momentum15_atr_multiplier_max": p["momentum_atr_max"],
+        "preliminary_ema_separation_percent":
+            p["preliminary_ema_separation_percent"],
+        "preliminary_move_5m_percent":
+            p["preliminary_move_5m_percent"],
+        "quality_threshold": p["quality_threshold"],
+        "minimum_fee_coverage_multiplier":
+            p["minimum_fee_coverage_multiplier"],
+    })
+
+    # Unit 5 and downstream handover.
+    snapshot = {
+        "exchange": "WEEX",
+        "api_version": "V3",
+        "symbol": market_symbol,
+        "interval": "1m",
+        "price_type": "MARK",
+        "live_mark_price": live_mark,
+        "previous_close": previous_close,
+        "latest_close": latest_close,
+        "latest_open_time_ms": latest["open_time_ms"],
+        "latest_close_time_ms": latest["close_time_ms"],
+        "exchange_time_ms": market_time_ms,
+        "ema19": ema19,
+        "ema50": ema50,
+        "ema100": ema100,
+        "ema200": ema200,
+        "ema19_50_separation_pct": separation,
+        "ema_structure": ema_structure,
+        "short_term_move_pct": moves[1],
+        "move_1m_pct": moves[1],
+        "move_5m_pct": moves[5],
+        "move_15m_pct": moves[15],
+        "move_30m_pct": moves[30],
+        "move_60m_pct": moves[60],
+        "move_120m_pct": moves[120],
+        "recent_closed_klines": [
+            dict(item) for item in closed[-60:]
+        ],
+        "candle_count": len(candles),
+        "closed_candle_count": len(closed),
+        "newest_returned_candle_closed":
+            candles[-1]["close_time_ms"] <= market_time_ms,
+        "source": "WEEX_V3_PUBLIC_MARK_PRICE_KLINES",
+        "atr14": atr14,
+        "atr_percent": atr_percent,
+        "support20": support,
+        "resistance20": resistance,
+        "range20_atr_ratio": (resistance - support) / atr14,
+        "near_resistance":
+            latest_close >= resistance - proximity * atr14,
+        "near_support":
+            latest_close <= support + proximity * atr14,
+        "breakout_confirmed_long": breakout_confirmed_long,
+        "breakout_confirmed_short": breakout_confirmed_short,
+        "breakout_developing_long": breakout_developing_long,
+        "breakout_developing_short": breakout_developing_short,
+        "structure_developing_long": structure_developing_long,
+        "structure_developing_short": structure_developing_short,
+        "structure_trend_direction": structure_side,
+        "structure_ema_alignment_mode": alignment,
+        "structure_momentum_fast_confirmed":
+            structure_fast_confirmed,
+        "structure_momentum_slow_confirmed":
+            structure_slow_confirmed,
+        "sideways_candidate": sideways_candidate,
+        "direction_long_votes": long_votes,
+        "direction_short_votes": short_votes,
+        "direction_evidence": direction,
+        "ema_cluster_height": ema_cluster,
+        "ema_compression_atr": compression_atr,
+        "scalp_range_atr": scalp_range_atr,
+        "scalp_momentum_atr": momentum15_atr,
+        "scalp_preliminary_ema_min_pct":
+            p["preliminary_ema_separation_percent"],
+        "scalp_preliminary_move_min_pct":
+            p["preliminary_move_5m_percent"],
+        "price_extension_cluster": price_extension_atr,
+        "price_overextended": price_overextended,
+        "strategy_evidence_version": "U4_HYBRID_V2",
+        "qualification_tuning_revision":
+            "UNIT4_V6_DYNAMIC_SYMBOL",
+        "qualification_settings": {
+            "breakout_lookback": breakout_lookback,
+            "breakout_proximity_atr": proximity,
+            "breakout_confirmation_atr": confirmation,
+            "structure_pullback_atr": structure_pullback,
+            "structure_max_extension_atr":
+                structure_max_extension,
+            "structure_ema_alignment_mode": alignment,
+            "scalp_compression_atr":
+                p["ema_compression_atr_max"],
+            "scalp_range_atr": p["range_atr_max"],
+            "scalp_momentum_atr": p["momentum_atr_max"],
+        },
+        "read_only": True,
+        "trade_authorized": False,
+        "order_payload_created": False,
+    }
+
+    print("UNIT 4 MARKET SYMBOL =", market_symbol, flush=True)
+    print("UNIT 4 HTTP STATUS =", http_status, flush=True)
+    print("UNIT 4 REQUEST LATENCY MS =", round(latency_ms, 2), flush=True)
+    print("UNIT 4 CLOSED CANDLES =", len(closed), flush=True)
+    print("UNIT 4 ATR14 =", round(atr14, 6), flush=True)
+    print("UNIT 4 EMA19 =", round(ema19, 6), flush=True)
+    print("UNIT 4 EMA50 =", round(ema50, 6), flush=True)
+    print("UNIT 4 EMA100 =", round(ema100, 6), flush=True)
+    print("UNIT 4 EMA200 =", round(ema200, 6), flush=True)
+    print("UNIT 4 DIRECTION =", direction, flush=True)
+    print(
+        "UNIT 4 DIRECTION VOTES =",
+        long_votes, "/", short_votes, flush=True
+    )
+    print(
+        "UNIT 4 BREAKOUT CONFIRMED LONG =",
+        breakout_confirmed_long, flush=True
+    )
+    print(
+        "UNIT 4 BREAKOUT CONFIRMED SHORT =",
+        breakout_confirmed_short, flush=True
+    )
+    print(
+        "UNIT 4 STRUCTURE TREND SIDE =",
+        structure_side, flush=True
+    )
+    print(
+        "UNIT 4 SCALP SIDEWAYS =",
+        sideways_candidate, flush=True
+    )
+    print(
+        "UNIT 4 TO UNIT 5 HANDOVER = READY",
+        flush=True
+    )
+    print("UNIT 4 EXCHANGE WRITE = NONE", flush=True)
+    print(
+        "FRESH RECONSTRUCTION UNIT 4 RESULT = PASS",
+        flush=True
+    )
+    print("=" * 80, flush=True)
+
+    return snapshot
+
+
+FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT = (
+    fresh_reconstruction_unit_4()
+)
+
+# ============================================================
+# END COMPLETE UNIT 4 V6
+# UNIT 5 FOLLOWS
+# ZERO INDENTATION
+# ============================================================
