@@ -152,59 +152,52 @@ FRESH_RECONSTRUCTION_UNIT_1_READY = (
 
 
 # ============================================================
-# START COMPLETE UNIT 2 V12
-# WEEX DEMO - COMPACT CENTRAL CONFIGURATION
-# ORIGINAL CONFIGURATION INTERFACES PRESERVED
-# ATR-DYNAMIC BACKUP CALCULATION
-# NO DOWNSTREAM STARTUP DEPENDENCIES
+# START COMPLETE UNIT 2 V13
+# WEEX DEMO CENTRAL CONFIGURATION
+# GROUPED RENDER SETTINGS
+# ATR-DYNAMIC BACKUP BUFFER
+# ORIGINAL DOWNSTREAM KEYS PRESERVED
 # ZERO INDENTATION
 # ============================================================
 
 import os
 import re
-import math
 from decimal import Decimal, InvalidOperation
 
 
 # ============================================================
-# UNIT 2 NUMERIC VALIDATION
+# NUMERIC UTILITIES
 # ============================================================
 
 def unit_2_v9_number(value, name, allow_zero=False):
-
     if isinstance(value, bool):
         raise ValueError("INVALID " + name)
 
     try:
-        number = Decimal(str(value))
+        number = Decimal(str(value).strip())
     except (InvalidOperation, ValueError, TypeError) as exc:
         raise ValueError("INVALID " + name) from exc
 
     if not number.is_finite():
         raise ValueError("NONFINITE " + name)
 
-    if number < 0 or (
-        number == 0 and not allow_zero
-    ):
+    if number < 0 or (number == 0 and not allow_zero):
         raise ValueError("INVALID RANGE " + name)
 
     return number
 
 
-def unit_2_v12_setting(
+def unit_2_v13_setting(
     name,
     default,
     aliases=(),
     allow_zero=False
 ):
-
     value = os.getenv(name)
 
     if value is None or not value.strip():
-
         for alias in aliases:
             candidate = os.getenv(alias)
-
             if candidate is not None and candidate.strip():
                 value = candidate
                 break
@@ -213,63 +206,124 @@ def unit_2_v12_setting(
         value = str(default)
 
     return unit_2_v9_number(
-        value,
-        name,
-        allow_zero
+        value, name, allow_zero
     )
 
 
 # ============================================================
-# PURE ATR-DYNAMIC BACKUP BUFFER FUNCTION
-# NO EXCHANGE CALL
-# NO GLOBAL STATE MUTATION
+# GROUPED RENDER VALUE PARSER
+#
+# Example:
+# TP_ALLOCATION_PERCENT=TP1:10, TP2:20
+#
+# Also accepts:
+# TP1=10,TP2=20
+#
+# No extra dependencies or packages.
 # ============================================================
 
-def unit_2_v12_atr_backup_buffer(
+def unit_2_v13_group(
+    env_name,
+    defaults,
+    aliases=None
+):
+    aliases = aliases or {}
+    result = {}
+
+    for key, default in defaults.items():
+        legacy_key = aliases.get(key)
+
+        if legacy_key:
+            result[key] = unit_2_v13_setting(
+                legacy_key,
+                default,
+                allow_zero=True
+            )
+        else:
+            result[key] = unit_2_v9_number(
+                default, key, allow_zero=True
+            )
+
+    raw = os.getenv(env_name, "").strip()
+
+    if not raw:
+        return result
+
+    supplied = set()
+
+    for entry in raw.split(","):
+        entry = entry.strip()
+
+        if not entry:
+            continue
+
+        if ":" in entry:
+            key, value = entry.split(":", 1)
+        elif "=" in entry:
+            key, value = entry.split("=", 1)
+        else:
+            raise ValueError(
+                env_name + " INVALID ENTRY: " + entry
+            )
+
+        key = key.strip().upper()
+        value = value.strip()
+
+        if key not in defaults:
+            raise ValueError(
+                env_name + " UNKNOWN KEY: " + key
+            )
+
+        if key in supplied:
+            raise ValueError(
+                env_name + " DUPLICATE KEY: " + key
+            )
+
+        supplied.add(key)
+
+        result[key] = unit_2_v9_number(
+            value,
+            env_name + "." + key,
+            allow_zero=True
+        )
+
+    return result
+
+
+# ============================================================
+# PURE ATR-DYNAMIC BACKUP BUFFER
+#
+# Calculated only when fresh ATR14 and price
+# are available. No global mutation.
+# ============================================================
+
+def unit_2_v13_atr_backup_buffer(
     atr14,
     market_price,
     multiplier=1.0
 ):
-
     atr = unit_2_v9_number(
-        atr14,
-        "ATR14"
+        atr14, "ATR14"
     )
 
     price = unit_2_v9_number(
-        market_price,
-        "MARKET_PRICE"
+        market_price, "MARKET_PRICE"
     )
 
     factor = unit_2_v9_number(
-        multiplier,
-        "ATR_MULTIPLIER"
+        multiplier, "ATR_MULTIPLIER"
     )
 
     atr_percent = (
         atr / price * Decimal("100")
     )
 
-    buffer_percent = (
-        atr_percent * factor
-    )
+    buffer_percent = atr_percent * factor
 
-    # Reject unusable inputs rather than silently
-    # converting them into unsafe trigger prices.
     if buffer_percent >= Decimal("100"):
         raise ValueError(
             "ATR BUFFER OUTSIDE VALID PRICE RANGE"
         )
-
-    long_factor = (
-        Decimal("1")
-        + buffer_percent / Decimal("100")
-    )
-
-    short_factor = (
-        Decimal("1")
-        - buffer_percent / Decimal("100")
-    )
 
     return {
         "mode": "ATR_DYNAMIC",
@@ -280,15 +334,25 @@ def unit_2_v12_atr_backup_buffer(
         "backup_buffer_percent":
             float(buffer_percent),
         "backup_long_liquidation_factor":
-            float(long_factor),
+            float(
+                Decimal("1")
+                + buffer_percent / Decimal("100")
+            ),
         "backup_short_liquidation_factor":
-            float(short_factor),
+            float(
+                Decimal("1")
+                - buffer_percent / Decimal("100")
+            ),
     }
 
 
-# Preserve the previous helper name for compatibility.
+# Preserve previous helper names.
+unit_2_v12_atr_backup_buffer = (
+    unit_2_v13_atr_backup_buffer
+)
+
 unit_2_v11_atr_backup_buffer = (
-    unit_2_v12_atr_backup_buffer
+    unit_2_v13_atr_backup_buffer
 )
 
 
@@ -300,19 +364,16 @@ def fresh_reconstruction_unit_2():
 
     print("=" * 80, flush=True)
     print(
-        "FRESH RECONSTRUCTION UNIT 2 V12 START",
+        "FRESH RECONSTRUCTION UNIT 2 V13 START",
         flush=True
     )
 
-    setting = unit_2_v12_setting
-
     # --------------------------------------------------------
-    # SYMBOL
+    # SYMBOL REQUEST
     # --------------------------------------------------------
 
     requested_symbol = os.getenv(
-        "WEEX_SYMBOL",
-        "BTCUSDT"
+        "WEEX_SYMBOL", "BTCUSDT"
     ).strip().upper()
 
     if not re.fullmatch(
@@ -323,13 +384,6 @@ def fresh_reconstruction_unit_2():
             "INVALID WEEX_SYMBOL: " + requested_symbol
         )
 
-    # Preserve original Unit 3 compatibility.
-    # The existing symbol-switch controller must
-    # replace these legacy values when the
-    # corresponding contract is verified.
-    #
-    # This is NOT an exchange acceptance claim.
-
     exchange = {
         "name": "WEEX",
         "api_version": "V3",
@@ -337,6 +391,10 @@ def fresh_reconstruction_unit_2():
             "https://api-contract.weex.com",
 
         "requested_symbol": requested_symbol,
+
+        # Original BTC configuration remains
+        # until the existing symbol controller
+        # reconciles the requested symbol.
         "market_symbol": "BTCUSDT",
         "demo_order_symbol": "BTCSUSDT",
 
@@ -347,112 +405,146 @@ def fresh_reconstruction_unit_2():
     }
 
     # --------------------------------------------------------
-    # COMPACT RENDER INPUTS
+    # INDEPENDENT RENDER SETTINGS
     # --------------------------------------------------------
 
-    initial_margin = setting(
+    initial_margin = unit_2_v13_setting(
         "INITIAL_ENTRY_MARGIN_USDT",
         "0.5",
         aliases=("ENTRY_FIXED_USDT",)
     )
 
-    backup_margin = setting(
+    backup_margin = unit_2_v13_setting(
         "BACKUP_MARGIN_PERCENT",
         "0.5"
     )
 
-    exposure_cap = setting(
+    exposure_cap = unit_2_v13_setting(
         "EXPOSURE_CAP_PERCENT",
         "50"
     )
 
-    tp1_allocation = setting(
-        "TP1_ALLOCATION_PERCENT",
-        "10"
+    if backup_margin > 100:
+        raise ValueError(
+            "BACKUP_MARGIN_PERCENT EXCEEDS 100"
+        )
+
+    if exposure_cap > 100:
+        raise ValueError(
+            "EXPOSURE_CAP_PERCENT EXCEEDS 100"
+        )
+
+    # --------------------------------------------------------
+    # GROUP 1: TAKE-PROFIT ALLOCATION
+    #
+    # TP_ALLOCATION_PERCENT=TP1:10, TP2:20
+    #
+    # TP3 is automatically calculated.
+    # --------------------------------------------------------
+
+    allocation = unit_2_v13_group(
+        "TP_ALLOCATION_PERCENT",
+        {
+            "TP1": "10",
+            "TP2": "20",
+        },
+        {
+            "TP1": "TP1_ALLOCATION_PERCENT",
+            "TP2": "TP2_ALLOCATION_PERCENT",
+        }
     )
 
-    tp2_allocation = setting(
-        "TP2_ALLOCATION_PERCENT",
-        "20"
-    )
+    tp1_allocation = allocation["TP1"]
+    tp2_allocation = allocation["TP2"]
 
-    # Automatically derive TP3.
     tp3_allocation = (
         Decimal("100")
         - tp1_allocation
         - tp2_allocation
     )
 
-    tp1_roi = setting(
-        "TP1_NET_ROI_FLOOR_PERCENT",
-        "20"
-    )
-
-    tp2_roi = setting(
-        "TP2_NET_ROI_FLOOR_PERCENT",
-        "40"
-    )
-
-    # --------------------------------------------------------
-    # VALIDATE ONLY ACTUAL CONFIGURATION CONSTRAINTS
-    # --------------------------------------------------------
-
-    if not (
-        Decimal("0") < backup_margin
-        <= Decimal("100")
+    if (
+        tp1_allocation <= 0
+        or tp2_allocation <= 0
+        or tp3_allocation <= 0
     ):
         raise ValueError(
-            "INVALID BACKUP_MARGIN_PERCENT"
+            "TP ALLOCATIONS MUST BE POSITIVE "
+            "AND TOTAL 100"
         )
+
+    # --------------------------------------------------------
+    # GROUP 2: NET ROI PROFIT TARGETS
+    #
+    # TP_NET_ROI_PERCENT=TP1:20, TP2:40
+    # --------------------------------------------------------
+
+    roi = unit_2_v13_group(
+        "TP_NET_ROI_PERCENT",
+        {
+            "TP1": "20",
+            "TP2": "40",
+        },
+        {
+            "TP1": "TP1_NET_ROI_FLOOR_PERCENT",
+            "TP2": "TP2_NET_ROI_FLOOR_PERCENT",
+        }
+    )
+
+    tp1_roi = roi["TP1"]
+    tp2_roi = roi["TP2"]
+
+    if tp1_roi <= 0 or tp2_roi <= tp1_roi:
+        raise ValueError(
+            "TP2 ROI MUST EXCEED POSITIVE TP1 ROI"
+        )
+
+    # --------------------------------------------------------
+    # GROUP 3: TP3 TRAILING
+    #
+    # Optional:
+    # TP_TRAILING_PERCENT=REF:0.20, MIN:0.10, MAX:0.40
+    # --------------------------------------------------------
+
+    trailing = unit_2_v13_group(
+        "TP_TRAILING_PERCENT",
+        {
+            "REF": "0.20",
+            "MIN": "0.10",
+            "MAX": "0.40",
+        }
+    )
 
     if not (
-        Decimal("0") < exposure_cap
-        <= Decimal("100")
+        Decimal("0") < trailing["MIN"]
+        <= trailing["REF"]
+        <= trailing["MAX"]
     ):
         raise ValueError(
-            "INVALID EXPOSURE_CAP_PERCENT"
-        )
-
-    if tp3_allocation <= 0:
-        raise ValueError(
-            "TP1 + TP2 MUST BE LESS THAN 100"
-        )
-
-    if tp2_roi <= tp1_roi:
-        raise ValueError(
-            "TP2 ROI MUST EXCEED TP1 ROI"
+            "INVALID TP TRAILING RANGE"
         )
 
     # --------------------------------------------------------
-    # BACKUP BUFFER COMPATIBILITY
-    # --------------------------------------------------------
+    # ATR BACKUP COMPATIBILITY
     #
-    # Original downstream units still read numeric
-    # backup_buffer_percent and liquidation factors.
-    #
-    # Preserve their established input format until
-    # Unit 7 and the backup executor are adapted.
-    #
-    # These are legacy compatibility values only.
-    # They are NOT fresh ATR-derived values.
-    #
-    # Existing BACKUP_BUFFER_PERCENT is preserved
-    # as an optional legacy configuration.
-    # It is not required for ATR-dynamic operation.
+    # Legacy value retained for old consumers.
+    # It is not an ATR-derived trigger.
     # --------------------------------------------------------
 
-    legacy_buffer = setting(
+    legacy_buffer = unit_2_v13_setting(
         "BACKUP_BUFFER_PERCENT",
         "0.3"
     )
 
-    if legacy_buffer >= Decimal("100"):
+    if legacy_buffer >= 100:
         raise ValueError(
             "INVALID LEGACY BACKUP BUFFER"
         )
 
     # --------------------------------------------------------
     # STRATEGY
+    #
+    # All established downstream keys remain.
     # --------------------------------------------------------
 
     strategy = {
@@ -468,12 +560,9 @@ def fresh_reconstruction_unit_2():
             float(legacy_buffer),
 
         "backup_buffer_mode": "ATR_DYNAMIC",
-
         "backup_buffer_atr_multiplier": 1.0,
-
         "backup_buffer_calculation":
-            "unit_2_v12_atr_backup_buffer",
-
+            "unit_2_v13_atr_backup_buffer",
         "backup_buffer_ready": False,
 
         "max_backups": 5,
@@ -532,16 +621,18 @@ def fresh_reconstruction_unit_2():
         "tp1_tp2_min_roi_separation_percent":
             float(tp2_roi - tp1_roi),
 
-        "tp3_trailing_reference_percent": 0.20,
-        "tp3_trailing_min_percent": 0.10,
-        "tp3_trailing_max_percent": 0.40,
+        "tp3_trailing_reference_percent":
+            float(trailing["REF"]),
+
+        "tp3_trailing_min_percent":
+            float(trailing["MIN"]),
+
+        "tp3_trailing_max_percent":
+            float(trailing["MAX"]),
 
         "signal_expiry_seconds": 120,
         "loss_cooldown_seconds": 300,
 
-        # Retain original entry arbitration key.
-        # It applies to new-entry direction,
-        # not independent hedge positions.
         "one_direction_only": True,
 
         "entry_direction_lock_scope":
@@ -552,17 +643,11 @@ def fresh_reconstruction_unit_2():
         "anti_duplicate_orders": True,
         "active_trade_mode_lock": True,
         "exclusive_mode": True,
-
         "mode_confirmations_required": 3,
     }
 
     # --------------------------------------------------------
     # ORIGINAL PRECISION FALLBACK
-    # --------------------------------------------------------
-    #
-    # These values preserve the old contract.
-    # Executable orders must use verified
-    # symbol-specific exchange precision.
     # --------------------------------------------------------
 
     market_precision = {
@@ -670,15 +755,10 @@ def fresh_reconstruction_unit_2():
     }
 
     # --------------------------------------------------------
-    # UNIT-LOCAL SAFETY DESCRIPTION
-    # --------------------------------------------------------
+    # UNIT 2 LOCAL CAPABILITIES
     #
-    # These flags describe Unit 2 itself.
-    # They are NOT global permissions for
-    # Units 11-14.
-    #
-    # Demo execution authorization belongs
-    # to the actual demo order executor.
+    # These must not become global vetoes
+    # on authorized demo execution.
     # --------------------------------------------------------
 
     safety = {
@@ -699,10 +779,6 @@ def fresh_reconstruction_unit_2():
         "position_mode_mutation_enabled": False,
     }
 
-    # --------------------------------------------------------
-    # FINAL CONFIGURATION
-    # --------------------------------------------------------
-
     config = {
         "exchange": exchange,
         "execution_environment": "DEMO",
@@ -713,7 +789,7 @@ def fresh_reconstruction_unit_2():
     }
 
     # --------------------------------------------------------
-    # CONFIGURATION REPORT
+    # STARTUP REPORT
     # --------------------------------------------------------
 
     print(
@@ -723,19 +799,7 @@ def fresh_reconstruction_unit_2():
     )
 
     print(
-        "UNIT 2 ACTIVE SYMBOL =",
-        exchange["market_symbol"],
-        flush=True
-    )
-
-    print(
-        "UNIT 2 SYMBOL STATUS =",
-        exchange["symbol_switch_status"],
-        flush=True
-    )
-
-    print(
-        "UNIT 2 INITIAL MARGIN =",
+        "UNIT 2 INITIAL ENTRY MARGIN =",
         initial_margin,
         flush=True
     )
@@ -751,14 +815,20 @@ def fresh_reconstruction_unit_2():
     )
 
     print(
-        "UNIT 2 TP1 NET ROI FLOOR =",
+        "UNIT 2 TP NET ROI =",
         tp1_roi,
+        "/",
+        tp2_roi,
         flush=True
     )
 
     print(
-        "UNIT 2 TP2 NET ROI FLOOR =",
-        tp2_roi,
+        "UNIT 2 TP3 TRAILING =",
+        trailing["REF"],
+        "/",
+        trailing["MIN"],
+        "/",
+        trailing["MAX"],
         flush=True
     )
 
@@ -774,12 +844,6 @@ def fresh_reconstruction_unit_2():
     )
 
     print(
-        "UNIT 2 LEGACY BUFFER % =",
-        legacy_buffer,
-        flush=True
-    )
-
-    print(
         "UNIT 2 ATR BUFFER READY = False",
         flush=True
     )
@@ -791,17 +855,7 @@ def fresh_reconstruction_unit_2():
     )
 
     print(
-        "UNIT 2 NEW ENTRY DIRECTION LOCK = ENABLED",
-        flush=True
-    )
-
-    print(
-        "UNIT 2 HEDGE DIRECTION = INDEPENDENT CONFIG",
-        flush=True
-    )
-
-    print(
-        "UNIT 2 EXCHANGE WRITE = NONE",
+        "UNIT 2 DEMO EXECUTION = DOWNSTREAM",
         flush=True
     )
 
@@ -823,7 +877,7 @@ FRESH_RECONSTRUCTION_CONFIG = (
 
 
 # ============================================================
-# ORIGINAL UNIT 3 HANDOVER CONTRACT
+# UNIT 3 COMPATIBILITY
 # ============================================================
 
 FRESH_UNIT_2_OPTIMIZATION_READY = (
@@ -853,14 +907,15 @@ if not FRESH_UNIT_2_OPTIMIZATION_READY:
     )
 
 print(
-    "UNIT 2 V12 OPTIMIZATION READY =",
+    "UNIT 2 V13 OPTIMIZATION READY =",
     FRESH_UNIT_2_OPTIMIZATION_READY,
     flush=True
 )
 
 
 # ============================================================
-# END COMPLETE UNIT 2 V12
+# END COMPLETE UNIT 2 V13
 # UNIT 3 FOLLOWS
 # ZERO INDENTATION
 # ============================================================
+
