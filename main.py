@@ -794,7 +794,7 @@ def unit_3_resolve_symbol(config):
         "requested_symbol": requested,
         "market_symbol": bootstrap,
         "activation_confirmed": False,
-        "market_source": "BOOTSTRAP_PUBLIC_DATA_ONLY",
+        "market_source": "REQUESTED_PUBLIC_DATA_ONLY",
         "execution_symbol_ready": False,
     }
 
