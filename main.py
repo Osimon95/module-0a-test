@@ -573,9 +573,10 @@ def fresh_reconstruction_unit_2():
         flush=True
     )
 
-    requested_symbol = unit_2_v14_symbol(
-        os.getenv("WEEX_SYMBOL", "BTCUSDT")
-    )
+    "requested_symbol": requested_symbol,
+"market_symbol": requested_symbol,
+"demo_order_symbol": None,
+    
 
     # Unit 2 cannot infer the confirmed active
     # symbol from the Render request.
