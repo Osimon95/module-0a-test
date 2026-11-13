@@ -150,12 +150,13 @@ FRESH_RECONSTRUCTION_UNIT_1_READY = (
 # ============================================================
 
 
+
 # ============================================================
-# START COMPLETE UNIT 2 V11
-# WEEX DEMO CENTRAL CONFIGURATION
-# COMPACT RENDER ENVIRONMENT
-# ATR-DYNAMIC BACKUP BUFFER
-# EXISTING INTERFACES PRESERVED
+# START COMPLETE UNIT 2 V12
+# WEEX DEMO - COMPACT CENTRAL CONFIGURATION
+# ORIGINAL CONFIGURATION INTERFACES PRESERVED
+# ATR-DYNAMIC BACKUP CALCULATION
+# NO DOWNSTREAM STARTUP DEPENDENCIES
 # ZERO INDENTATION
 # ============================================================
 
@@ -166,41 +167,35 @@ from decimal import Decimal, InvalidOperation
 
 
 # ============================================================
-# NUMERIC VALIDATION
+# UNIT 2 NUMERIC VALIDATION
 # ============================================================
 
 def unit_2_v9_number(value, name, allow_zero=False):
 
     if isinstance(value, bool):
-        raise RuntimeError("UNIT 2 INVALID " + name)
+        raise ValueError("INVALID " + name)
 
     try:
         number = Decimal(str(value))
-    except (InvalidOperation, TypeError, ValueError) as exc:
-        raise RuntimeError(
-            "UNIT 2 INVALID " + name
-        ) from exc
+    except (InvalidOperation, ValueError, TypeError) as exc:
+        raise ValueError("INVALID " + name) from exc
 
     if not number.is_finite():
-        raise RuntimeError(
-            "UNIT 2 NONFINITE " + name
-        )
+        raise ValueError("NONFINITE " + name)
 
     if number < 0 or (
         number == 0 and not allow_zero
     ):
-        raise RuntimeError(
-            "UNIT 2 INVALID RANGE " + name
-        )
+        raise ValueError("INVALID RANGE " + name)
 
     return number
 
 
-def unit_2_v11_setting(
+def unit_2_v12_setting(
     name,
     default,
-    allow_zero=False,
-    aliases=()
+    aliases=(),
+    allow_zero=False
 ):
 
     value = os.getenv(name)
@@ -208,9 +203,10 @@ def unit_2_v11_setting(
     if value is None or not value.strip():
 
         for alias in aliases:
-            value = os.getenv(alias)
+            candidate = os.getenv(alias)
 
-            if value is not None and value.strip():
+            if candidate is not None and candidate.strip():
+                value = candidate
                 break
 
     if value is None or not value.strip():
@@ -223,22 +219,16 @@ def unit_2_v11_setting(
     )
 
 
-def unit_2_v11_require(condition, message):
-
-    if not condition:
-        raise RuntimeError(
-            "UNIT 2 CONFIG INVALID: " + message
-        )
-
-
 # ============================================================
-# ATR-DYNAMIC BACKUP BUFFER
-# PURE CALCULATION
+# PURE ATR-DYNAMIC BACKUP BUFFER FUNCTION
+# NO EXCHANGE CALL
+# NO GLOBAL STATE MUTATION
 # ============================================================
 
-def unit_2_v11_atr_backup_buffer(
+def unit_2_v12_atr_backup_buffer(
     atr14,
-    market_price
+    market_price,
+    multiplier=1.0
 ):
 
     atr = unit_2_v9_number(
@@ -248,30 +238,28 @@ def unit_2_v11_atr_backup_buffer(
 
     price = unit_2_v9_number(
         market_price,
-        "MARKET PRICE"
+        "MARKET_PRICE"
     )
 
-    # Internal default multiplier.
-    # No additional Render key required.
-    atr_multiplier = Decimal("1.0")
+    factor = unit_2_v9_number(
+        multiplier,
+        "ATR_MULTIPLIER"
+    )
 
     atr_percent = (
-        atr / price
-    ) * Decimal("100")
+        atr / price * Decimal("100")
+    )
 
     buffer_percent = (
-        atr_percent * atr_multiplier
+        atr_percent * factor
     )
 
-    # Keep the trigger inside a meaningful
-    # positive range for liquidation proximity.
-    # This is a mathematical bound, not a
-    # separate trading admission gate.
-
-    buffer_percent = min(
-        buffer_percent,
-        Decimal("99.999")
-    )
+    # Reject unusable inputs rather than silently
+    # converting them into unsafe trigger prices.
+    if buffer_percent >= Decimal("100"):
+        raise ValueError(
+            "ATR BUFFER OUTSIDE VALID PRICE RANGE"
+        )
 
     long_factor = (
         Decimal("1")
@@ -288,7 +276,7 @@ def unit_2_v11_atr_backup_buffer(
         "atr14": float(atr),
         "market_price": float(price),
         "atr_percent": float(atr_percent),
-        "atr_multiplier": float(atr_multiplier),
+        "atr_multiplier": float(factor),
         "backup_buffer_percent":
             float(buffer_percent),
         "backup_long_liquidation_factor":
@@ -298,6 +286,12 @@ def unit_2_v11_atr_backup_buffer(
     }
 
 
+# Preserve the previous helper name for compatibility.
+unit_2_v11_atr_backup_buffer = (
+    unit_2_v12_atr_backup_buffer
+)
+
+
 # ============================================================
 # CENTRAL CONFIGURATION
 # ============================================================
@@ -305,45 +299,36 @@ def unit_2_v11_atr_backup_buffer(
 def fresh_reconstruction_unit_2():
 
     print("=" * 80, flush=True)
-
     print(
-        "FRESH RECONSTRUCTION UNIT 2 V11 START",
+        "FRESH RECONSTRUCTION UNIT 2 V12 START",
         flush=True
     )
 
-    if FRESH_RECONSTRUCTION_UNIT_1_READY is not True:
-        raise RuntimeError(
-            "UNIT 2 REQUIRES UNIT 1"
-        )
+    setting = unit_2_v12_setting
 
-    setting = unit_2_v11_setting
-    require = unit_2_v11_require
-
-    # ========================================================
-    # CENTRAL SYMBOL REQUEST
-    # ========================================================
+    # --------------------------------------------------------
+    # SYMBOL
+    # --------------------------------------------------------
 
     requested_symbol = os.getenv(
         "WEEX_SYMBOL",
         "BTCUSDT"
     ).strip().upper()
 
-    require(
-        re.fullmatch(
-            r"[A-Z0-9]{2,25}USDT",
-            requested_symbol
-        ) is not None,
-        "WEEX SYMBOL FORMAT"
-    )
+    if not re.fullmatch(
+        r"[A-Z0-9]{2,25}USDT",
+        requested_symbol
+    ):
+        raise ValueError(
+            "INVALID WEEX_SYMBOL: " + requested_symbol
+        )
 
-    # Preserve the current model's initial
-    # symbol configuration.
+    # Preserve original Unit 3 compatibility.
+    # The existing symbol-switch controller must
+    # replace these legacy values when the
+    # corresponding contract is verified.
     #
-    # The existing persistent symbol controller
-    # must reconcile requested and active symbols.
-    #
-    # Unit 2 does not invent a demo symbol
-    # for an unverified contract.
+    # This is NOT an exchange acceptance claim.
 
     exchange = {
         "name": "WEEX",
@@ -352,7 +337,6 @@ def fresh_reconstruction_unit_2():
             "https://api-contract.weex.com",
 
         "requested_symbol": requested_symbol,
-
         "market_symbol": "BTCUSDT",
         "demo_order_symbol": "BTCSUSDT",
 
@@ -362,11 +346,11 @@ def fresh_reconstruction_unit_2():
             else "CURRENT_CONFIGURATION",
     }
 
-    # ========================================================
-    # COMPACT RENDER SETTINGS
-    # ========================================================
+    # --------------------------------------------------------
+    # COMPACT RENDER INPUTS
+    # --------------------------------------------------------
 
-    entry_margin = setting(
+    initial_margin = setting(
         "INITIAL_ENTRY_MARGIN_USDT",
         "0.5",
         aliases=("ENTRY_FIXED_USDT",)
@@ -392,7 +376,7 @@ def fresh_reconstruction_unit_2():
         "20"
     )
 
-    # TP3 is derived automatically.
+    # Automatically derive TP3.
     tp3_allocation = (
         Decimal("100")
         - tp1_allocation
@@ -409,63 +393,71 @@ def fresh_reconstruction_unit_2():
         "40"
     )
 
-    # ========================================================
-    # INPUT VALIDATION
-    # ========================================================
+    # --------------------------------------------------------
+    # VALIDATE ONLY ACTUAL CONFIGURATION CONSTRAINTS
+    # --------------------------------------------------------
 
-    require(
-        entry_margin > 0,
-        "INITIAL ENTRY MARGIN"
-    )
-
-    require(
+    if not (
         Decimal("0") < backup_margin
-        <= Decimal("100"),
-        "BACKUP MARGIN"
-    )
+        <= Decimal("100")
+    ):
+        raise ValueError(
+            "INVALID BACKUP_MARGIN_PERCENT"
+        )
 
-    require(
+    if not (
         Decimal("0") < exposure_cap
-        <= Decimal("100"),
-        "EXPOSURE CAP"
+        <= Decimal("100")
+    ):
+        raise ValueError(
+            "INVALID EXPOSURE_CAP_PERCENT"
+        )
+
+    if tp3_allocation <= 0:
+        raise ValueError(
+            "TP1 + TP2 MUST BE LESS THAN 100"
+        )
+
+    if tp2_roi <= tp1_roi:
+        raise ValueError(
+            "TP2 ROI MUST EXCEED TP1 ROI"
+        )
+
+    # --------------------------------------------------------
+    # BACKUP BUFFER COMPATIBILITY
+    # --------------------------------------------------------
+    #
+    # Original downstream units still read numeric
+    # backup_buffer_percent and liquidation factors.
+    #
+    # Preserve their established input format until
+    # Unit 7 and the backup executor are adapted.
+    #
+    # These are legacy compatibility values only.
+    # They are NOT fresh ATR-derived values.
+    #
+    # Existing BACKUP_BUFFER_PERCENT is preserved
+    # as an optional legacy configuration.
+    # It is not required for ATR-dynamic operation.
+    # --------------------------------------------------------
+
+    legacy_buffer = setting(
+        "BACKUP_BUFFER_PERCENT",
+        "0.3"
     )
 
-    require(
-        tp3_allocation > 0,
-        "TP ALLOCATION TOTAL"
-    )
+    if legacy_buffer >= Decimal("100"):
+        raise ValueError(
+            "INVALID LEGACY BACKUP BUFFER"
+        )
 
-    require(
-        tp2_roi > tp1_roi,
-        "TP2 ROI TARGET"
-    )
-
-    # ========================================================
-    # ATR-DYNAMIC BACKUP CONFIGURATION
-    # ========================================================
-
-    # Unit 2 executes before Unit 4 computes ATR14.
-    # Therefore ATR cannot be calculated here.
-    #
-    # Retain the original numeric keys for
-    # compatibility with the existing Unit 7.
-    #
-    # These are provisional legacy values,
-    # not executable ATR-derived triggers.
-    #
-    # Unit 7 must refresh them using the
-    # confirmed ATR14 and market price before
-    # creating backup execution instructions.
-
-    provisional_buffer = Decimal("0.3")
-
-    # ========================================================
-    # STRATEGY CONFIGURATION
-    # ========================================================
+    # --------------------------------------------------------
+    # STRATEGY
+    # --------------------------------------------------------
 
     strategy = {
         "initial_fixed_usdt":
-            float(entry_margin),
+            float(initial_margin),
 
         "initial_margin_percent": 5.0,
 
@@ -473,15 +465,14 @@ def fresh_reconstruction_unit_2():
             float(backup_margin),
 
         "backup_buffer_percent":
-            float(provisional_buffer),
+            float(legacy_buffer),
 
-        "backup_buffer_mode":
-            "ATR_DYNAMIC",
+        "backup_buffer_mode": "ATR_DYNAMIC",
 
         "backup_buffer_atr_multiplier": 1.0,
 
         "backup_buffer_calculation":
-            "UNIT_2_V11_ATR_BACKUP_BUFFER",
+            "unit_2_v12_atr_backup_buffer",
 
         "backup_buffer_ready": False,
 
@@ -499,13 +490,13 @@ def fresh_reconstruction_unit_2():
         "backup_long_liquidation_factor":
             float(
                 Decimal("1")
-                + provisional_buffer / Decimal("100")
+                + legacy_buffer / Decimal("100")
             ),
 
         "backup_short_liquidation_factor":
             float(
                 Decimal("1")
-                - provisional_buffer / Decimal("100")
+                - legacy_buffer / Decimal("100")
             ),
 
         "exposure_cap_percent":
@@ -521,7 +512,6 @@ def fresh_reconstruction_unit_2():
         "exposure_includes_pending_margin": True,
 
         "progressive_backup_funding": True,
-
         "full_ladder_reservation_required": False,
 
         "tp1_allocation_percent":
@@ -549,7 +539,15 @@ def fresh_reconstruction_unit_2():
         "signal_expiry_seconds": 120,
         "loss_cooldown_seconds": 300,
 
+        # Retain original entry arbitration key.
+        # It applies to new-entry direction,
+        # not independent hedge positions.
         "one_direction_only": True,
+
+        "entry_direction_lock_scope":
+            "NEW_ENTRIES_ONLY",
+
+        "hedge_direction_independent": True,
 
         "anti_duplicate_orders": True,
         "active_trade_mode_lock": True,
@@ -558,10 +556,14 @@ def fresh_reconstruction_unit_2():
         "mode_confirmations_required": 3,
     }
 
-    # ========================================================
-    # MARKET PRECISION
-    # ORIGINAL BTC FALLBACK VALUES
-    # ========================================================
+    # --------------------------------------------------------
+    # ORIGINAL PRECISION FALLBACK
+    # --------------------------------------------------------
+    #
+    # These values preserve the old contract.
+    # Executable orders must use verified
+    # symbol-specific exchange precision.
+    # --------------------------------------------------------
 
     market_precision = {
         "quantity_step": 0.0001,
@@ -569,18 +571,14 @@ def fresh_reconstruction_unit_2():
         "price_step": 0.1,
     }
 
-    # ========================================================
-    # HYBRID QUALIFICATION CONTRACT
-    # PRESERVED FROM CURRENT MODEL
-    # ========================================================
+    # --------------------------------------------------------
+    # ORIGINAL HYBRID QUALIFICATION CONTRACT
+    # --------------------------------------------------------
 
     qualification = {
-
         "common": {
             "mode_priority": (
-                "BREAKOUT",
-                "STRUCTURE",
-                "SCALP"
+                "BREAKOUT", "STRUCTURE", "SCALP"
             ),
             "direction_votes_required": 2,
             "direction_votes_total": 3,
@@ -671,10 +669,17 @@ def fresh_reconstruction_unit_2():
         },
     }
 
-    # ========================================================
-    # UNIT-LOCAL CAPABILITIES
-    # NOT A GLOBAL DEMO EXECUTION DISABLE SWITCH
-    # ========================================================
+    # --------------------------------------------------------
+    # UNIT-LOCAL SAFETY DESCRIPTION
+    # --------------------------------------------------------
+    #
+    # These flags describe Unit 2 itself.
+    # They are NOT global permissions for
+    # Units 11-14.
+    #
+    # Demo execution authorization belongs
+    # to the actual demo order executor.
+    # --------------------------------------------------------
 
     safety = {
         "public_market_data_read_enabled": True,
@@ -694,9 +699,9 @@ def fresh_reconstruction_unit_2():
         "position_mode_mutation_enabled": False,
     }
 
-    # ========================================================
-    # COMPLETE CONFIGURATION
-    # ========================================================
+    # --------------------------------------------------------
+    # FINAL CONFIGURATION
+    # --------------------------------------------------------
 
     config = {
         "exchange": exchange,
@@ -707,88 +712,9 @@ def fresh_reconstruction_unit_2():
         "qualification": qualification,
     }
 
-    # ========================================================
-    # CONTRACT VALIDATION
-    # ========================================================
-
-    require(
-        exchange["name"] == "WEEX",
-        "EXCHANGE"
-    )
-
-    require(
-        exchange["api_version"] == "V3",
-        "API VERSION"
-    )
-
-    require(
-        config["execution_environment"] == "DEMO",
-        "DEMO ENVIRONMENT"
-    )
-
-    require(
-        strategy["max_backups"] == 5,
-        "BACKUP COUNT"
-    )
-
-    require(
-        strategy["anti_duplicate_orders"] is True,
-        "ANTI DUPLICATE"
-    )
-
-    require(
-        strategy["progressive_backup_funding"] is True,
-        "BACKUP FUNDING"
-    )
-
-    require(
-        "backup_multipliers" not in strategy,
-        "OBSOLETE BACKUP MULTIPLIERS"
-    )
-
-    require(
-        "leverage_target" not in strategy,
-        "HARDCODED LEVERAGE"
-    )
-
-    require(
-        sum(
-            strategy[key]
-            for key in (
-                "tp1_allocation_percent",
-                "tp2_allocation_percent",
-                "tp3_allocation_percent",
-            )
-        ) == 100.0,
-        "TP ALLOCATION"
-    )
-
-    require(
-        strategy["tp1_net_roi_floor_percent"] > 0,
-        "TP1 ROI"
-    )
-
-    require(
-        strategy["tp2_net_roi_floor_percent"]
-        > strategy["tp1_net_roi_floor_percent"],
-        "TP2 ROI"
-    )
-
-    require(
-        qualification["common"]["mode_priority"]
-        == ("BREAKOUT", "STRUCTURE", "SCALP"),
-        "MODE PRIORITY"
-    )
-
-    require(
-        qualification["scalp"]["quality_threshold"]
-        == 70.0,
-        "SCALP QUALITY"
-    )
-
-    # ========================================================
-    # STARTUP REPORT
-    # ========================================================
+    # --------------------------------------------------------
+    # CONFIGURATION REPORT
+    # --------------------------------------------------------
 
     print(
         "UNIT 2 REQUESTED SYMBOL =",
@@ -797,14 +723,20 @@ def fresh_reconstruction_unit_2():
     )
 
     print(
-        "UNIT 2 SYMBOL SWITCH STATUS =",
+        "UNIT 2 ACTIVE SYMBOL =",
+        exchange["market_symbol"],
+        flush=True
+    )
+
+    print(
+        "UNIT 2 SYMBOL STATUS =",
         exchange["symbol_switch_status"],
         flush=True
     )
 
     print(
-        "UNIT 2 INITIAL ENTRY MARGIN =",
-        entry_margin,
+        "UNIT 2 INITIAL MARGIN =",
+        initial_margin,
         flush=True
     )
 
@@ -842,7 +774,13 @@ def fresh_reconstruction_unit_2():
     )
 
     print(
-        "UNIT 2 BACKUP ATR CALCULATION = DEFERRED",
+        "UNIT 2 LEGACY BUFFER % =",
+        legacy_buffer,
+        flush=True
+    )
+
+    print(
+        "UNIT 2 ATR BUFFER READY = False",
         flush=True
     )
 
@@ -853,12 +791,17 @@ def fresh_reconstruction_unit_2():
     )
 
     print(
-        "UNIT 2 QUALIFICATION CONTRACT = PRESERVED",
+        "UNIT 2 NEW ENTRY DIRECTION LOCK = ENABLED",
         flush=True
     )
 
     print(
-        "UNIT 2 DEMO EXECUTION CONTROL = DOWNSTREAM",
+        "UNIT 2 HEDGE DIRECTION = INDEPENDENT CONFIG",
+        flush=True
+    )
+
+    print(
+        "UNIT 2 EXCHANGE WRITE = NONE",
         flush=True
     )
 
@@ -867,13 +810,11 @@ def fresh_reconstruction_unit_2():
         flush=True
     )
 
-    print("=" * 80, flush=True)
-
     return config
 
 
 # ============================================================
-# EXECUTE UNIT 2
+# RUN UNIT 2
 # ============================================================
 
 FRESH_RECONSTRUCTION_CONFIG = (
@@ -882,7 +823,7 @@ FRESH_RECONSTRUCTION_CONFIG = (
 
 
 # ============================================================
-# UNIT 2 -> UNIT 3 COMPATIBILITY
+# ORIGINAL UNIT 3 HANDOVER CONTRACT
 # ============================================================
 
 FRESH_UNIT_2_OPTIMIZATION_READY = (
@@ -908,19 +849,18 @@ FRESH_UNIT_2_OPTIMIZATION_READY = (
 
 if not FRESH_UNIT_2_OPTIMIZATION_READY:
     raise RuntimeError(
-        "UNIT 2 V11 OPTIMIZATION READINESS FAILED"
+        "UNIT 2 CONFIGURATION CONTRACT FAILED"
     )
 
 print(
-    "UNIT 2 V11 OPTIMIZATION READY =",
+    "UNIT 2 V12 OPTIMIZATION READY =",
     FRESH_UNIT_2_OPTIMIZATION_READY,
     flush=True
 )
 
 
 # ============================================================
-# END COMPLETE UNIT 2 V11
+# END COMPLETE UNIT 2 V12
 # UNIT 3 FOLLOWS
 # ZERO INDENTATION
 # ============================================================
-
