@@ -759,12 +759,7 @@ def unit_3_resolve_symbol(config):
 
     exchange = config.get("exchange", {})
 
-    requested = unit_3_normalize_symbol(
-        exchange.get(
-            "requested_symbol",
-            os.getenv("WEEX_SYMBOL", "BTCUSDT")
-        )
-    )
+    bootstrap = requested
 
     confirmed = (
         exchange.get("active_symbol_confirmed")
