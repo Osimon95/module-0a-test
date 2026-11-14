@@ -3968,13 +3968,15 @@ def fresh_reconstruction_unit_6(
 
 
 def unit_6_validation_v11():
-    
+
+    # Use Unit 2 as the single TP configuration source.
     cfg = {
         "strategy": {
             "tp1_net_roi_floor_percent":
                 FRESH_RECONSTRUCTION_CONFIG[
                     "strategy"
                 ]["tp1_net_roi_floor_percent"],
+
             "tp2_net_roi_floor_percent":
                 FRESH_RECONSTRUCTION_CONFIG[
                     "strategy"
@@ -3987,14 +3989,18 @@ def unit_6_validation_v11():
             "max_market_age_seconds": 120
         }
     }
-        
-        "qualification": {
-            "scalp": {}
-        },
-        "market_data_policy": {
-            "max_market_age_seconds": 120
-        }
-    }
+
+    print(
+        "UNIT 6 VALIDATION TP1 NET ROI =",
+        cfg["strategy"]["tp1_net_roi_floor_percent"],
+        flush=True
+    )
+
+    print(
+        "UNIT 6 VALIDATION TP2 NET ROI =",
+        cfg["strategy"]["tp2_net_roi_floor_percent"],
+        flush=True
+    )
 
     analysis = {
         "symbol": "AVAXUSDT",
