@@ -4069,7 +4069,7 @@ def unit_5_validation_v8():
         data = {
             "exchange": "WEEX",
             "api_version": "V3",
-            "symbol": "BTCUSDT",
+            "symbol": FRESH_RECONSTRUCTION_CONFIG["exchange"]["market_symbol"],
             "price_type": "MARK",
             "read_only": True,
 
