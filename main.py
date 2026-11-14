@@ -3226,10 +3226,12 @@ FRESH_RECONSTRUCTION_SIGNAL_CANDIDATE = (
 
 
 # ============================================================
-# START COMPLETE UNIT 6 V11 REPLACEMENT
-# DYNAMIC HYBRID SIGNAL + NET PROFIT ASSESSMENT
-# UNIT 4 V6 -> UNIT 5 V10 -> UNIT 6 -> UNIT 7
-# NO EXCHANGE ORDERS IN THIS UNIT
+# START COMPLETE UNIT 6 V12 REPLACEMENT
+# UNIT 2 -> UNIT 4 -> UNIT 5 -> UNIT 6 -> UNIT 7
+# DYNAMIC SIGNAL + NET PROFIT ASSESSMENT
+# ORIGINAL WEEX DEMO LEVERAGE CONFIGURATION
+# NO EXCHANGE ORDERS IN UNIT 6
+# ZERO INDENTATION
 # ============================================================
 
 import os
@@ -3237,22 +3239,30 @@ import math
 import copy
 
 
+# ============================================================
+# 6.1 SHARED HELPERS
+# ============================================================
+
 def unit_6_v11_number(value, name, default=None):
     if value is None:
         value = default
+
     if isinstance(value, bool):
         raise ValueError("UNIT 6 INVALID " + name)
+
     try:
-        value = float(value)
+        number = float(value)
     except (TypeError, ValueError, OverflowError) as exc:
         raise ValueError(
             "UNIT 6 INVALID " + name
         ) from exc
-    if not math.isfinite(value):
+
+    if not math.isfinite(number):
         raise ValueError(
             "UNIT 6 NONFINITE " + name
         )
-    return value
+
+    return number
 
 
 def unit_6_v11_side(value):
@@ -3274,22 +3284,30 @@ def unit_6_v11_env_number(name, default):
     )
 
 
+# ============================================================
+# 6.2 MAIN UNIT 6 ENGINE
+# ============================================================
+
 def fresh_reconstruction_unit_6(
     unit_2_config,
     unit_4_analysis,
     unit_5_candidate
 ):
+
     print("=" * 80, flush=True)
     print(
-        "FRESH RECONSTRUCTION UNIT 6 V11 START",
+        "FRESH RECONSTRUCTION UNIT 6 V12 START",
         flush=True
     )
 
-    if not all(isinstance(x, dict) for x in (
-        unit_2_config,
-        unit_4_analysis,
-        unit_5_candidate
-    )):
+    if not all(
+        isinstance(item, dict)
+        for item in (
+            unit_2_config,
+            unit_4_analysis,
+            unit_5_candidate
+        )
+    ):
         raise RuntimeError(
             "UNIT 6 INVALID HANDOVER INPUT"
         )
@@ -3299,17 +3317,16 @@ def fresh_reconstruction_unit_6(
     candidate = unit_5_candidate
 
     strategy = config.get("strategy", {})
-    qualification = config.get(
-        "qualification", {}
-    )
-    scalp = qualification.get("scalp", {})
+    qualification = config.get("qualification", {})
 
     if not isinstance(strategy, dict):
-        raise RuntimeError(
-            "UNIT 6 STRATEGY INVALID"
-        )
+        raise RuntimeError("UNIT 6 STRATEGY INVALID")
+
     if not isinstance(qualification, dict):
         qualification = {}
+
+    scalp = qualification.get("scalp", {})
+
     if not isinstance(scalp, dict):
         scalp = {}
 
@@ -3359,66 +3376,47 @@ def fresh_reconstruction_unit_6(
     move_15m = a("move_15m_pct", 0)
 
     # ========================================================
-    # 6.1 CANDIDATE CLASSIFICATION
+    # 6.3 MARKET CLASSIFICATION
     # ========================================================
 
     mode = str(
-        candidate.get(
-            "candidate_mode", "NONE"
-        )
+        candidate.get("candidate_mode", "NONE")
     ).upper()
 
     stage = str(
-        candidate.get(
-            "candidate_stage", "REJECTED"
-        )
+        candidate.get("candidate_stage", "REJECTED")
     ).upper()
 
     side = str(
-        candidate.get(
-            "direction", "NONE"
-        )
+        candidate.get("direction", "NONE")
     ).upper()
 
-    valid_modes = (
-        "NONE", "BREAKOUT",
-        "STRUCTURE", "SCALP"
-    )
-
-    if mode not in valid_modes:
+    if mode not in (
+        "NONE", "BREAKOUT", "STRUCTURE", "SCALP"
+    ):
         raise RuntimeError(
             "UNIT 6 INVALID STRATEGY MODE"
         )
 
-    if side not in (
-        "NONE", "LONG", "SHORT"
-    ):
+    if side not in ("NONE", "LONG", "SHORT"):
         raise RuntimeError(
             "UNIT 6 INVALID DIRECTION"
         )
 
     breakout_ready = bool(
-        candidate.get(
-            "breakout_ready", False
-        )
+        candidate.get("breakout_ready", False)
     )
 
     structure_ready = bool(
-        candidate.get(
-            "structure_ready", False
-        )
+        candidate.get("structure_ready", False)
     )
 
     scalp_ready = bool(
-        candidate.get(
-            "scalp_ready", False
-        )
+        candidate.get("scalp_ready", False)
     )
 
     higher_developing = bool(
-        candidate.get(
-            "higher_mode_developing", False
-        )
+        candidate.get("higher_mode_developing", False)
     )
 
     market_confirmed = bool(
@@ -3433,57 +3431,53 @@ def fresh_reconstruction_unit_6(
     )
 
     # ========================================================
-    # 6.2 FRESHNESS
+    # 6.4 MARKET FRESHNESS
     # ========================================================
 
+    market_policy = config.get(
+        "market_data_policy", {}
+    )
+
+    if not isinstance(market_policy, dict):
+        market_policy = {}
+
     max_age = unit_6_v11_number(
-        config.get(
-            "market_data_policy", {}
-        ).get(
+        market_policy.get(
             "max_market_age_seconds", 120
         ),
         "MAX_MARKET_AGE"
     )
 
-    age = candidate.get(
-        "candidate_age_seconds"
-    )
+    age = candidate.get("candidate_age_seconds")
 
     if age is None:
-        age_ok = False
         age_value = None
+        age_ok = False
     else:
         age_value = unit_6_v11_number(
             age, "CANDIDATE_AGE"
         )
-        age_ok = (
-            0 <= age_value <= max_age
-        )
+        age_ok = 0 <= age_value <= max_age
 
     fresh = bool(
-        candidate.get(
-            "candle_data_fresh", True
-        )
+        candidate.get("candle_data_fresh", True)
         and age_ok
     )
 
     # ========================================================
-    # 6.3 SCALP PERSISTENCE AND QUALITY
+    # 6.5 SCALP QUALITY AND PERSISTENCE
     # ========================================================
 
     scalp_side = str(
         candidate.get(
             "scalp_direction",
             candidate.get(
-                "scalp_direction_candidate",
-                "NONE"
+                "scalp_direction_candidate", "NONE"
             )
         )
     ).upper()
 
-    if scalp_side not in (
-        "LONG", "SHORT", "NONE"
-    ):
+    if scalp_side not in ("LONG", "SHORT", "NONE"):
         scalp_side = "NONE"
 
     directions = (
@@ -3496,9 +3490,7 @@ def fresh_reconstruction_unit_6(
 
     persistence_required = int(
         unit_6_v11_number(
-            scalp.get(
-                "persistence_required", 2
-            ),
+            scalp.get("persistence_required", 2),
             "PERSISTENCE_REQUIRED"
         )
     )
@@ -3507,25 +3499,22 @@ def fresh_reconstruction_unit_6(
         1, min(3, persistence_required)
     )
 
-    confirmations = sum(
-        d == scalp_side
-        for d in directions
-    ) if scalp_side != "NONE" else 0
+    confirmations = (
+        sum(d == scalp_side for d in directions)
+        if scalp_side != "NONE"
+        else 0
+    )
 
     persistence_pass = (
         confirmations >= persistence_required
     )
 
     sideways = bool(
-        analysis.get(
-            "sideways_candidate", False
-        )
+        analysis.get("sideways_candidate", False)
     )
 
     sideways_required = bool(
-        scalp.get(
-            "require_sideways_market", True
-        )
+        scalp.get("require_sideways_market", True)
     )
 
     sideways_pass = (
@@ -3540,7 +3529,7 @@ def fresh_reconstruction_unit_6(
     )
 
     ema_separation_pct = (
-        abs(ema19 - ema50) / ema50 * 100
+        abs(ema19 - ema50) / ema50 * 100.0
     )
 
     compression_atr = a(
@@ -3559,22 +3548,16 @@ def fresh_reconstruction_unit_6(
         compression_atr <= compression_limit
     )
 
-    extension_atr = (
-        abs(price - ema19) / atr
-    )
+    extension_atr = abs(price - ema19) / atr
 
     spike_ratio = (
         abs(move_1m)
-        / max(
-            abs(move_5m) / 5.0,
-            0.000001
-        )
+        / max(abs(move_5m) / 5.0, 0.000001)
     )
 
-    extreme_extension = (
-        extension_atr > 1.5
-    )
+    extreme_extension = extension_atr > 1.5
     extreme_spike = spike_ratio > 2.0
+
     late_impulse = bool(
         extreme_extension and extreme_spike
     )
@@ -3589,6 +3572,7 @@ def fresh_reconstruction_unit_6(
 
         if directions[1] == scalp_side:
             price_action_score += 15
+
         if directions[0] == scalp_side:
             price_action_score += 10
 
@@ -3633,8 +3617,10 @@ def fresh_reconstruction_unit_6(
 
         if not extreme_extension:
             volatility_score += 10
+
         if not extreme_spike:
             volatility_score += 5
+
         if not late_impulse:
             volatility_score += 5
 
@@ -3651,9 +3637,7 @@ def fresh_reconstruction_unit_6(
     )
 
     quality_minimum = unit_6_v11_number(
-        scalp.get(
-            "quality_threshold", 70
-        ),
+        scalp.get("quality_threshold", 70),
         "QUALITY_MINIMUM"
     )
 
@@ -3662,24 +3646,16 @@ def fresh_reconstruction_unit_6(
     )
 
     quality_details = {
-        "price_action_score":
-            price_action_score,
+        "price_action_score": price_action_score,
         "persistence_score":
             round(persistence_score, 2),
-        "ema_location_score":
-            location_score,
-        "ema_quality_score":
-            ema_score,
-        "volatility_score":
-            volatility_score,
-        "extreme_extension":
-            extreme_extension,
-        "extreme_spike":
-            extreme_spike,
-        "late_impulse":
-            late_impulse,
-        "ema_separation_pct":
-            ema_separation_pct
+        "ema_location_score": location_score,
+        "ema_quality_score": ema_score,
+        "volatility_score": volatility_score,
+        "extreme_extension": extreme_extension,
+        "extreme_spike": extreme_spike,
+        "late_impulse": late_impulse,
+        "ema_separation_pct": ema_separation_pct,
     }
 
     scalp_market_confirmed = bool(
@@ -3699,15 +3675,14 @@ def fresh_reconstruction_unit_6(
         market_confirmed = True
         side = scalp_side
 
-    
     # ========================================================
-    # 6.4 LEVERAGE FROM UNIT 2
+    # 6.6 LEVERAGE FROM UNIT 2 ONLY
     # ========================================================
 
     leverage_key = (
-        "WEEX_LEVERAGE_LONG"
+        "WEEX_DEMO_LEVERAGE_LONG"
         if side == "LONG"
-        else "WEEX_LEVERAGE_SHORT"
+        else "WEEX_DEMO_LEVERAGE_SHORT"
         if side == "SHORT"
         else None
     )
@@ -3730,36 +3705,40 @@ def fresh_reconstruction_unit_6(
             leverage = unit_6_v11_number(
                 value, config_key
             )
-            leverage_ready = 0 < leverage <= 200
+
+            leverage_ready = (
+                0 < leverage <= 200
+            )
+
+    # Unit 6 never reads leverage from os.environ.
+    # Unit 2 is the sole configuration source.
+    # No leverage is set on the exchange here.
 
     # ========================================================
-    # 6.5 CONFIGURED NET ROI TARGETS
+    # 6.7 ADJUSTABLE NET ROI TARGETS
     # ========================================================
 
     tp1_roi = unit_6_v11_number(
         strategy.get(
-            "tp1_net_roi_floor_percent",
-            10.0
+            "tp1_net_roi_floor_percent", 20.0
         ),
         "TP1_NET_ROI"
     )
 
     tp2_roi = unit_6_v11_number(
         strategy.get(
-            "tp2_net_roi_floor_percent",
-            30.0
+            "tp2_net_roi_floor_percent", 40.0
         ),
         "TP2_NET_ROI"
     )
 
-    if tp1_roi < 0 or tp2_roi < tp1_roi:
+    if tp1_roi < 0 or tp2_roi <= tp1_roi:
         raise RuntimeError(
             "UNIT 6 INVALID TP ROI CONFIGURATION"
         )
 
     # ========================================================
-    # 6.6 COST MODEL
-    # Percentages refer to position notional.
+    # 6.8 COST AND ATR PROJECTION
     # ========================================================
 
     round_trip_fee = c(
@@ -3768,8 +3747,7 @@ def fresh_reconstruction_unit_6(
     )
 
     extra_cost = unit_6_v11_env_number(
-        "UNIT6_EXTRA_COST_PCT",
-        0.0
+        "UNIT6_EXTRA_COST_PCT", 0.0
     )
 
     if round_trip_fee < 0 or extra_cost < 0:
@@ -3777,16 +3755,7 @@ def fresh_reconstruction_unit_6(
             "UNIT 6 NEGATIVE COST CONFIGURATION"
         )
 
-    total_cost = (
-        round_trip_fee + extra_cost
-    )
-
-    # ========================================================
-    # 6.7 PROJECTED MOVEMENT
-    #
-    # This is a configurable ATR-based screening estimate,
-    # not a prediction or guaranteed remaining movement.
-    # ========================================================
+    total_cost = round_trip_fee + extra_cost
 
     atr_multiplier = unit_6_v11_env_number(
         "UNIT6_ATR_PROJECTION_MULTIPLIER",
@@ -3802,25 +3771,27 @@ def fresh_reconstruction_unit_6(
         atr_pct * atr_multiplier
     )
 
-    # Also retain historical movement for comparison.
     if mode == "BREAKOUT":
         historical_move = abs(
             c("breakout_move_pct", move_5m)
         )
+
     elif mode == "STRUCTURE":
         historical_move = abs(
             c("structure_move_pct", move_15m)
         )
+
     elif mode == "SCALP":
         historical_move = abs(
             c("scalp_move_pct", move_1m)
         )
+
     else:
         historical_move = 0.0
         estimated_move = 0.0
 
     # ========================================================
-    # 6.8 NET PROFIT ASSESSMENT
+    # 6.9 NET ROI PROFITABILITY
     # ========================================================
 
     estimated_net_roi = None
@@ -3832,10 +3803,8 @@ def fresh_reconstruction_unit_6(
     tp2_profit_pass = False
     profit_qualified = False
 
-    if (
-        mode != "NONE"
-        and leverage_ready
-    ):
+    if mode != "NONE" and leverage_ready:
+
         estimated_net_roi = (
             (estimated_move - total_cost)
             * leverage
@@ -3861,13 +3830,13 @@ def fresh_reconstruction_unit_6(
             estimated_net_roi >= tp2_roi
         )
 
-        profit_qualified = (
+        profit_qualified = bool(
             fee_coverage_pass
             and tp1_profit_pass
         )
 
     # ========================================================
-    # 6.9 ADMISSION ARBITRATION
+    # 6.10 ADMISSION DECISION
     # ========================================================
 
     execution_intent = False
@@ -3875,14 +3844,10 @@ def fresh_reconstruction_unit_6(
     active_mode = "NONE"
     direction = "NONE"
 
-    admission_reason = (
-        "NO_ACCEPTABLE_CANDIDATE"
-    )
+    admission_reason = "NO_ACCEPTABLE_CANDIDATE"
 
     if not fresh:
-        admission_reason = (
-            "MARKET_EVIDENCE_STALE"
-        )
+        admission_reason = "MARKET_EVIDENCE_STALE"
 
     elif not market_confirmed:
         admission_reason = str(
@@ -3912,128 +3877,104 @@ def fresh_reconstruction_unit_6(
         signal_qualified = True
         active_mode = mode
         direction = side
+
         admission_reason = (
             "NET_PROFIT_SCREEN_PASSED"
         )
 
     # ========================================================
-    # 6.10 UNIT 7 OUTPUT CONTRACT
+    # 6.11 PRESERVED UNIT 7 OUTPUT CONTRACT
     # ========================================================
 
     result = {
         "symbol": symbol,
-        "execution_intent":
-            execution_intent,
-        "signal_qualified":
-            signal_qualified,
+
+        "execution_intent": execution_intent,
+        "signal_qualified": signal_qualified,
         "active_mode": active_mode,
         "direction": direction,
-        "admission_reason":
-            admission_reason,
+        "admission_reason": admission_reason,
 
         "candidate_mode": mode,
         "candidate_stage": stage,
-        "market_confirmed":
-            market_confirmed,
-        "profit_qualified":
-            profit_qualified,
-        "entry_qualified":
-            signal_qualified,
+        "market_confirmed": market_confirmed,
+        "profit_qualified": profit_qualified,
+        "entry_qualified": signal_qualified,
 
-        "unit_5_reason":
-            candidate.get(
-                "qualification_reason",
-                "UNKNOWN"
-            ),
+        "unit_5_reason": candidate.get(
+            "qualification_reason", "UNKNOWN"
+        ),
 
         "higher_mode_developing":
             higher_developing,
 
         "unit_5_evidence_version":
-            candidate.get(
-                "strategy_evidence_version"
-            ),
+            candidate.get("strategy_evidence_version"),
+
         "unit_4_evidence_version":
-            analysis.get(
-                "strategy_evidence_version"
-            ),
+            analysis.get("strategy_evidence_version"),
 
         "classification_version":
             "UNIT6_V9_ADJUSTABLE",
+
         "classification_revision":
-            "UNIT6_V11_NET_PROFIT",
+            "UNIT6_V12_NET_PROFIT",
 
         "market_data_fresh": fresh,
 
         "leverage_target": None,
-        "leverage_regime":
-            "WEEX_EXCHANGE_SETTING",
-        "configured_leverage":
-            leverage,
-        "leverage_source":
-            leverage_key,
-        "leverage_configured":
-            leverage_ready,
+        "leverage_regime": "WEEX_EXCHANGE_SETTING",
+        "configured_leverage": leverage,
+        "leverage_source": leverage_key,
+        "leverage_configured": leverage_ready,
 
         "sideways_regime": sideways,
         "ema_compressed": ema_compressed,
         "compression_threshold_pct":
             compression_limit,
 
-        "momentum_conflict":
-            momentum_conflict,
-        "persistence_window":
-            persistence_window,
-        "persistence_required":
-            persistence_required,
-        "persistence_confirmations":
-            confirmations,
-        "persistence_directions":
-            directions,
-        "persistence_pass":
-            persistence_pass,
+        "momentum_conflict": momentum_conflict,
+        "persistence_window": persistence_window,
+        "persistence_required": persistence_required,
+        "persistence_confirmations": confirmations,
+        "persistence_directions": directions,
+        "persistence_pass": persistence_pass,
 
         "fifteen_minute_support_pass":
             directions[2] == scalp_side,
 
-        "scalp_quality_score":
-            quality_score,
-        "scalp_quality_minimum":
-            quality_minimum,
-        "scalp_quality_pass":
-            quality_pass,
-        "scalp_quality_details":
-            quality_details,
+        "scalp_quality_score": quality_score,
+        "scalp_quality_minimum": quality_minimum,
+        "scalp_quality_pass": quality_pass,
+        "scalp_quality_details": quality_details,
 
-        "estimated_move_pct":
-            estimated_move,
-        "historical_move_pct":
-            historical_move,
+        "estimated_move_pct": estimated_move,
+        "historical_move_pct": historical_move,
+
         "estimated_round_trip_fee_pct":
             round_trip_fee,
-        "additional_cost_pct":
-            extra_cost,
-        "total_cost_pct":
-            total_cost,
-        "required_move_pct":
-            required_tp1_move,
+
+        "additional_cost_pct": extra_cost,
+        "total_cost_pct": total_cost,
+
+        "required_move_pct": required_tp1_move,
         "required_tp1_move_pct":
             required_tp1_move,
         "required_tp2_move_pct":
             required_tp2_move,
+
         "estimated_net_roi_pct":
             estimated_net_roi,
-        "tp1_net_roi_target_pct":
-            tp1_roi,
-        "tp2_net_roi_target_pct":
-            tp2_roi,
-        "tp1_profit_qualified":
-            tp1_profit_pass,
-        "tp2_profit_qualified":
-            tp2_profit_pass,
-        "fee_coverage_pass":
-            fee_coverage_pass,
+
+        "tp1_net_roi_target_pct": tp1_roi,
+        "tp2_net_roi_target_pct": tp2_roi,
+
+        "tp1_profit_qualified": tp1_profit_pass,
+        "tp2_profit_qualified": tp2_profit_pass,
+
+        "fee_coverage_pass": fee_coverage_pass,
         "fee_estimate_verified": False,
+
         "projection_method":
             "ATR_MULTIPLIER_HEURISTIC",
 
@@ -4041,32 +3982,27 @@ def fresh_reconstruction_unit_6(
         "order_payload_created": False,
         "exchange_write": False,
         "read_only": True,
-        "trade_authorized": False
+        "trade_authorized": False,
     }
 
     # ========================================================
-    # 6.11 RENDER DIAGNOSTICS
+    # 6.12 RENDER DIAGNOSTICS
     # ========================================================
 
-    print(
-        "UNIT 6 SYMBOL =", symbol,
-        flush=True
-    )
-    print(
-        "UNIT 6 MARKET MODE =", mode,
-        flush=True
-    )
+    print("UNIT 6 SYMBOL =", symbol, flush=True)
+    print("UNIT 6 MARKET MODE =", mode, flush=True)
     print(
         "UNIT 6 MARKET CONFIRMED =",
         market_confirmed, flush=True
     )
-    print(
-        "UNIT 6 DIRECTION =", side,
-        flush=True
-    )
+    print("UNIT 6 DIRECTION =", side, flush=True)
     print(
         "UNIT 6 MARKET DATA FRESH =",
         fresh, flush=True
+    )
+    print(
+        "UNIT 6 LEVERAGE SOURCE =",
+        leverage_key, flush=True
     )
     print(
         "UNIT 6 LEVERAGE =",
@@ -4078,8 +4014,7 @@ def fresh_reconstruction_unit_6(
     )
     print(
         "UNIT 6 PROJECTED MOVE % =",
-        round(estimated_move, 6),
-        flush=True
+        round(estimated_move, 6), flush=True
     )
     print(
         "UNIT 6 PROJECTION METHOD =",
@@ -4088,8 +4023,7 @@ def fresh_reconstruction_unit_6(
     )
     print(
         "UNIT 6 ROUND TRIP COST % =",
-        round(total_cost, 6),
-        flush=True
+        round(total_cost, 6), flush=True
     )
     print(
         "UNIT 6 ESTIMATED NET ROI % =",
@@ -4151,43 +4085,57 @@ def fresh_reconstruction_unit_6(
 
 
 # ============================================================
-# 6.12 DETERMINISTIC VALIDATION
+# 6.13 DETERMINISTIC VALIDATION
+# INDEPENDENT OF RENDER LEVERAGE
 # ============================================================
 
+def unit_6_validation_v12():
 
-def unit_6_validation_v11():
+    source_strategy = FRESH_RECONSTRUCTION_CONFIG[
+        "strategy"
+    ]
 
-    # Use Unit 2 as the single TP configuration source.
     cfg = {
         "strategy": {
+            "leverage_long": 10.0,
+            "leverage_short": 10.0,
+            "leverage_source": "VALIDATION_FIXTURE",
+
             "tp1_net_roi_floor_percent":
-                FRESH_RECONSTRUCTION_CONFIG[
-                    "strategy"
-                ]["tp1_net_roi_floor_percent"],
+                source_strategy[
+                    "tp1_net_roi_floor_percent"
+                ],
 
             "tp2_net_roi_floor_percent":
-                FRESH_RECONSTRUCTION_CONFIG[
-                    "strategy"
-                ]["tp2_net_roi_floor_percent"]
+                source_strategy[
+                    "tp2_net_roi_floor_percent"
+                ],
         },
+
         "qualification": {
             "scalp": {}
         },
+
         "market_data_policy": {
             "max_market_age_seconds": 120
         }
     }
 
-    print(
-        "UNIT 6 VALIDATION TP1 NET ROI =",
-        cfg["strategy"]["tp1_net_roi_floor_percent"],
-        flush=True
-    )
+    tp1_target = cfg["strategy"][
+        "tp1_net_roi_floor_percent"
+    ]
+
+    tp2_target = cfg["strategy"][
+        "tp2_net_roi_floor_percent"
+    ]
 
     print(
+        "UNIT 6 VALIDATION TP1 NET ROI =",
+        tp1_target, flush=True
+    )
+    print(
         "UNIT 6 VALIDATION TP2 NET ROI =",
-        cfg["strategy"]["tp2_net_roi_floor_percent"],
-        flush=True
+        tp2_target, flush=True
     )
 
     analysis = {
@@ -4202,7 +4150,7 @@ def unit_6_validation_v11():
         "move_1m_pct": 0.05,
         "move_5m_pct": 0.10,
         "move_15m_pct": 0.20,
-        "sideways_candidate": False
+        "sideways_candidate": False,
     }
 
     candidate = {
@@ -4219,173 +4167,204 @@ def unit_6_validation_v11():
         "candidate_age_seconds": 5,
         "estimated_round_trip_fee_pct": 0.16,
         "qualification_reason":
-            "STRUCTURE_CONFIRMED"
+            "STRUCTURE_CONFIRMED",
     }
 
-    # Tests do not submit orders.
-    old_long = os.environ.get(
-        "WEEX_LEVERAGE_LONG"
+    # This validation supplies its own leverage.
+    # No Render leverage variable is changed.
+
+    old_multiplier = os.environ.get(
+        "UNIT6_ATR_PROJECTION_MULTIPLIER"
+    )
+
+    old_extra_cost = os.environ.get(
+        "UNIT6_EXTRA_COST_PCT"
     )
 
     try:
-        os.environ[
-            "WEEX_LEVERAGE_LONG"
-        ] = "10"
+        os.environ["UNIT6_EXTRA_COST_PCT"] = "0"
 
-        output = fresh_reconstruction_unit_6(
+        # Choose test movements from the actual
+        # configured TP targets rather than assuming
+        # the user always selects 20% and 40%.
+
+        atr_percent = (
+            analysis["atr14"]
+            / analysis["live_mark_price"]
+            * 100.0
+        )
+
+        fee = candidate[
+            "estimated_round_trip_fee_pct"
+        ]
+
+        leverage = cfg["strategy"][
+            "leverage_long"
+        ]
+
+        tp1_required_move = (
+            fee + tp1_target / leverage
+        )
+
+        tp2_required_move = (
+            fee + tp2_target / leverage
+        )
+
+        # Midpoint exceeds TP1 but remains below TP2.
+        midpoint_move = (
+            tp1_required_move + tp2_required_move
+        ) / 2.0
+
+        midpoint_multiplier = (
+            midpoint_move / atr_percent
+        )
+
+        os.environ[
+            "UNIT6_ATR_PROJECTION_MULTIPLIER"
+        ] = str(midpoint_multiplier)
+
+        tp1_case = fresh_reconstruction_unit_6(
             copy.deepcopy(cfg),
             copy.deepcopy(analysis),
             copy.deepcopy(candidate)
         )
 
-        assert output["symbol"] == "AVAXUSDT"
-        assert output["market_confirmed"] is True
-        assert output["order_payload_created"] is False
-        assert output["exchange_write"] is False
-        assert output["classification_revision"] == (
-            "UNIT6_V11_NET_PROFIT"
+        assert tp1_case["market_confirmed"] is True
+        assert tp1_case["configured_leverage"] == 10.0
+        assert tp1_case["tp1_profit_qualified"] is True
+        assert tp1_case["tp2_profit_qualified"] is False
+        assert tp1_case["signal_qualified"] is True
+        assert tp1_case["execution_intent"] is True
+
+        assert tp1_case["admission_reason"] == (
+            "NET_PROFIT_SCREEN_PASSED"
         )
-        
-        # TP1 IS REQUIRED; TP2 IS NOT AN ENTRY GATE.
-        old_multiplier = os.environ.get(
+
+        assert tp1_case["order_payload_created"] is False
+        assert tp1_case["exchange_write"] is False
+        assert tp1_case["trade_authorized"] is False
+
+        print(
+            "UNIT 6 TP1 ENTRY TEST = PASS",
+            flush=True
+        )
+        print(
+            "UNIT 6 TP2 NOT ENTRY GATE = PASS",
+            flush=True
+        )
+
+        # Test a movement that covers fees but
+        # cannot reach the configured TP1 target.
+
+        below_move = (
+            fee + tp1_required_move
+        ) / 2.0
+
+        below_multiplier = (
+            below_move / atr_percent
+        )
+
+        os.environ[
             "UNIT6_ATR_PROJECTION_MULTIPLIER"
+        ] = str(below_multiplier)
+
+        below_tp1 = fresh_reconstruction_unit_6(
+            copy.deepcopy(cfg),
+            copy.deepcopy(analysis),
+            copy.deepcopy(candidate)
         )
 
-        try:
-            # Strong projected movement:
-            # enough for TP1, below TP2.
-            os.environ[
-                "UNIT6_ATR_PROJECTION_MULTIPLIER"
-            ] = "20"
+        assert below_tp1["market_confirmed"] is True
+        assert below_tp1["tp1_profit_qualified"] is False
+        assert below_tp1["signal_qualified"] is False
+        assert below_tp1["execution_intent"] is False
 
-            tp1_case = fresh_reconstruction_unit_6(
-                copy.deepcopy(cfg),
-                copy.deepcopy(analysis),
-                copy.deepcopy(candidate)
-            )
-
-            assert tp1_case["market_confirmed"] is True
-            assert tp1_case["tp1_profit_qualified"] is True
-            assert tp1_case["tp2_profit_qualified"] is False
-            assert tp1_case["signal_qualified"] is True
-            assert tp1_case["execution_intent"] is True
-            assert tp1_case["admission_reason"] == (
-                "NET_PROFIT_SCREEN_PASSED"
-            )
-
-            # Insufficient projected movement:
-            # signal is valid but TP1 cannot be met.
-            os.environ[
-                "UNIT6_ATR_PROJECTION_MULTIPLIER"
-            ] = "2"
-
-            below_tp1 = fresh_reconstruction_unit_6(
-                copy.deepcopy(cfg),
-                copy.deepcopy(analysis),
-                copy.deepcopy(candidate)
-            )
-
-            assert below_tp1["market_confirmed"] is True
-            assert below_tp1["tp1_profit_qualified"] is False
-            assert below_tp1["signal_qualified"] is False
-            assert below_tp1["execution_intent"] is False
-            assert below_tp1["admission_reason"] == (
-                "ESTIMATED_NET_ROI_BELOW_TP1"
-            )
-
-            print(
-                "UNIT 6 TP1 ENTRY TEST = PASS",
-                flush=True
-            )
-            print(
-                "UNIT 6 TP2 NOT ENTRY GATE = PASS",
-                flush=True
-            )
-
-        finally:
-            if old_multiplier is None:
-                os.environ.pop(
-                    "UNIT6_ATR_PROJECTION_MULTIPLIER",
-                    None
-                )
-            else:
-                os.environ[
-                    "UNIT6_ATR_PROJECTION_MULTIPLIER"
-                ] = old_multiplier
-
-        
-        # TP1 ENTRY PROFITABILITY REGRESSION TEST
-        # No exchange orders are submitted.
-
-        old_projection = os.environ.get(
-            "UNIT6_ATR_PROJECTION_MULTIPLIER"
+        assert below_tp1["admission_reason"] == (
+            "ESTIMATED_NET_ROI_BELOW_TP1"
         )
 
-        try:
-            # Case A: Projected net ROI reaches TP1
-            # but does not reach TP2.
-            os.environ[
-                "UNIT6_ATR_PROJECTION_MULTIPLIER"
-            ] = "20"
+        print(
+            "UNIT 6 BELOW TP1 TEST = PASS",
+            flush=True
+        )
 
-            profitable = fresh_reconstruction_unit_6(
-                copy.deepcopy(cfg),
-                copy.deepcopy(analysis),
-                copy.deepcopy(candidate)
-            )
+        # Missing leverage must never be replaced
+        # by an assumed exchange leverage.
 
-            assert profitable["market_confirmed"] is True
-            assert profitable["tp1_profit_qualified"] is True
-            assert profitable["tp2_profit_qualified"] is False
-            assert profitable["signal_qualified"] is True
-            assert profitable["execution_intent"] is True
-            assert profitable["admission_reason"] == (
-                "NET_PROFIT_SCREEN_PASSED"
-            )
+        missing_cfg = copy.deepcopy(cfg)
 
-            # Case B: Valid market signal but projected
-            # net ROI cannot reach TP1.
-            os.environ[
-                "UNIT6_ATR_PROJECTION_MULTIPLIER"
-            ] = "2"
+        missing_cfg["strategy"][
+            "leverage_long"
+        ] = None
 
-            insufficient = fresh_reconstruction_unit_6(
-                copy.deepcopy(cfg),
-                copy.deepcopy(analysis),
-                copy.deepcopy(candidate)
-            )
+        missing_case = fresh_reconstruction_unit_6(
+            missing_cfg,
+            copy.deepcopy(analysis),
+            copy.deepcopy(candidate)
+        )
 
-            assert insufficient["market_confirmed"] is True
-            assert insufficient["tp1_profit_qualified"] is False
-            assert insufficient["signal_qualified"] is False
-            assert insufficient["execution_intent"] is False
-            assert insufficient["admission_reason"] == (
-                "ESTIMATED_NET_ROI_BELOW_TP1"
-            )
+        assert missing_case[
+            "configured_leverage"
+        ] is None
 
-        finally:
-            if old_projection is None:
-                os.environ.pop(
-                    "UNIT6_ATR_PROJECTION_MULTIPLIER",
-                    None
-                )
-            else:
-                os.environ[
-                    "UNIT6_ATR_PROJECTION_MULTIPLIER"
-                ] = old_projection
+        assert missing_case[
+            "signal_qualified"
+        ] is False
 
+        assert missing_case[
+            "admission_reason"
+        ] == "LEVERAGE_CONFIGURATION_PENDING"
+
+        print(
+            "UNIT 6 MISSING LEVERAGE TEST = PASS",
+            flush=True
+        )
+
+        # SHORT leverage must be selected from
+        # the independent SHORT configuration.
+
+        short_cfg = copy.deepcopy(cfg)
+        short_cfg["strategy"]["leverage_long"] = None
+        short_cfg["strategy"]["leverage_short"] = 10.0
+
+        short_candidate = copy.deepcopy(candidate)
+        short_candidate["direction"] = "SHORT"
+
+        short_case = fresh_reconstruction_unit_6(
+            short_cfg,
+            copy.deepcopy(analysis),
+            short_candidate
+        )
+
+        assert short_case[
+            "configured_leverage"
+        ] == 10.0
+
+        assert short_case[
+            "leverage_source"
+        ] == "WEEX_DEMO_LEVERAGE_SHORT"
+
+        print(
+            "UNIT 6 SHORT LEVERAGE TEST = PASS",
+            flush=True
+        )
+
+        # No candidate must remain idle.
 
         idle = copy.deepcopy(candidate)
+
         idle.update({
             "candidate_mode": "NONE",
             "candidate_stage": "REJECTED",
             "direction": "NONE",
             "qualified": False,
-            "structure_ready": False
+            "structure_ready": False,
         })
 
         idle_output = fresh_reconstruction_unit_6(
-            cfg, analysis, idle
+            copy.deepcopy(cfg),
+            copy.deepcopy(analysis),
+            idle
         )
 
         assert idle_output[
@@ -4396,26 +4375,52 @@ def unit_6_validation_v11():
             "active_mode"
         ] == "NONE"
 
+        print(
+            "UNIT 6 IDLE TEST = PASS",
+            flush=True
+        )
+
     finally:
-        if old_long is None:
+        if old_multiplier is None:
             os.environ.pop(
-                "WEEX_LEVERAGE_LONG", None
+                "UNIT6_ATR_PROJECTION_MULTIPLIER",
+                None
             )
         else:
             os.environ[
-                "WEEX_LEVERAGE_LONG"
-            ] = old_long
+                "UNIT6_ATR_PROJECTION_MULTIPLIER"
+            ] = old_multiplier
+
+        if old_extra_cost is None:
+            os.environ.pop(
+                "UNIT6_EXTRA_COST_PCT",
+                None
+            )
+        else:
+            os.environ[
+                "UNIT6_EXTRA_COST_PCT"
+            ] = old_extra_cost
 
     print(
-        "UNIT 6 V11 VALIDATION = PASS",
+        "UNIT 6 V12 VALIDATION = PASS",
         flush=True
     )
+
     return True
 
 
+# ============================================================
+# 6.14 STARTUP VALIDATION
+# ============================================================
+
 FRESH_UNIT_6_VALIDATION_READY = (
-    unit_6_validation_v11()
+    unit_6_validation_v12()
 )
+
+
+# ============================================================
+# 6.15 LIVE SIGNAL HANDOVER
+# ============================================================
 
 FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE = (
     fresh_reconstruction_unit_6(
@@ -4425,7 +4430,10 @@ FRESH_RECONSTRUCTION_EXECUTION_CANDIDATE = (
     )
 )
 
+
 # ============================================================
-# END COMPLETE UNIT 6 V11 REPLACEMENT
+# END COMPLETE UNIT 6 V12 REPLACEMENT
 # UNIT 7 STARTS AT ZERO INDENTATION
 # ============================================================
+
+
