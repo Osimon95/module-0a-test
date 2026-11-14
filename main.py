@@ -3966,12 +3966,21 @@ def fresh_reconstruction_unit_6(
 # 6.12 DETERMINISTIC VALIDATION
 # ============================================================
 
+
 def unit_6_validation_v11():
     cfg = {
         "strategy": {
-            "tp1_net_roi_floor_percent": 10,
-            "tp2_net_roi_floor_percent": 30
+            "tp1_net_roi_floor_percent":
+                FRESH_RECONSTRUCTION_CONFIG[
+                    "strategy"
+                ]["tp1_net_roi_floor_percent"],
+
+            "tp2_net_roi_floor_percent":
+                FRESH_RECONSTRUCTION_CONFIG[
+                    "strategy"
+                ]["tp2_net_roi_floor_percent"]
         },
+        
         "qualification": {
             "scalp": {}
         },
