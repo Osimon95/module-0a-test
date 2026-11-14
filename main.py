@@ -1113,11 +1113,6 @@ def fresh_reconstruction_unit_3():
 
     market_symbol = exchange.get("market_symbol")
 
-    if market_symbol != "BTCUSDT":
-        raise RuntimeError(
-            "UNIT 3 INVALID MARKET SYMBOL"
-        )
-
     if config.get("execution_environment") != "DEMO":
         raise RuntimeError(
             "UNIT 3 INVALID EXECUTION ENVIRONMENT"
