@@ -339,6 +339,46 @@ def fresh_reconstruction_unit_2():
         os.getenv("WEEX_SYMBOL", "BTCUSDT")
     )
 
+    
+    # ========================================================
+    # UNIT 2 - RENDER LEVERAGE CONFIGURATION
+    # NO DEFAULTS / NO WEEX LEVERAGE REQUESTS
+    # ========================================================
+
+    def read_render_leverage(name):
+        raw = os.getenv(name, "").strip()
+
+        if not raw:
+            print(
+                "UNIT 2", name, "= NOT CONFIGURED",
+                flush=True
+            )
+            return None
+
+        try:
+            value = unit_2_v9_number(raw, name)
+        except RuntimeError:
+            print(
+                "UNIT 2", name, "= INVALID",
+                flush=True
+            )
+            return None
+
+        print(
+            "UNIT 2", name, "=", value,
+            flush=True
+        )
+
+        return float(value)
+
+    long_leverage = read_render_leverage(
+        "WEEX_LEVERAGE_LONG"
+    )
+
+    short_leverage = read_render_leverage(
+        "WEEX_LEVERAGE_SHORT"
+    )
+
     e0_margin = unit_2_v15_setting(
         "INITIAL_ENTRY_MARGIN_USDT", "0.5",
         aliases=("ENTRY_FIXED_USDT",)
