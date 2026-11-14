@@ -476,6 +476,7 @@ def fresh_reconstruction_unit_2():
 
     # Public market-data selection is independent of
     # exchange-confirmed execution authorization.
+    
     exchange = {
         "name": "WEEX",
         "api_version": "V3",
@@ -496,6 +497,10 @@ def fresh_reconstruction_unit_2():
             "unit_2_v14_symbol_decision",
         "symbol_switch_message_function":
             "unit_2_v14_symbol_message",
+        "leverage_long": long_leverage,
+        "leverage_short": short_leverage,
+        "leverage_source": "RENDER_ENVIRONMENT",
+
     }
 
     # Unit 2 itself performs configuration only.
