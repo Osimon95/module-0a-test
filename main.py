@@ -246,13 +246,21 @@ def fresh_reconstruction_unit_2():
     # EXCHANGE SETTINGS
     # ========================================================
 
+    
     exchange = {
         "name": "WEEX",
         "api_version": "V3",
         "contract_base_url":
             "https://api-contract.weex.com",
-        "market_symbol": "BTCUSDT",
-        "demo_order_symbol": "BTCSUSDT",
+        "market_symbol": (
+            os.getenv("WEEX_SYMBOL", "BTCUSDT")
+            .strip().upper()
+        ),
+        "demo_order_symbol": (
+            os.getenv("WEEX_DEMO_SYMBOL", "BTCSUSDT")
+            .strip().upper()
+        ),
+        "symbol_switch_deferred_until_flat": True,
     }
 
     safety = {
