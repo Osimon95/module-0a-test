@@ -4480,9 +4480,12 @@ def fresh_reconstruction_unit_6(
             "UNIT 6 UNIT 5 V8 EVIDENCE MISSING"
         )
 
+    
     if (
-        candidate.get("symbol") != "BTCUSDT"
-        or analysis.get("symbol") != "BTCUSDT"
+        candidate.get("symbol")
+        != config["exchange"]["market_symbol"]
+        or analysis.get("symbol")
+        != config["exchange"]["market_symbol"]
     ):
         raise RuntimeError(
             "UNIT 6 SYMBOL MISMATCH"
