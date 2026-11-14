@@ -1703,10 +1703,11 @@ def fresh_reconstruction_unit_4():
     if not isinstance(market, dict):
         raise RuntimeError("UNIT 4 MARKET SNAPSHOT MISSING")
 
+    
     if (
         market.get("exchange") != "WEEX"
         or market.get("api_version") != "V3"
-        or market.get("symbol") != "BTCUSDT"
+        or market.get("symbol") != config["exchange"]["market_symbol"]
         or market.get("price_type") != "MARK"
         or market.get("read_only") is not True
     ):
