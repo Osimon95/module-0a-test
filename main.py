@@ -2831,7 +2831,8 @@ def fresh_reconstruction_unit_5(
     if (
         analysis.get("exchange") != "WEEX"
         or analysis.get("api_version") != "V3"
-        or analysis.get("symbol") != config["exchange"]["market_symbol"]
+        
+        or analysis.get("symbol") != FRESH_RECONSTRUCTION_CONFIG["exchange"]["market_symbol"]
         or analysis.get("price_type") != "MARK"
         or analysis.get("read_only") is not True
     ):
