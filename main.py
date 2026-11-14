@@ -555,7 +555,6 @@ def fresh_reconstruction_unit_2():
         "market_symbol": requested_symbol,
         "symbol_switch_requires_flat": True,
         "symbol_switch_requires_orders_clear": True,
-        "symbol_switch_requires_demo_support": True,
         "symbol_switch_state_storage": "SQLITE",
         "symbol_switch_notification": "TELEGRAM",
         "symbol_switch_decision_function":
