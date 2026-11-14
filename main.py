@@ -2404,7 +2404,7 @@ def fresh_reconstruction_unit_4():
     snapshot = {
         "exchange": "WEEX",
         "api_version": "V3",
-        "symbol": exchange["market_symbol"]
+        "symbol": exchange["market_symbol"],
         "interval": "1m",
         "price_type": "MARK",
 
