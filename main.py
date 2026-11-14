@@ -1802,7 +1802,7 @@ def fresh_reconstruction_unit_4():
     endpoint = "/capi/v3/market/markPriceKlines"
 
     query = urllib.parse.urlencode({
-        "symbol": "BTCUSDT",
+        "symbol": exchange["market_symbol"],
         "interval": "1m",
         "limit": 300,
     })
