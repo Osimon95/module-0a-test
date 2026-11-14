@@ -553,6 +553,7 @@ def fresh_reconstruction_unit_2():
         "contract_base_url": "https://api-contract.weex.com",
         "requested_symbol": requested_symbol,
         "market_symbol": requested_symbol,
+        "symbol_switch_deferred_until_flat": True,
         "symbol_switch_requires_flat": True,
         "symbol_switch_requires_orders_clear": True,
         "symbol_switch_state_storage": "SQLITE",
