@@ -152,10 +152,11 @@ FRESH_RECONSTRUCTION_UNIT_1_READY = (
 
 
 # ============================================================
-# START COMPLETE UNIT 2 V15
+# START COMPLETE UNIT 2 V16 REPLACEMENT
 # WEEX CENTRAL CONFIGURATION
-# DYNAMIC SYMBOL + GROUPED RENDER SETTINGS
-# E0 + B1-B5 + TP1/TP2/TP3 + ATR BUFFER
+# RENDER DEMO LEVERAGE -> STRATEGY -> UNIT 6
+# PRESERVES UNIT 3 CONFIGURATION HANDOVER
+# ZERO INDENTATION
 # ============================================================
 
 import os
@@ -164,22 +165,33 @@ import math
 from decimal import Decimal, InvalidOperation
 
 
+# ============================================================
+# 2.1 NUMERIC VALIDATION
+# ============================================================
+
 def unit_2_v9_number(value, name, allow_zero=False):
     if isinstance(value, bool):
         raise RuntimeError("UNIT 2 INVALID " + name)
+
     try:
         number = Decimal(str(value).strip())
     except (InvalidOperation, TypeError, ValueError) as exc:
         raise RuntimeError("UNIT 2 INVALID " + name) from exc
+
     if not number.is_finite():
         raise RuntimeError("UNIT 2 NONFINITE " + name)
+
     if number < 0 or (number == 0 and not allow_zero):
         raise RuntimeError("UNIT 2 INVALID RANGE " + name)
+
     return number
 
 
-def unit_2_v15_setting(name, default, aliases=(), allow_zero=False):
+def unit_2_v15_setting(
+    name, default, aliases=(), allow_zero=False
+):
     value = os.getenv(name)
+
     if value is None or not value.strip():
         for alias in aliases:
             value = os.getenv(alias)
@@ -187,6 +199,7 @@ def unit_2_v15_setting(name, default, aliases=(), allow_zero=False):
                 break
         else:
             value = default
+
     return unit_2_v9_number(value, name, allow_zero)
 
 
@@ -200,17 +213,22 @@ def unit_2_v15_group(name, defaults, aliases=None):
             item = item.strip()
             if not item:
                 continue
+
             separator = ":" if ":" in item else "="
+
             if separator not in item:
                 raise RuntimeError(
                     "UNIT 2 INVALID GROUP ITEM " + item
                 )
+
             key, value = item.split(separator, 1)
             key = key.strip().upper()
+
             if key not in defaults:
                 raise RuntimeError(
                     "UNIT 2 UNKNOWN " + name + " KEY " + key
                 )
+
             result[key] = unit_2_v9_number(
                 value, name + "_" + key
             )
@@ -218,25 +236,32 @@ def unit_2_v15_group(name, defaults, aliases=None):
         for key, legacy_names in aliases.items():
             for legacy in legacy_names:
                 value = os.getenv(legacy)
+
                 if value is not None and value.strip():
                     result[key] = unit_2_v9_number(
                         value, legacy
                     )
                     break
+
     return result
 
 
-# Compatibility with earlier Unit 2 versions.
 unit_2_v13_group = unit_2_v15_group
 unit_2_v14_group = unit_2_v15_group
 
 
+# ============================================================
+# 2.2 SYMBOL VALIDATION AND SWITCH DECISION
+# ============================================================
+
 def unit_2_v14_symbol(value):
     symbol = str(value or "").strip().upper()
+
     if not re.fullmatch(r"[A-Z0-9]{2,25}USDT", symbol):
         raise RuntimeError(
             "UNIT 2 INVALID WEEX SYMBOL: " + symbol
         )
+
     return symbol
 
 
@@ -248,6 +273,7 @@ def unit_2_v14_symbol_decision(
     orders_clear=None
 ):
     requested = unit_2_v14_symbol(requested_symbol)
+
     active = (
         unit_2_v14_symbol(active_symbol)
         if active_symbol else None
@@ -270,15 +296,19 @@ def unit_2_v14_symbol_decision(
             "reason": "UNSUPPORTED_DEMO_CONTRACT",
             "notification_required": True,
         })
+
     elif contract_supported is not True:
         pass
+
     elif position_flat is None or orders_clear is None:
         decision["reason"] = "POSITION_OR_ORDER_STATE_UNKNOWN"
+
     elif requested == active:
         decision.update({
             "status": "ALREADY_ACTIVE",
             "reason": "CONFIRMED_ACTIVE_SYMBOL",
         })
+
     elif position_flat is False or orders_clear is False:
         decision.update({
             "status": "ACCEPTED_QUEUED",
@@ -287,6 +317,7 @@ def unit_2_v14_symbol_decision(
             "persist_required": True,
             "notification_required": True,
         })
+
     else:
         decision.update({
             "status": "ACCEPTED_ACTIVATE",
@@ -308,13 +339,19 @@ def unit_2_v14_symbol_message(decision):
     )
 
 
+# ============================================================
+# 2.3 ATR BACKUP BUFFER
+# ============================================================
+
 def unit_2_v14_atr_backup_buffer(
     atr14, market_price, multiplier=1.0
 ):
     atr = unit_2_v9_number(atr14, "ATR14")
     price = unit_2_v9_number(market_price, "MARKET_PRICE")
     factor = unit_2_v9_number(multiplier, "ATR_MULTIPLIER")
+
     percent = atr / price * Decimal("100") * factor
+
     return {
         "atr_buffer_percent": float(percent),
         "long_factor": float(1 + percent / 100),
@@ -327,10 +364,57 @@ unit_2_v12_atr_backup_buffer = unit_2_v14_atr_backup_buffer
 unit_2_v11_atr_backup_buffer = unit_2_v14_atr_backup_buffer
 
 
+# ============================================================
+# 2.4 ORIGINAL WEEX DEMO LEVERAGE ENVIRONMENT
+# NO DEFAULT LEVERAGE
+# NO EXCHANGE LEVERAGE MUTATION
+# ============================================================
+
+def unit_2_v16_read_demo_leverage(name):
+    raw = os.getenv(name, "").strip()
+
+    if not raw:
+        print(
+            "UNIT 2", name, "= NOT CONFIGURED",
+            flush=True
+        )
+        return None
+
+    try:
+        value = unit_2_v9_number(raw, name)
+    except RuntimeError:
+        print(
+            "UNIT 2", name, "= INVALID",
+            flush=True
+        )
+        return None
+
+    if value > Decimal("200"):
+        print(
+            "UNIT 2", name, "= OUT OF RANGE",
+            flush=True
+        )
+        return None
+
+    print(
+        "UNIT 2", name, "=", value,
+        flush=True
+    )
+
+    return float(value)
+
+
+# ============================================================
+# 2.5 MAIN CONFIGURATION
+# ============================================================
+
 def fresh_reconstruction_unit_2():
 
     print("=" * 80, flush=True)
-    print("FRESH RECONSTRUCTION UNIT 2 V15 START", flush=True)
+    print(
+        "FRESH RECONSTRUCTION UNIT 2 V16 START",
+        flush=True
+    )
 
     if FRESH_RECONSTRUCTION_UNIT_1_READY is not True:
         raise RuntimeError("UNIT 2 UNIT 1 NOT READY")
@@ -339,57 +423,35 @@ def fresh_reconstruction_unit_2():
         os.getenv("WEEX_SYMBOL", "BTCUSDT")
     )
 
-    
-    # ========================================================
-    # UNIT 2 - RENDER LEVERAGE CONFIGURATION
-    # NO DEFAULTS / NO WEEX LEVERAGE REQUESTS
-    # ========================================================
+    # Original Render names retained.
+    long_leverage = unit_2_v16_read_demo_leverage(
+        "WEEX_DEMO_LEVERAGE_LONG"
+    )
+    short_leverage = unit_2_v16_read_demo_leverage(
+        "WEEX_DEMO_LEVERAGE_SHORT"
+    )
 
-    def read_render_leverage(name):
-        raw = os.getenv(name, "").strip()
-
-        if not raw:
-            print(
-                "UNIT 2", name, "= NOT CONFIGURED",
-                flush=True
-            )
-            return None
-
-        try:
-            value = unit_2_v9_number(raw, name)
-        except RuntimeError:
-            print(
-                "UNIT 2", name, "= INVALID",
-                flush=True
-            )
-            return None
-
-        print(
-            "UNIT 2", name, "=", value,
-            flush=True
-        )
-
-        return float(value)
-
-    long_leverage = read_render_leverage("WEEX_DEMO_LEVERAGE_LONG")
-    short_leverage = read_render_leverage("WEEX_DEMO_LEVERAGE_SHORT")
-    
     e0_margin = unit_2_v15_setting(
-        "INITIAL_ENTRY_MARGIN_USDT", "0.5",
+        "INITIAL_ENTRY_MARGIN_USDT",
+        "0.5",
         aliases=("ENTRY_FIXED_USDT",)
     )
+
     backup_percent = unit_2_v15_setting(
         "BACKUP_MARGIN_PERCENT", "0.5"
     )
+
     buffer_percent = unit_2_v15_setting(
         "BACKUP_BUFFER_PERCENT", "0.3"
     )
+
     cap_percent = unit_2_v15_setting(
         "EXPOSURE_CAP_PERCENT", "50"
     )
 
     if backup_percent > 100 or cap_percent > 100:
         raise RuntimeError("UNIT 2 PERCENT EXCEEDS 100")
+
     if buffer_percent >= 100:
         raise RuntimeError("UNIT 2 INVALID BACKUP BUFFER")
 
@@ -407,16 +469,22 @@ def fresh_reconstruction_unit_2():
         }
     )
 
-    # TP3 is the remainder of TP1 and TP2.
-    # Explicit TP3 must agree with that remainder.
     raw_allocation = os.getenv(
         "TP_ALLOCATION_PERCENT", ""
     ).upper()
+
     explicit_tp3 = bool(
-        re.search(r"(?:^|,)\s*TP3\s*[:=]", raw_allocation)
+        re.search(
+            r"(?:^|,)\s*TP3\s*[:=]",
+            raw_allocation
+        )
     ) or (
         not raw_allocation.strip()
-        and bool(os.getenv("TP3_ALLOCATION_PERCENT", "").strip())
+        and bool(
+            os.getenv(
+                "TP3_ALLOCATION_PERCENT", ""
+            ).strip()
+        )
     )
 
     remaining = (
@@ -424,10 +492,13 @@ def fresh_reconstruction_unit_2():
         - allocations["TP1"]
         - allocations["TP2"]
     )
+
     if remaining <= 0:
         raise RuntimeError("UNIT 2 INVALID TP ALLOCATION")
+
     if explicit_tp3 and allocations["TP3"] != remaining:
         raise RuntimeError("UNIT 2 TP3 ALLOCATION MISMATCH")
+
     allocations["TP3"] = remaining
 
     roi = unit_2_v15_group(
@@ -464,14 +535,18 @@ def fresh_reconstruction_unit_2():
 
     if roi["TP2"] <= roi["TP1"]:
         raise RuntimeError("UNIT 2 TP2 MUST EXCEED TP1")
+
     if not (
-        trailing["MIN"] <= trailing["REF"] <= trailing["MAX"]
+        trailing["MIN"]
+        <= trailing["REF"]
+        <= trailing["MAX"]
     ):
         raise RuntimeError("UNIT 2 INVALID TRAILING RANGE")
 
-    # Public market-data selection is independent of
-    # exchange-confirmed execution authorization.
-    
+    # ========================================================
+    # EXCHANGE CONFIGURATION
+    # ========================================================
+
     exchange = {
         "name": "WEEX",
         "api_version": "V3",
@@ -492,14 +567,13 @@ def fresh_reconstruction_unit_2():
             "unit_2_v14_symbol_decision",
         "symbol_switch_message_function":
             "unit_2_v14_symbol_message",
-        "leverage_long": long_leverage,
-        "leverage_short": short_leverage,
-        "leverage_source": "RENDER_ENVIRONMENT",
-
     }
 
-    # Unit 2 itself performs configuration only.
-    # These local flags are not global DEMO-order gates.
+    # ========================================================
+    # UNIT-LOCAL SAFETY CONFIGURATION
+    # PRESERVED FROM V15
+    # ========================================================
+
     safety = {
         "public_market_data_read_enabled": True,
         "demo_account_balance_read_enabled": True,
@@ -515,7 +589,16 @@ def fresh_reconstruction_unit_2():
         "position_mode_mutation_enabled": False,
     }
 
+    # ========================================================
+    # STRATEGY
+    # CRITICAL FIX: LEVERAGE IS NOW IN STRATEGY
+    # ========================================================
+
     strategy = {
+        "leverage_long": long_leverage,
+        "leverage_short": short_leverage,
+        "leverage_source": "RENDER_ENVIRONMENT",
+
         "initial_fixed_usdt": float(e0_margin),
         "initial_margin_percent": 5.0,
         "backup_margin_percent": float(backup_percent),
@@ -527,10 +610,12 @@ def fresh_reconstruction_unit_2():
         "backup_trigger_reference": "FRESH_WEEX_LIQUIDATION_PRICE",
         "backup_trigger_recalculation":
             "AFTER_PRECEDING_CONFIRMED_FILL",
+
         "backup_long_liquidation_factor":
             float(1 + buffer_percent / 100),
         "backup_short_liquidation_factor":
             float(1 - buffer_percent / 100),
+
         "exposure_cap_percent": float(cap_percent),
         "exposure_cap_max_percent": 100.0,
         "exposure_cap_basis": "TRADING_ACCOUNT_EQUITY",
@@ -539,6 +624,7 @@ def fresh_reconstruction_unit_2():
         "exposure_includes_pending_margin": True,
         "progressive_backup_funding": True,
         "full_ladder_reservation_required": False,
+
         "tp1_allocation_percent": float(allocations["TP1"]),
         "tp2_allocation_percent": float(allocations["TP2"]),
         "tp3_allocation_percent": float(allocations["TP3"]),
@@ -546,12 +632,14 @@ def fresh_reconstruction_unit_2():
         "tp2_net_roi_floor_percent": float(roi["TP2"]),
         "tp1_tp2_min_roi_separation_percent":
             float(roi["TP2"] - roi["TP1"]),
+
         "tp3_trailing_reference_percent":
             float(trailing["REF"]),
         "tp3_trailing_min_percent":
             float(trailing["MIN"]),
         "tp3_trailing_max_percent":
             float(trailing["MAX"]),
+
         "signal_expiry_seconds": 120,
         "loss_cooldown_seconds": 300,
         "one_direction_only": True,
@@ -563,8 +651,10 @@ def fresh_reconstruction_unit_2():
         "mode_confirmations_required": 3,
     }
 
-    # Contract precision is provisional until WEEX
-    # supplies symbol-specific exchange metadata.
+    # ========================================================
+    # MARKET PRECISION
+    # ========================================================
+
     market_precision = {
         "quantity_step": None,
         "minimum_quantity": None,
@@ -572,7 +662,11 @@ def fresh_reconstruction_unit_2():
         "source": "EXCHANGE_METADATA_PENDING",
     }
 
-    # Preserve the established qualification contract.
+    # ========================================================
+    # QUALIFICATION CONFIGURATION
+    # PRESERVED FROM V15
+    # ========================================================
+
     qualification = {
         "common": {
             "mode_priority": ("BREAKOUT", "STRUCTURE", "SCALP"),
@@ -671,43 +765,91 @@ def fresh_reconstruction_unit_2():
         "qualification": qualification,
     }
 
-    print("UNIT 2 REQUESTED SYMBOL =", requested_symbol, flush=True)
-    print("UNIT 2 MARKET DATA SYMBOL =", exchange["market_symbol"], flush=True)
-    print("UNIT 2 ACTIVE SYMBOL = UNCONFIRMED", flush=True)
-    print("UNIT 2 SYMBOL SWITCH MODE = AUTO_DEFERRED", flush=True)
-    print("UNIT 2 SYMBOL RECONCILIATION = REQUIRED", flush=True)
-    print("UNIT 2 INITIAL ENTRY MARGIN =", e0_margin, flush=True)
+    # ========================================================
+    # CONFIGURATION DIAGNOSTICS
+    # ========================================================
+
+    print(
+        "UNIT 2 REQUESTED SYMBOL =",
+        requested_symbol, flush=True
+    )
+    print(
+        "UNIT 2 MARKET DATA SYMBOL =",
+        exchange["market_symbol"], flush=True
+    )
+    print(
+        "UNIT 2 ACTIVE SYMBOL = UNCONFIRMED",
+        flush=True
+    )
+    print(
+        "UNIT 2 SYMBOL SWITCH MODE = AUTO_DEFERRED",
+        flush=True
+    )
+    print(
+        "UNIT 2 SYMBOL RECONCILIATION = REQUIRED",
+        flush=True
+    )
+
+    print(
+        "UNIT 2 STRATEGY LEVERAGE LONG =",
+        strategy["leverage_long"], flush=True
+    )
+    print(
+        "UNIT 2 STRATEGY LEVERAGE SHORT =",
+        strategy["leverage_short"], flush=True
+    )
+
+    print(
+        "UNIT 2 INITIAL ENTRY MARGIN =",
+        e0_margin, flush=True
+    )
     print(
         "UNIT 2 TP ALLOCATION =",
         allocations["TP1"], "/",
         allocations["TP2"], "/",
-        allocations["TP3"],
-        flush=True
+        allocations["TP3"], flush=True
     )
     print(
         "UNIT 2 TP NET ROI =",
-        roi["TP1"], "/", roi["TP2"],
-        flush=True
+        roi["TP1"], "/",
+        roi["TP2"], flush=True
     )
     print(
         "UNIT 2 TP3 TRAILING =",
         trailing["REF"], "/",
         trailing["MIN"], "/",
-        trailing["MAX"],
+        trailing["MAX"], flush=True
+    )
+    print(
+        "UNIT 2 BACKUP MARGIN % =",
+        backup_percent, flush=True
+    )
+    print(
+        "UNIT 2 BACKUP BUFFER MODE = ATR_DYNAMIC",
         flush=True
     )
-    print("UNIT 2 BACKUP MARGIN % =", backup_percent, flush=True)
-    print("UNIT 2 BACKUP BUFFER MODE = ATR_DYNAMIC", flush=True)
-    print("UNIT 2 EXPOSURE CAP % =", cap_percent, flush=True)
-    print("UNIT 2 SYMBOL SWITCH EXECUTION = DOWNSTREAM", flush=True)
-    print("UNIT 2 EXCHANGE WRITE = NONE", flush=True)
-    print("FRESH RECONSTRUCTION UNIT 2 RESULT = PASS", flush=True)
+    print(
+        "UNIT 2 EXPOSURE CAP % =",
+        cap_percent, flush=True
+    )
+    print(
+        "UNIT 2 SYMBOL SWITCH EXECUTION = DOWNSTREAM",
+        flush=True
+    )
+    print(
+        "UNIT 2 EXCHANGE WRITE = NONE",
+        flush=True
+    )
+    print(
+        "FRESH RECONSTRUCTION UNIT 2 RESULT = PASS",
+        flush=True
+    )
 
     return config
 
 
 # ============================================================
-# UNIT 2 V15 EXECUTION AND UNIT 3 HANDOVER
+# 2.6 EXECUTION AND UNIT 3 HANDOVER
 # ============================================================
 
 FRESH_RECONSTRUCTION_CONFIG = fresh_reconstruction_unit_2()
@@ -734,17 +876,19 @@ FRESH_UNIT_2_OPTIMIZATION_READY = (
 )
 
 if not FRESH_UNIT_2_OPTIMIZATION_READY:
-    raise RuntimeError("UNIT 2 V15 CONFIGURATION FAILED")
+    raise RuntimeError("UNIT 2 V16 CONFIGURATION FAILED")
 
 print(
-    "UNIT 2 V15 OPTIMIZATION READY =",
+    "UNIT 2 V16 OPTIMIZATION READY =",
     FRESH_UNIT_2_OPTIMIZATION_READY,
     flush=True
 )
 
+
 # ============================================================
-# END COMPLETE UNIT 2 V15
+# END COMPLETE UNIT 2 V16
 # UNIT 3 FOLLOWS
+# ZERO INDENTATION
 # ============================================================
 
 
