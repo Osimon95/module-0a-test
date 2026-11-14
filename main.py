@@ -3968,18 +3968,25 @@ def fresh_reconstruction_unit_6(
 
 
 def unit_6_validation_v11():
+    
     cfg = {
         "strategy": {
             "tp1_net_roi_floor_percent":
                 FRESH_RECONSTRUCTION_CONFIG[
                     "strategy"
                 ]["tp1_net_roi_floor_percent"],
-
             "tp2_net_roi_floor_percent":
                 FRESH_RECONSTRUCTION_CONFIG[
                     "strategy"
                 ]["tp2_net_roi_floor_percent"]
         },
+        "qualification": {
+            "scalp": {}
+        },
+        "market_data_policy": {
+            "max_market_age_seconds": 120
+        }
+    }
         
         "qualification": {
             "scalp": {}
