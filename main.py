@@ -371,14 +371,9 @@ def fresh_reconstruction_unit_2():
 
         return float(value)
 
-    long_leverage = read_render_leverage(
-        "WEEX_LEVERAGE_LONG"
-    )
-
-    short_leverage = read_render_leverage(
-        "WEEX_LEVERAGE_SHORT"
-    )
-
+    long_leverage = read_render_leverage("WEEX_DEMO_LEVERAGE_LONG")
+    short_leverage = read_render_leverage("WEEX_DEMO_LEVERAGE_SHORT")
+    
     e0_margin = unit_2_v15_setting(
         "INITIAL_ENTRY_MARGIN_USDT", "0.5",
         aliases=("ENTRY_FIXED_USDT",)
