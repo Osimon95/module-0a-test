@@ -1731,7 +1731,7 @@ def fresh_reconstruction_unit_4():
         config.get("execution_environment") != "DEMO"
         or exchange.get("name") != "WEEX"
         or exchange.get("api_version") != "V3"
-        or exchange.get("market_symbol") != "BTCUSDT"
+        or exchange.get("market_symbol") != market.get("symbol")
         or safety.get(
             "public_market_data_read_enabled"
         ) is not True
