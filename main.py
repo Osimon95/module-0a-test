@@ -4035,6 +4035,67 @@ def unit_6_validation_v11():
         assert output["classification_revision"] == (
             "UNIT6_V11_NET_PROFIT"
         )
+        
+        # TP1 ENTRY PROFITABILITY REGRESSION TEST
+        # No exchange orders are submitted.
+
+        old_projection = os.environ.get(
+            "UNIT6_ATR_PROJECTION_MULTIPLIER"
+        )
+
+        try:
+            # Case A: Projected net ROI reaches TP1
+            # but does not reach TP2.
+            os.environ[
+                "UNIT6_ATR_PROJECTION_MULTIPLIER"
+            ] = "20"
+
+            profitable = fresh_reconstruction_unit_6(
+                copy.deepcopy(cfg),
+                copy.deepcopy(analysis),
+                copy.deepcopy(candidate)
+            )
+
+            assert profitable["market_confirmed"] is True
+            assert profitable["tp1_profit_qualified"] is True
+            assert profitable["tp2_profit_qualified"] is False
+            assert profitable["signal_qualified"] is True
+            assert profitable["execution_intent"] is True
+            assert profitable["admission_reason"] == (
+                "NET_PROFIT_SCREEN_PASSED"
+            )
+
+            # Case B: Valid market signal but projected
+            # net ROI cannot reach TP1.
+            os.environ[
+                "UNIT6_ATR_PROJECTION_MULTIPLIER"
+            ] = "2"
+
+            insufficient = fresh_reconstruction_unit_6(
+                copy.deepcopy(cfg),
+                copy.deepcopy(analysis),
+                copy.deepcopy(candidate)
+            )
+
+            assert insufficient["market_confirmed"] is True
+            assert insufficient["tp1_profit_qualified"] is False
+            assert insufficient["signal_qualified"] is False
+            assert insufficient["execution_intent"] is False
+            assert insufficient["admission_reason"] == (
+                "ESTIMATED_NET_ROI_BELOW_TP1"
+            )
+
+        finally:
+            if old_projection is None:
+                os.environ.pop(
+                    "UNIT6_ATR_PROJECTION_MULTIPLIER",
+                    None
+                )
+            else:
+                os.environ[
+                    "UNIT6_ATR_PROJECTION_MULTIPLIER"
+                ] = old_projection
+
 
         idle = copy.deepcopy(candidate)
         idle.update({
