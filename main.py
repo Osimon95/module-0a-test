@@ -3589,7 +3589,7 @@ def fresh_reconstruction_unit_5(
     # ========================================================
 
     candidate = {
-        "symbol": "BTCUSDT",
+        "symbol": analysis["symbol"],
         "qualified": qualified,
         "active_mode": active_mode,
         "direction": direction,
