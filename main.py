@@ -3560,9 +3560,9 @@ def fresh_reconstruction_unit_6(
         market_confirmed = True
         side = scalp_side
 
+    
     # ========================================================
-    # 6.4 ADJUSTABLE LEVERAGE
-    # READ CONFIGURATION, NEVER MUTATE WEEX LEVERAGE
+    # 6.4 LEVERAGE FROM UNIT 2
     # ========================================================
 
     leverage_key = (
@@ -3573,21 +3573,25 @@ def fresh_reconstruction_unit_6(
         else None
     )
 
+    config_key = (
+        "leverage_long"
+        if side == "LONG"
+        else "leverage_short"
+        if side == "SHORT"
+        else None
+    )
+
     leverage = None
     leverage_ready = False
 
-    if leverage_key is not None:
-        raw_leverage = os.getenv(
-            leverage_key
-        )
+    if config_key is not None:
+        value = strategy.get(config_key)
 
-        if raw_leverage is not None:
+        if value is not None:
             leverage = unit_6_v11_number(
-                raw_leverage, leverage_key
+                value, config_key
             )
-            leverage_ready = (
-                0 < leverage <= 200
-            )
+            leverage_ready = 0 < leverage <= 200
 
     # ========================================================
     # 6.5 CONFIGURED NET ROI TARGETS
