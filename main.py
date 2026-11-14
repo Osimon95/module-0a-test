@@ -4036,6 +4036,74 @@ def unit_6_validation_v11():
             "UNIT6_V11_NET_PROFIT"
         )
         
+        # TP1 IS REQUIRED; TP2 IS NOT AN ENTRY GATE.
+        old_multiplier = os.environ.get(
+            "UNIT6_ATR_PROJECTION_MULTIPLIER"
+        )
+
+        try:
+            # Strong projected movement:
+            # enough for TP1, below TP2.
+            os.environ[
+                "UNIT6_ATR_PROJECTION_MULTIPLIER"
+            ] = "20"
+
+            tp1_case = fresh_reconstruction_unit_6(
+                copy.deepcopy(cfg),
+                copy.deepcopy(analysis),
+                copy.deepcopy(candidate)
+            )
+
+            assert tp1_case["market_confirmed"] is True
+            assert tp1_case["tp1_profit_qualified"] is True
+            assert tp1_case["tp2_profit_qualified"] is False
+            assert tp1_case["signal_qualified"] is True
+            assert tp1_case["execution_intent"] is True
+            assert tp1_case["admission_reason"] == (
+                "NET_PROFIT_SCREEN_PASSED"
+            )
+
+            # Insufficient projected movement:
+            # signal is valid but TP1 cannot be met.
+            os.environ[
+                "UNIT6_ATR_PROJECTION_MULTIPLIER"
+            ] = "2"
+
+            below_tp1 = fresh_reconstruction_unit_6(
+                copy.deepcopy(cfg),
+                copy.deepcopy(analysis),
+                copy.deepcopy(candidate)
+            )
+
+            assert below_tp1["market_confirmed"] is True
+            assert below_tp1["tp1_profit_qualified"] is False
+            assert below_tp1["signal_qualified"] is False
+            assert below_tp1["execution_intent"] is False
+            assert below_tp1["admission_reason"] == (
+                "ESTIMATED_NET_ROI_BELOW_TP1"
+            )
+
+            print(
+                "UNIT 6 TP1 ENTRY TEST = PASS",
+                flush=True
+            )
+            print(
+                "UNIT 6 TP2 NOT ENTRY GATE = PASS",
+                flush=True
+            )
+
+        finally:
+            if old_multiplier is None:
+                os.environ.pop(
+                    "UNIT6_ATR_PROJECTION_MULTIPLIER",
+                    None
+                )
+            else:
+                os.environ[
+                    "UNIT6_ATR_PROJECTION_MULTIPLIER"
+                ] = old_multiplier
+
+        
         # TP1 ENTRY PROFITABILITY REGRESSION TEST
         # No exchange orders are submitted.
 
