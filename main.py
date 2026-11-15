@@ -7192,23 +7192,31 @@ def fresh_reconstruction_unit_8(
             "UNIT 8 DEMO ONLY"
         )
 
+    
+    market_symbol = str(
+        exchange.get("market_symbol") or ""
+    ).strip().upper()
+
+    demo_order_symbol = str(
+        exchange.get("demo_order_symbol") or ""
+    ).strip().upper()
+
     if (
         exchange.get("name") != "WEEX"
-        or exchange.get("market_symbol")
-            != "BTCUSDT"
-        or exchange.get("demo_order_symbol")
-            != "BTCSUSDT"
+        or not market_symbol
+        or not demo_order_symbol
     ):
         raise RuntimeError(
             "UNIT 8 SYMBOL CONTRACT INVALID"
         )
 
     if (
-        unit_7_result.get("max_backups") != 5
-        or "backup_multipliers" in strategy
+        unit_7_result.get("symbol") != market_symbol
+        or unit_7_result.get("demo_order_symbol")
+            != demo_order_symbol
     ):
         raise RuntimeError(
-            "UNIT 8 BACKUP POLICY MISMATCH"
+            "UNIT 8 UNIT 7 SYMBOL HANDOVER MISMATCH"
         )
 
     if (
