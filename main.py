@@ -5694,6 +5694,40 @@ def unit_6_validation_v9():
         "NONE"
     )
 
+    
+    # Verify qualified BREAKOUT cannot bypass fees.
+
+    fee_test = copy.deepcopy(original)
+
+    fee_test.update({
+        "qualified": True,
+        "active_mode": "BREAKOUT",
+        "direction": "LONG",
+        "candidate_mode": "BREAKOUT",
+        "candidate_stage": "QUALIFIED",
+        "breakout_ready": True,
+        "structure_ready": False,
+        "scalp_ready": False,
+        "hybrid_breakout_qualified": True,
+    })
+
+    fee_analysis = copy.deepcopy(analysis)
+
+    fee_analysis["move_5m_pct"] = 0.0
+
+    fee_result = fresh_reconstruction_unit_6(
+        config,
+        fee_analysis,
+        fee_test
+    )
+
+    tests.append((
+        "BREAKOUT FEE COVERAGE REJECTION",
+        fee_result["execution_intent"] is False
+        and fee_result["admission_reason"]
+        == "QUALIFIED_MODE_FEE_COVERAGE_FAILED"
+    ))
+
     # Validate the unmodified live candidate last.
 
     live_result = fresh_reconstruction_unit_6(
