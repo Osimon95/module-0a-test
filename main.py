@@ -13154,16 +13154,40 @@ def fresh_reconstruction_unit_13(
 
         return result
 
-    if len(active) != 1:
-        raise RuntimeError(
-            "UNIT 13 MULTIPLE ACTIVE POSITIONS"
-        )
+    
+    if len(active) > 1:
 
-    # ========================================================
-    # READ EXCHANGE POSITION
-    # ========================================================
+        original_side = str(
+            os.getenv(
+                "ORIGINAL_POSITION_SIDE",
+                ""
+            )
+        ).strip().upper()
 
-    p = active[0]
+        if original_side not in ("LONG", "SHORT"):
+            raise RuntimeError(
+                "UNIT 13 ORIGINAL POSITION SIDE "
+                "REQUIRED FOR ACTIVE HEDGE PAIR"
+            )
+
+        matching = [
+            position
+            for position in active
+            if str(
+                position.get("side", "")
+            ).upper() == original_side
+        ]
+
+        if len(matching) != 1:
+            raise RuntimeError(
+                "UNIT 13 ORIGINAL POSITION "
+                "NOT UNIQUELY IDENTIFIED"
+            )
+
+        p = matching[0]
+
+    else:
+        p = active[0]
 
     side = str(
         p.get("side", "")
