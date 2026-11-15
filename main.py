@@ -5458,7 +5458,7 @@ def fresh_reconstruction_unit_6(
         fee_coverage_pass,
         flush=True
     )
-        print(
+    print(
         "UNIT 6 FEE COVERAGE METHOD =",
         fee_coverage_method,
         flush=True
