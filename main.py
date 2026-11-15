@@ -16079,6 +16079,49 @@ def fresh_reconstruction_unit_14(
                 stage_state["stage"]
             )
 
+    
+    # ====================================================
+    # H1/H2/R1/R2 STAGE DISPATCH
+    # ====================================================
+
+    stage_mark = (
+        unit_14_v3_mark()
+        if (
+            p is not None
+            or active_cycle_id is not None
+        )
+        else None
+    )
+
+    if stage_mark is not None:
+
+        stage_outcome = (
+            unit_14_stage_dispatch(
+                active_positions,
+                p,
+                unit_13_result,
+                qstep,
+                minimum,
+                stage_mark
+            )
+        )
+
+        result["stage_dispatch"] = (
+            stage_outcome
+        )
+
+        if stage_outcome.get("handled"):
+
+            result["status"] = (
+                stage_outcome["status"]
+            )
+
+            result["skip_reason"] = (
+                "STAGE_MANAGER_ACTIVE"
+            )
+
+            return result
+
     if p is None:
 
         result["status"] = "IDLE_NO_POSITION"
