@@ -5813,6 +5813,18 @@ def unit_6_validation_v9():
 
     fee_analysis["move_5m_pct"] = 0.0
 
+    
+    fee_price = float(
+        fee_analysis["latest_close"]
+    )
+
+    fee_analysis["support20"] = (
+        fee_price * 0.9999
+    )
+    fee_analysis["resistance20"] = (
+        fee_price * 0.99995
+    )
+
     fee_result = fresh_reconstruction_unit_6(
         config,
         fee_analysis,
