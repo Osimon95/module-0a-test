@@ -15368,6 +15368,41 @@ def unit_14_stage_execute_pair(
         "complete": False,
     }
 
+
+def unit_14_active_original_side(symbol="BTCSUSDT"):
+    """
+    Resolve original position side from a persisted
+    active hedge/recovery cycle.
+
+    A hedge position must never be mistaken for
+    the original position.
+    """
+
+    db = unit_14_stage_db()
+
+    try:
+        rows = db.execute("""
+            SELECT cycle_id, original_side
+            FROM stage_cycles
+            WHERE symbol = ?
+              AND state = 'ACTIVE'
+            ORDER BY created_at DESC
+        """, (symbol,)).fetchall()
+    finally:
+        db.close()
+
+    if not rows:
+        return None, None
+
+    sides = {row[1] for row in rows}
+
+    if len(sides) != 1:
+        raise RuntimeError(
+            "CONFLICTING ACTIVE ORIGINAL SIDES"
+        )
+
+    return rows[0][1], rows[0][0]
+
 def fresh_reconstruction_unit_14(
     config,
     unit_13_result,
