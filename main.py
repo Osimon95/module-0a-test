@@ -254,7 +254,7 @@ def fresh_reconstruction_unit_2():
         if any(value <= 0 for value in allocation_parts.values()):
             raise ValueError("Each allocation must be positive")
 
-    except (ValueError, TypeError) as exc:
+    except (ValueError, TypeError, RuntimeError) as exc:
         raise RuntimeError(
             "UNIT 2 TP ALLOCATION REJECTED: " + str(exc)
         ) from exc
