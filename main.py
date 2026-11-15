@@ -15835,7 +15835,7 @@ def fresh_reconstruction_unit_14(
                 return result
 
             # Re-read position before any close.
-            latest = unit_14_v3_position()
+            latest = unit_14_v3_position(side)
 
             if (
                 latest is None
