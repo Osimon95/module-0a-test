@@ -5047,21 +5047,30 @@ def fresh_reconstruction_unit_6(
         quality_score >= scalp_minimum
     )
 
+    
     # ========================================================
     # FEE COVERAGE
+    # Compare recent observed price movement with the
+    # configured estimated round-trip trading costs.
     #
-    # Estimate a potential near-term price excursion,
-    # then compare it to estimated round-trip costs.
-    #
-    # This is only a screening estimate, not a
-    # guaranteed profit projection.
+    # This is a screening proxy, not a prediction
+    # or guarantee of future profitable movement.
     # ========================================================
-    projected_move_pct = 0.0
-    fee_coverage_method = "NOT_APPLICABLE"
-    fee_coverage_pass = False
 
-    required_move_pct = round_trip_fee_pct * fee_coverage_multiplier
-    fee_coverage_pass = projected_move_pct >= required_move_pct
+    projected_move_pct = abs(move_5m)
+
+    fee_coverage_method = "OBSERVED_5M_MOVE"
+
+    required_move_pct = (
+        estimated_fee * fee_coverage
+    )
+
+    fee_coverage_pass = (
+        fee_estimate_verified
+        and projected_move_pct >= required_move_pct
+    )
+
+    
     # ========================================================
     # FINAL ADMISSION ARBITRATION
     # ========================================================
