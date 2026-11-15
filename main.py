@@ -16569,6 +16569,51 @@ def fresh_reconstruction_unit_14(
             )
 
             return result
+    
+    # ====================================================
+    # H1/H2/R1/R2 EXECUTION HANDOVER
+    # ====================================================
+
+    stage_mark = None
+
+    if (
+        p is not None
+        or active_cycle_id is not None
+    ):
+        stage_mark = unit_14_v3_mark()
+
+    if stage_mark is not None:
+
+        stage_result = unit_14_stage_dispatch(
+            active_positions=active_positions,
+            original_position=p,
+            unit_13_result=unit_13_result,
+            quantity_step=qstep,
+            minimum_quantity=minimum,
+            mark=stage_mark
+        )
+
+        result["stage_dispatch"] = stage_result
+
+        print(
+            "UNIT 14 HEDGE STAGE =",
+            stage_result.get("stage"),
+            flush=True
+        )
+
+        print(
+            "UNIT 14 HEDGE STATUS =",
+            stage_result.get("status"),
+            flush=True
+        )
+
+        if stage_result.get("handled"):
+
+            result["status"] = (
+                stage_result["status"]
+            )
+
+            return result
 
     if p is None:
 
