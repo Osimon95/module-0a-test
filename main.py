@@ -227,6 +227,58 @@ def fresh_reconstruction_unit_2():
         "EXPOSURE_CAP_PERCENT", "35.0"
     )
 
+    
+    # TP allocation: Render format TP1:10,TP2:20,TP3:70
+    allocation_text = os.getenv(
+        "TP_ALLOCATION_PERCENT",
+        "TP1:10,TP2:20,TP3:70"
+    )
+
+    try:
+        allocation_parts = {}
+        for item in allocation_text.split(","):
+            key, value = item.strip().split(":", 1)
+            key = key.strip().upper()
+            if key in allocation_parts:
+                raise ValueError("Duplicate TP key")
+            allocation_parts[key] = unit_2_v9_number(
+                value.strip(), key
+            )
+
+        if set(allocation_parts) != {"TP1", "TP2", "TP3"}:
+            raise ValueError("TP1, TP2 and TP3 required")
+
+        if sum(allocation_parts.values()) != Decimal("100"):
+            raise ValueError("Allocation must total 100")
+
+        if any(value <= 0 for value in allocation_parts.values()):
+            raise ValueError("Each allocation must be positive")
+
+    except (ValueError, TypeError) as exc:
+        raise RuntimeError(
+            "UNIT 2 TP ALLOCATION REJECTED: " + str(exc)
+        ) from exc
+
+    tp1_roi = setting("TP1_NET_ROI_FLOOR_PERCENT", "20")
+    tp2_roi = setting("TP2_NET_ROI_FLOOR_PERCENT", "40")
+
+    if tp1_roi <= 0 or tp2_roi <= tp1_roi:
+        raise RuntimeError(
+            "UNIT 2 TP ROI REJECTED: "
+            "TP1 must be positive and TP2 must exceed TP1"
+        )
+
+    print(
+        "UNIT 2 TP ALLOCATION ACCEPTED =",
+        allocation_text,
+        flush=True
+    )
+    print(
+        "UNIT 2 TP ROI FLOORS ACCEPTED =",
+        tp1_roi, "/", tp2_roi,
+        flush=True
+    )
+
     if backup_percent > 100:
         raise RuntimeError(
             "UNIT 2 BACKUP PERCENT EXCEEDS 100"
