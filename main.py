@@ -15601,7 +15601,51 @@ def fresh_reconstruction_unit_14(
     # 8. FRESH EXCHANGE POSITION
     # ========================================================
 
-    p = unit_14_v3_position()
+    
+    active_positions = unit_14_v3_positions()
+
+    persisted_side, active_cycle_id = (
+        unit_14_active_original_side()
+    )
+
+    if persisted_side is not None:
+        p = active_positions.get(persisted_side)
+
+    elif len(active_positions) == 1:
+        p = next(iter(active_positions.values()))
+
+    elif len(active_positions) == 0:
+        p = None
+
+    else:
+        configured_side = os.getenv(
+            "ORIGINAL_POSITION_SIDE", ""
+        ).strip().upper()
+
+        if configured_side not in active_positions:
+            raise RuntimeError(
+                "ORIGINAL SIDE NOT IDENTIFIED "
+                "FOR EXISTING HEDGE PAIR"
+            )
+
+        p = active_positions[configured_side]
+
+    if active_cycle_id is not None:
+
+        stage_state = unit_14_stage_read(
+            active_cycle_id
+        )
+
+        if stage_state is not None:
+            result["stage_cycle_id"] = (
+                active_cycle_id
+            )
+            result["stage_original_side"] = (
+                stage_state["original_side"]
+            )
+            result["stage_state"] = (
+                stage_state["stage"]
+            )
 
     if p is None:
 
