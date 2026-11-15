@@ -5049,27 +5049,106 @@ def fresh_reconstruction_unit_6(
 
     
     # ========================================================
-    # FEE COVERAGE
-    # Compare recent observed price movement with the
-    # configured estimated round-trip trading costs.
-    #
-    # This is a screening proxy, not a prediction
-    # or guarantee of future profitable movement.
+    # FEE COVERAGE - STRATEGY-SPECIFIC V10
+    # STRUCTURE: SUPPORT / RESISTANCE TARGET
+    # BREAKOUT: MEASURED RANGE TARGET
+    # SCALP: SHORT-TERM OBSERVED MOVEMENT
     # ========================================================
 
-    projected_move_pct = abs(move_5m)
-
-    fee_coverage_method = "OBSERVED_5M_MOVE"
+    projected_move_pct = 0.0
+    fee_coverage_method = "NOT_APPLICABLE"
+    fee_coverage_pass = False
 
     required_move_pct = (
         estimated_fee * fee_coverage
     )
 
-    fee_coverage_pass = (
+    if (
+        stage == "QUALIFIED"
+        and mode in ("STRUCTURE", "BREAKOUT")
+        and incoming_direction in ("LONG", "SHORT")
+    ):
+
+        support = a("support20")
+        resistance = a("resistance20")
+
+        if (
+            support > 0
+            and resistance > support
+        ):
+
+            if mode == "STRUCTURE":
+
+                if incoming_direction == "LONG":
+                    target_price = resistance
+                    target_distance = (
+                        target_price - price
+                    )
+
+                else:
+                    target_price = support
+                    target_distance = (
+                        price - target_price
+                    )
+
+                fee_coverage_method = (
+                    "STRUCTURE_SUPPORT_RESISTANCE"
+                )
+
+            else:
+
+                measured_range = (
+                    resistance - support
+                )
+
+                if incoming_direction == "LONG":
+
+                    target_price = (
+                        resistance + measured_range
+                    )
+
+                    target_distance = (
+                        target_price - price
+                    )
+
+                else:
+
+                    target_price = (
+                        support - measured_range
+                    )
+
+                    target_distance = (
+                        price - target_price
+                    )
+
+                fee_coverage_method = (
+                    "BREAKOUT_MEASURED_RANGE"
+                )
+
+            projected_move_pct = (
+                max(0.0, target_distance)
+                / price
+                * 100.0
+            )
+
+    elif (
+        mode == "SCALP"
+        and stage == "PENDING_UNIT_6"
+    ):
+
+        projected_move_pct = min(
+            abs(move_5m),
+            atr_pct
+        )
+
+        fee_coverage_method = (
+            "SCALP_5M_ATR"
+        )
+
+    fee_coverage_pass = bool(
         fee_estimate_verified
         and projected_move_pct >= required_move_pct
     )
-
     
     # ========================================================
     # FINAL ADMISSION ARBITRATION
