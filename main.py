@@ -5903,7 +5903,7 @@ def fresh_reconstruction_unit_7(
             "UNIT 7 EXCHANGE IS NOT WEEX"
         )
 
-    if not str(exchange.get("market_symbol", "")).strip():
+    if not str(exchange.get("demo_order_symbol", "")).strip():
         raise RuntimeError(
             "UNIT 7 MARKET SYMBOL INVALID"
         )
