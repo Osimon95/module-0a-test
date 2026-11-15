@@ -5458,6 +5458,11 @@ def fresh_reconstruction_unit_6(
         fee_coverage_pass,
         flush=True
     )
+        print(
+        "UNIT 6 FEE COVERAGE METHOD =",
+        fee_coverage_method,
+        flush=True
+    )
     print(
         "UNIT 6 ACTIVE MODE =",
         active_mode,
