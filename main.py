@@ -15414,6 +15414,430 @@ def unit_14_stage_dispatch(
     mark
 ):
     """
+    WEEX DEMO H1/H2/R1/R2 execution dispatcher.
+
+    H1: adverse ATR x1
+    H2: adverse ATR x2, unless recovery started
+    R1: ATR x1 retracement from H1 trigger
+    R2: further favorable ATR x1 after R1
+
+    Order submission is performed by the existing
+    unit_14_stage_execute_pair().
+    """
+
+    from decimal import Decimal
+
+    D = unit_14_v3_D
+
+    original_side, cycle_id = (
+        unit_14_active_original_side()
+    )
+
+    # ------------------------------------------------
+    # IDENTIFY OR INITIALIZE ORIGINAL TRADE
+    # ------------------------------------------------
+
+    if cycle_id is None:
+
+        if original_position is None:
+            return {
+                "status": "NO_POSITION",
+                "handled": False
+            }
+
+        if unit_13_result.get(
+            "tp1_completed"
+        ) is True:
+            return {
+                "status": "POST_TP1",
+                "handled": False
+            }
+
+        original_side = str(
+            original_position.get("side", "")
+        ).upper()
+
+        if original_side not in (
+            "LONG", "SHORT"
+        ):
+            raise RuntimeError(
+                "INVALID ORIGINAL SIDE"
+            )
+
+        cycle_id = (
+            "U14-"
+            + unit_14_v3_trade_key(
+                original_position
+            )
+        )
+
+        snapshot = (
+            FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT
+        )
+
+        atr = D(
+            snapshot["atr14"],
+            "FROZEN ATR"
+        )
+
+        quantity = D(
+            original_position["size"],
+            "ORIGINAL QUANTITY"
+        )
+
+        entry = (
+            D(
+                original_position["openValue"],
+                "OPEN VALUE"
+            )
+            /
+            D(
+                original_position["cumOpenSize"],
+                "CUM OPEN SIZE"
+            )
+        )
+
+        unit_14_stage_create_cycle(
+            cycle_id,
+            "BTCSUSDT",
+            original_side,
+            quantity,
+            entry,
+            atr
+        )
+
+    cycle = unit_14_stage_read(cycle_id)
+
+    if cycle is None:
+        raise RuntimeError(
+            "STAGE CYCLE MISSING"
+        )
+
+    if cycle["state"] != "ACTIVE":
+        return {
+            "status": "CYCLE_INACTIVE",
+            "handled": False
+        }
+
+    # ------------------------------------------------
+    # RECOVER PERSISTED PARAMETERS
+    # ------------------------------------------------
+
+    original = cycle["original_side"]
+
+    opposite = (
+        "SHORT"
+        if original == "LONG"
+        else "LONG"
+    )
+
+    entry = D(
+        cycle["original_entry"],
+        "ENTRY"
+    )
+
+    atr = D(
+        cycle["frozen_atr"],
+        "ATR"
+    )
+
+    base_qty = D(
+        cycle["original_quantity"],
+        "ORIGINAL QUANTITY"
+    )
+
+    step = D(
+        quantity_step,
+        "QUANTITY STEP"
+    )
+
+    minimum = D(
+        minimum_quantity,
+        "MINIMUM QUANTITY"
+    )
+
+    price = D(
+        mark,
+        "MARK PRICE"
+    )
+
+    adverse = (
+        (entry - price) / atr
+        if original == "LONG"
+        else (price - entry) / atr
+    )
+
+    # ------------------------------------------------
+    # EXCHANGE-CONFIRMED ORDER RECONCILIATION
+    # ------------------------------------------------
+
+    orders = unit_14_stage_reconcile_cycle(
+        cycle_id
+    )
+
+    def filled(action):
+        return D(
+            orders[action]["confirmed_filled"],
+            action + " FILLED",
+            True
+        )
+
+    def complete(action):
+        return (
+            orders[action]["complete"] is True
+        )
+
+    def started(action):
+        return (
+            orders[action]["state"]
+            != "NOT_CLAIMED"
+        )
+
+    def pair_complete(stage):
+
+        close_action = stage + "-C"
+
+        open_action = (
+            stage + "-H"
+            if stage in ("H1", "H2")
+            else stage + "-O"
+        )
+
+        return (
+            complete(close_action)
+            and complete(open_action)
+        )
+
+    def execute(stage, quantity):
+
+        quantity = unit_14_v3_floor(
+            quantity,
+            step
+        )
+
+        if quantity < minimum:
+            return {
+                "status":
+                    stage + "_QUANTITY_BELOW_MINIMUM",
+                "handled": True,
+                "cycle_id": cycle_id
+            }
+
+        position = (
+            active_positions.get(original)
+            or active_positions.get(opposite)
+        )
+
+        if position is None:
+            return {
+                "status": "POSITION_NOT_FOUND",
+                "handled": True,
+                "cycle_id": cycle_id
+            }
+
+        leverage = D(
+            position["leverage"],
+            "POSITION LEVERAGE"
+        )
+
+        outcome = unit_14_stage_execute_pair(
+            cycle_id=cycle_id,
+            stage=stage,
+            quantity=quantity,
+            mark_price=price,
+            opening_leverage=leverage,
+            quantity_step=step,
+            minimum_quantity=minimum
+        )
+
+        outcome["handled"] = True
+        outcome["stage"] = stage
+
+        return outcome
+
+    # ------------------------------------------------
+    # STAGE QUANTITIES
+    # ------------------------------------------------
+
+    h1_qty = unit_14_v3_floor(
+        base_qty / Decimal("2"),
+        step
+    )
+
+    # ------------------------------------------------
+    # H1 EXECUTION
+    # ------------------------------------------------
+
+    if not pair_complete("H1"):
+
+        if (
+            adverse >= Decimal("1")
+            or started("H1-C")
+            or started("H1-H")
+        ):
+            return execute(
+                "H1",
+                h1_qty
+            )
+
+        return {
+            "status": "H1_MONITORING",
+            "handled": True,
+            "cycle_id": cycle_id,
+            "adverse_atr": str(adverse)
+        }
+
+    # ------------------------------------------------
+    # H2 EXECUTION
+    # ------------------------------------------------
+
+    recovery_started = any(
+        started(action)
+        for action in (
+            "R1-C", "R1-O",
+            "R2-C", "R2-O"
+        )
+    )
+
+    h2_started = (
+        started("H2-C")
+        or started("H2-H")
+    )
+
+    h2_qty = unit_14_v3_floor(
+        base_qty - filled("H1-C"),
+        step
+    )
+
+    if (
+        h2_started
+        and not pair_complete("H2")
+    ):
+        return execute(
+            "H2",
+            h2_qty
+        )
+
+    if (
+        not pair_complete("H2")
+        and not recovery_started
+        and adverse >= Decimal("2")
+    ):
+        return execute(
+            "H2",
+            h2_qty
+        )
+
+    # ------------------------------------------------
+    # R1 EXECUTION
+    # ------------------------------------------------
+
+    hedge_total = (
+        filled("H1-H")
+        + filled("H2-H")
+    )
+
+    r1_qty = unit_14_v3_floor(
+        hedge_total / Decimal("2"),
+        step
+    )
+
+    # H1 occurs at adverse ATR x1.
+    # R1 occurs after favorable ATR x1
+    # from that H1 trigger.
+
+    r1_reached = (
+        adverse <= Decimal("0")
+    )
+
+    if not pair_complete("R1"):
+
+        if (
+            recovery_started
+            or r1_reached
+        ):
+            return execute(
+                "R1",
+                r1_qty
+            )
+
+        return {
+            "status": "R1_MONITORING",
+            "handled": True,
+            "cycle_id": cycle_id,
+            "adverse_atr": str(adverse)
+        }
+
+    # ------------------------------------------------
+    # R2 EXECUTION
+    # ------------------------------------------------
+
+    r2_qty = unit_14_v3_floor(
+        hedge_total - filled("R1-C"),
+        step
+    )
+
+    r2_started = (
+        started("R2-C")
+        or started("R2-O")
+    )
+
+    # Further ATR x1 favorable after R1.
+
+    r2_reached = (
+        adverse <= Decimal("-1")
+    )
+
+    if not pair_complete("R2"):
+
+        if (
+            r2_started
+            or r2_reached
+        ):
+            return execute(
+                "R2",
+                r2_qty
+            )
+
+        return {
+            "status": "R2_MONITORING",
+            "handled": True,
+            "cycle_id": cycle_id,
+            "adverse_atr": str(adverse)
+        }
+
+    # ------------------------------------------------
+    # ALL FOUR STAGES COMPLETED
+    # ------------------------------------------------
+
+    db = unit_14_stage_db()
+
+    try:
+        db.execute("""
+            UPDATE stage_cycles
+            SET stage = 'RECOVERED',
+                state = 'COMPLETE'
+            WHERE cycle_id = ?
+              AND state = 'ACTIVE'
+        """, (cycle_id,))
+    finally:
+        db.close()
+
+    return {
+        "status": "RECOVERY_COMPLETE",
+        "handled": True,
+        "cycle_id": cycle_id
+    }
+
+def unit_14_stage_dispatch(
+    active_positions,
+    original_position,
+    unit_13_result,
+    quantity_step,
+    minimum_quantity,
+    mark
+):
+    """
     Persistent H1/H2/R1/R2 stage dispatcher.
 
     H1: adverse ATR x1
