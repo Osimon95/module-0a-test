@@ -5908,7 +5908,7 @@ def fresh_reconstruction_unit_7(
             "UNIT 7 MARKET SYMBOL INVALID"
         )
 
-    if exchange.get("demo_order_symbol") != "BTCSUSDT":
+    if not str(exchange.get("demo_order_symbol", "")).strip():
         raise RuntimeError(
             "UNIT 7 DEMO SYMBOL INVALID"
         )
