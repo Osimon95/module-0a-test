@@ -5087,10 +5087,31 @@ def fresh_reconstruction_unit_6(
         "NO_ACCEPTABLE_CANDIDATE"
     )
 
+    
     if not fresh:
 
         admission_reason = (
             "MARKET_EVIDENCE_STALE"
+        )
+
+    elif (
+        stage == "QUALIFIED"
+        and mode in ("BREAKOUT", "STRUCTURE")
+        and not fee_estimate_verified
+    ):
+
+        admission_reason = (
+            "QUALIFIED_MODE_FEES_NOT_VERIFIED"
+        )
+
+    elif (
+        stage == "QUALIFIED"
+        and mode in ("BREAKOUT", "STRUCTURE")
+        and not fee_coverage_pass
+    ):
+
+        admission_reason = (
+            "QUALIFIED_MODE_FEE_COVERAGE_FAILED"
         )
 
     elif stage == "QUALIFIED":
