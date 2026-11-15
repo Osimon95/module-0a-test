@@ -5644,7 +5644,7 @@ def unit_6_validation_v9():
             
         if (
             expected_intent is True
-            and expected_mode in (
+                and expected_mode in (
                 "BREAKOUT", "STRUCTURE"
             )
         ):
