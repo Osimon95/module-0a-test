@@ -5641,13 +5641,6 @@ def unit_6_validation_v9():
 
         
         test_analysis = copy.deepcopy(analysis)
-
-        if (
-            expected_intent is True
-            and expected_mode in (
-                "BREAKOUT", "STRUCTURE"
-            )
-        ):
             
         if (
             expected_intent is True
