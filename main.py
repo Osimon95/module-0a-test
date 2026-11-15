@@ -5651,7 +5651,7 @@ def unit_6_validation_v9():
             
         if (
             expected_intent is True
-            and expected_mode in (
+                and expected_mode in (
                 "BREAKOUT", "STRUCTURE"
             )
         ):
@@ -5659,7 +5659,7 @@ def unit_6_validation_v9():
                 test_analysis["latest_close"]
             )
 
-        if expected_mode == "BREAKOUT":
+            if expected_mode == "BREAKOUT":
                 # Synthetic LONG breakout with sufficient
                 # measured-range target distance.
                 test_analysis["support20"] = (
