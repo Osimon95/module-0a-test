@@ -7683,9 +7683,10 @@ def fresh_reconstruction_unit_8(
             "MARKET_SNAPSHOT_MISSING"
         )
 
+    
     if (
-        market_snapshot.get("symbol")
-        != "BTCUSDT"
+        str(market_snapshot.get("symbol") or "").strip().upper()
+        != str(exchange.get("market_symbol") or "").strip().upper()
     ):
         return finish(
             "BLOCKED",
