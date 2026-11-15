@@ -14528,6 +14528,367 @@ def unit_14_v3_result(unit_13_result):
 # 7. MAIN UNIT 14
 # ============================================================
 
+
+ 
+# ============================================================
+# UNIT 14 - PERSISTENT HEDGE / RECOVERY REGISTRY
+# H1 / H2 / R1 / R2
+# DEMO EXECUTION STATE
+# ============================================================
+
+import sqlite3
+import hashlib
+from decimal import Decimal
+
+
+UNIT14_STAGE_ACTIONS = (
+    "H1-C", "H1-H",
+    "H2-C", "H2-H",
+    "R1-C", "R1-O",
+    "R2-C", "R2-O",
+)
+
+
+def unit_14_stage_db():
+
+    path = os.getenv(
+        "UNIT14_STAGE_DB_PATH",
+        "/var/data/unit14_stages.sqlite3"
+    )
+
+    directory = os.path.dirname(path)
+
+    if directory and not os.path.isdir(directory):
+        raise RuntimeError(
+            "UNIT 14 PERSISTENT DISK UNAVAILABLE"
+        )
+
+    db = sqlite3.connect(
+        path,
+        timeout=30,
+        isolation_level=None
+    )
+
+    db.execute("PRAGMA busy_timeout=30000")
+    db.execute("PRAGMA journal_mode=WAL")
+
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS stage_cycles (
+            cycle_id TEXT PRIMARY KEY,
+            symbol TEXT NOT NULL,
+            original_side TEXT NOT NULL,
+            original_quantity TEXT NOT NULL,
+            original_entry TEXT NOT NULL,
+            frozen_atr TEXT NOT NULL,
+            stage TEXT NOT NULL DEFAULT 'READY',
+            state TEXT NOT NULL DEFAULT 'ACTIVE',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS stage_orders (
+            client_id TEXT PRIMARY KEY,
+            cycle_id TEXT NOT NULL,
+            action TEXT NOT NULL,
+            quantity TEXT NOT NULL,
+            state TEXT NOT NULL DEFAULT 'CLAIMED',
+            exchange_order_id TEXT,
+            confirmed_filled TEXT NOT NULL DEFAULT '0',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(cycle_id, action)
+        )
+    """)
+
+    return db
+
+
+def unit_14_stage_client_id(cycle_id, action):
+
+    if action not in UNIT14_STAGE_ACTIONS:
+        raise RuntimeError(
+            "UNIT 14 INVALID STAGE ACTION"
+        )
+
+    digest = hashlib.sha256(
+        str(cycle_id).encode("utf-8")
+    ).hexdigest()[:20]
+
+    return (
+        "FR-" + action + "-" + digest
+    )[:36]
+
+
+def unit_14_stage_create_cycle(
+    cycle_id,
+    symbol,
+    original_side,
+    original_quantity,
+    original_entry,
+    frozen_atr
+):
+
+    if original_side not in ("LONG", "SHORT"):
+        raise RuntimeError(
+            "INVALID ORIGINAL POSITION SIDE"
+        )
+
+    values = (
+        original_quantity,
+        original_entry,
+        frozen_atr
+    )
+
+    if any(
+        unit_14_v3_D(value) <= 0
+        for value in values
+    ):
+        raise RuntimeError(
+            "INVALID HEDGE CYCLE VALUES"
+        )
+
+    db = unit_14_stage_db()
+
+    try:
+        db.execute("BEGIN IMMEDIATE")
+
+        existing = db.execute("""
+            SELECT symbol, original_side,
+                   original_quantity,
+                   original_entry, frozen_atr
+            FROM stage_cycles
+            WHERE cycle_id = ?
+        """, (cycle_id,)).fetchone()
+
+        expected = (
+            symbol,
+            original_side,
+            str(original_quantity),
+            str(original_entry),
+            str(frozen_atr)
+        )
+
+        if existing is not None:
+
+            if existing != expected:
+                raise RuntimeError(
+                    "PERSISTED CYCLE IDENTITY MISMATCH"
+                )
+
+        else:
+
+            db.execute("""
+                INSERT INTO stage_cycles (
+                    cycle_id, symbol, original_side,
+                    original_quantity, original_entry,
+                    frozen_atr
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (cycle_id,) + expected)
+
+        db.execute("COMMIT")
+
+        return cycle_id
+
+    except Exception:
+
+        if db.in_transaction:
+            db.execute("ROLLBACK")
+
+        raise
+
+    finally:
+        db.close()
+
+
+def unit_14_stage_claim(
+    cycle_id,
+    action,
+    quantity
+):
+
+    if action not in UNIT14_STAGE_ACTIONS:
+        raise RuntimeError(
+            "INVALID HEDGE ACTION"
+        )
+
+    qty = unit_14_v3_D(
+        quantity,
+        "STAGE QUANTITY"
+    )
+
+    client_id = unit_14_stage_client_id(
+        cycle_id, action
+    )
+
+    db = unit_14_stage_db()
+
+    try:
+        db.execute("BEGIN IMMEDIATE")
+
+        cycle = db.execute("""
+            SELECT state
+            FROM stage_cycles
+            WHERE cycle_id = ?
+        """, (cycle_id,)).fetchone()
+
+        if cycle is None or cycle[0] != "ACTIVE":
+            raise RuntimeError(
+                "STAGE CYCLE NOT ACTIVE"
+            )
+
+        existing = db.execute("""
+            SELECT quantity, state
+            FROM stage_orders
+            WHERE client_id = ?
+        """, (client_id,)).fetchone()
+
+        if existing is not None:
+
+            if Decimal(existing[0]) != qty:
+                raise RuntimeError(
+                    "PERSISTED ORDER QUANTITY MISMATCH"
+                )
+
+            db.execute("COMMIT")
+
+            return {
+                "claimed": False,
+                "client_id": client_id,
+                "state": existing[1],
+            }
+
+        db.execute("""
+            INSERT INTO stage_orders (
+                client_id, cycle_id,
+                action, quantity, state
+            )
+            VALUES (?, ?, ?, ?, 'CLAIMED')
+        """, (
+            client_id,
+            cycle_id,
+            action,
+            str(qty)
+        ))
+
+        db.execute("COMMIT")
+
+        return {
+            "claimed": True,
+            "client_id": client_id,
+            "state": "CLAIMED",
+        }
+
+    except Exception:
+
+        if db.in_transaction:
+            db.execute("ROLLBACK")
+
+        raise
+
+    finally:
+        db.close()
+
+
+def unit_14_stage_update(
+    client_id,
+    state,
+    exchange_order_id=None,
+    confirmed_filled=None
+):
+
+    db = unit_14_stage_db()
+
+    try:
+
+        if confirmed_filled is None:
+
+            db.execute("""
+                UPDATE stage_orders
+                SET state = ?,
+                    exchange_order_id =
+                        COALESCE(?, exchange_order_id),
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE client_id = ?
+            """, (
+                state,
+                exchange_order_id,
+                client_id
+            ))
+
+        else:
+
+            db.execute("""
+                UPDATE stage_orders
+                SET state = ?,
+                    exchange_order_id =
+                        COALESCE(?, exchange_order_id),
+                    confirmed_filled = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE client_id = ?
+            """, (
+                state,
+                exchange_order_id,
+                str(confirmed_filled),
+                client_id
+            ))
+
+    finally:
+        db.close()
+
+
+def unit_14_stage_read(cycle_id):
+
+    db = unit_14_stage_db()
+
+    try:
+
+        cycle = db.execute("""
+            SELECT cycle_id, symbol,
+                   original_side, original_quantity,
+                   original_entry, frozen_atr,
+                   stage, state
+            FROM stage_cycles
+            WHERE cycle_id = ?
+        """, (cycle_id,)).fetchone()
+
+        if cycle is None:
+            return None
+
+        orders = db.execute("""
+            SELECT action, client_id, quantity,
+                   state, exchange_order_id,
+                   confirmed_filled
+            FROM stage_orders
+            WHERE cycle_id = ?
+            ORDER BY created_at, action
+        """, (cycle_id,)).fetchall()
+
+        return {
+            "cycle_id": cycle[0],
+            "symbol": cycle[1],
+            "original_side": cycle[2],
+            "original_quantity": cycle[3],
+            "original_entry": cycle[4],
+            "frozen_atr": cycle[5],
+            "stage": cycle[6],
+            "state": cycle[7],
+            "orders": {
+                row[0]: {
+                    "client_id": row[1],
+                    "quantity": row[2],
+                    "state": row[3],
+                    "exchange_order_id": row[4],
+                    "confirmed_filled": row[5],
+                }
+                for row in orders
+            }
+        }
+
+    finally:
+        db.close()
+   
 def fresh_reconstruction_unit_14(
     config,
     unit_13_result,
