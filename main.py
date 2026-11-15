@@ -14116,7 +14116,8 @@ def unit_14_v3_signed_request(
 # 3. POSITION, BALANCE AND ORDER HISTORY
 # ============================================================
 
-def unit_14_v3_position():
+
+def unit_14_v3_position(side=None):
 
     rows = unit_14_v3_signed_request(
         "GET",
@@ -14128,7 +14129,7 @@ def unit_14_v3_position():
             "UNIT 14 POSITION RESPONSE NOT LIST"
         )
 
-    active = []
+    active = {}
 
     for p in rows:
 
@@ -14137,9 +14138,7 @@ def unit_14_v3_position():
                 "UNIT 14 POSITION RECORD INVALID"
             )
 
-        if str(
-            p.get("symbol", "")
-        ).upper() != "BTCSUSDT":
+        if str(p.get("symbol", "")).upper() != "BTCSUSDT":
             continue
 
         size = unit_14_v3_D(
@@ -14148,16 +14147,49 @@ def unit_14_v3_position():
             True,
         )
 
-        if size > 0:
-            active.append(p)
+        if size <= 0:
+            continue
 
-    if len(active) > 1:
-        raise RuntimeError(
-            "UNIT 14 MULTIPLE BTC POSITIONS"
-        )
+        position_side = str(
+            p.get("side", "")
+        ).upper()
 
-    return active[0] if active else None
+        if position_side not in ("LONG", "SHORT"):
+            raise RuntimeError(
+                "UNIT 14 INVALID POSITION SIDE"
+            )
 
+        if position_side in active:
+            raise RuntimeError(
+                "UNIT 14 DUPLICATE POSITION SIDE"
+            )
+
+        active[position_side] = p
+
+    if side is not None:
+
+        side = str(side).upper()
+
+        if side not in ("LONG", "SHORT"):
+            raise RuntimeError(
+                "UNIT 14 INVALID REQUESTED SIDE"
+            )
+
+        return active.get(side)
+
+    if not active:
+        return None
+
+    if len(active) == 1:
+        return next(iter(active.values()))
+
+    # Both sides exist. The original position
+    # must be selected by the persisted cycle,
+    # not guessed from position size or age.
+    raise RuntimeError(
+        "UNIT 14 ORIGINAL SIDE REQUIRED "
+        "FOR ACTIVE HEDGE PAIR"
+    )
 
 def unit_14_v3_balance():
 
