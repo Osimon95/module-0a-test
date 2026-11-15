@@ -14117,7 +14117,7 @@ def unit_14_v3_signed_request(
 # ============================================================
 
 
-def unit_14_v3_position(side=None):
+def unit_14_v3_positions():
 
     rows = unit_14_v3_signed_request(
         "GET",
@@ -14138,7 +14138,9 @@ def unit_14_v3_position(side=None):
                 "UNIT 14 POSITION RECORD INVALID"
             )
 
-        if str(p.get("symbol", "")).upper() != "BTCSUSDT":
+        if str(
+            p.get("symbol", "")
+        ).upper() != "BTCSUSDT":
             continue
 
         size = unit_14_v3_D(
@@ -14150,21 +14152,28 @@ def unit_14_v3_position(side=None):
         if size <= 0:
             continue
 
-        position_side = str(
+        side = str(
             p.get("side", "")
         ).upper()
 
-        if position_side not in ("LONG", "SHORT"):
+        if side not in ("LONG", "SHORT"):
             raise RuntimeError(
                 "UNIT 14 INVALID POSITION SIDE"
             )
 
-        if position_side in active:
+        if side in active:
             raise RuntimeError(
-                "UNIT 14 DUPLICATE POSITION SIDE"
+                "UNIT 14 DUPLICATE ACTIVE POSITION SIDE"
             )
 
-        active[position_side] = p
+        active[side] = p
+
+    return active
+
+
+def unit_14_v3_position(side=None):
+
+    active = unit_14_v3_positions()
 
     if side is not None:
 
@@ -14183,12 +14192,9 @@ def unit_14_v3_position(side=None):
     if len(active) == 1:
         return next(iter(active.values()))
 
-    # Both sides exist. The original position
-    # must be selected by the persisted cycle,
-    # not guessed from position size or age.
     raise RuntimeError(
         "UNIT 14 ORIGINAL SIDE REQUIRED "
-        "FOR ACTIVE HEDGE PAIR"
+        "FOR HEDGE PAIR"
     )
 
 def unit_14_v3_balance():
