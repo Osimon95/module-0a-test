@@ -6213,8 +6213,8 @@ def fresh_reconstruction_unit_7(
             "candidate_age_seconds"
         ),
 
-        "symbol": "BTCUSDT",
-        "demo_order_symbol": "BTCSUSDT",
+        "symbol": exchange["market_symbol"],
+        "demo_order_symbol": exchange["market_symbol"],
 
         "initial_fixed_usdt": float(initial_margin),
 
