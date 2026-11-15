@@ -4587,7 +4587,7 @@ def fresh_reconstruction_unit_6(
         )
 
     
-        # ========================================================
+    # ========================================================
     # UNIT 6 POSITION SAFETY POLICY
     # USE ORIGINAL UNIT 2 STRATEGY CONFIGURATION
     # ========================================================
@@ -5057,20 +5057,6 @@ def fresh_reconstruction_unit_6(
     # guaranteed profit projection.
     # ========================================================
 
-    projected_move_pct = min(
-        abs(move_5m),
-        atr_pct
-    )
-
-    required_move_pct = (
-        estimated_fee * fee_coverage
-    )
-
-    fee_coverage_pass = bool(
-        fee_estimate_verified
-        and projected_move_pct
-        >= required_move_pct
-    )
 
     # ========================================================
     # FINAL ADMISSION ARBITRATION
