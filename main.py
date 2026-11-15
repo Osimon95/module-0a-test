@@ -6214,7 +6214,7 @@ def fresh_reconstruction_unit_7(
         ),
 
         "symbol": exchange["market_symbol"],
-        "demo_order_symbol": exchange["market_symbol"],
+        "demo_order_symbol": exchange["demo_order_symbol"],
 
         "initial_fixed_usdt": float(initial_margin),
 
