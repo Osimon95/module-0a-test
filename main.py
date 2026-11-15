@@ -14889,6 +14889,199 @@ def unit_14_stage_read(cycle_id):
     finally:
         db.close()
    
+
+# ============================================================
+# UNIT 14 - H1/H2/R1/R2 EXCHANGE RECONCILIATION
+# USES EXISTING WEEX DEMO ORDER HISTORY
+# NO ORDER SUBMISSION
+# ============================================================
+
+def unit_14_stage_reconcile_order(
+    cycle_id,
+    action,
+    history=None,
+):
+    from decimal import Decimal
+
+    if action not in UNIT14_STAGE_ACTIONS:
+        raise RuntimeError(
+            "INVALID STAGE RECONCILIATION ACTION"
+        )
+
+    cycle = unit_14_stage_read(cycle_id)
+
+    if cycle is None:
+        raise RuntimeError(
+            "PERSISTED STAGE CYCLE MISSING"
+        )
+
+    record = cycle["orders"].get(action)
+
+    if record is None:
+        return {
+            "action": action,
+            "state": "NOT_CLAIMED",
+            "confirmed_filled": "0",
+            "complete": False,
+        }
+
+    client_id = record["client_id"]
+
+    expected = unit_14_v3_D(
+        record["quantity"],
+        "EXPECTED STAGE QUANTITY"
+    )
+
+    previous_filled = unit_14_v3_D(
+        record["confirmed_filled"],
+        "PREVIOUS CONFIRMED FILL",
+        True
+    )
+
+    if history is None:
+        history = unit_14_v3_history()
+
+    if not isinstance(history, list):
+        raise RuntimeError(
+            "INVALID STAGE ORDER HISTORY"
+        )
+
+    matches = [
+        order
+        for order in history
+        if isinstance(order, dict)
+        and str(
+            order.get("clientOrderId", "")
+        ) == client_id
+    ]
+
+    if not matches:
+
+        # No history record does not prove
+        # that a claimed order was never sent.
+        # Preserve the claim and do not retry.
+
+        return {
+            "action": action,
+            "state": "ACK_OR_HISTORY_UNKNOWN",
+            "client_id": client_id,
+            "confirmed_filled": str(previous_filled),
+            "complete": False,
+        }
+
+    order_ids = {
+        str(order["orderId"])
+        for order in matches
+        if order.get("orderId") is not None
+    }
+
+    if len(order_ids) > 1:
+        raise RuntimeError(
+            "DUPLICATE EXCHANGE ORDER IDS "
+            + client_id
+        )
+
+    exchange_order_id = next(
+        iter(order_ids),
+        None
+    )
+
+    exchange_filled = max(
+        (
+            unit_14_v3_D(
+                order.get("executedQty", "0"),
+                "STAGE EXECUTED QUANTITY",
+                True
+            )
+            for order in matches
+        ),
+        default=Decimal("0")
+    )
+
+    if exchange_filled > expected:
+        raise RuntimeError(
+            "STAGE EXCHANGE FILL EXCEEDS "
+            "CLAIMED QUANTITY"
+        )
+
+    if exchange_filled < previous_filled:
+        raise RuntimeError(
+            "STAGE CONFIRMED FILL REGRESSION"
+        )
+
+    statuses = {
+        str(order.get("status", "")).upper()
+        for order in matches
+    }
+
+    terminal = {
+        "CANCELED",
+        "CANCELLED",
+        "REJECTED",
+        "EXPIRED",
+    }
+
+    if exchange_filled == expected:
+        state = "FILLED"
+
+    elif exchange_filled > 0:
+
+        state = (
+            "PARTIAL_TERMINAL"
+            if statuses & terminal
+            else "PARTIAL"
+        )
+
+    elif statuses & terminal:
+        state = "TERMINAL_UNFILLED"
+
+    else:
+        state = "PENDING"
+
+    unit_14_stage_update(
+        client_id=client_id,
+        state=state,
+        exchange_order_id=exchange_order_id,
+        confirmed_filled=exchange_filled,
+    )
+
+    return {
+        "action": action,
+        "state": state,
+        "client_id": client_id,
+        "exchange_order_id": exchange_order_id,
+        "confirmed_filled": str(exchange_filled),
+        "expected_quantity": str(expected),
+        "complete": state == "FILLED",
+    }
+
+
+def unit_14_stage_reconcile_cycle(cycle_id):
+
+    cycle = unit_14_stage_read(cycle_id)
+
+    if cycle is None:
+        raise RuntimeError(
+            "STAGE CYCLE NOT FOUND"
+        )
+
+    # One exchange-history read per cycle scan.
+    history = unit_14_v3_history()
+
+    results = {}
+
+    for action in UNIT14_STAGE_ACTIONS:
+
+        results[action] = (
+            unit_14_stage_reconcile_order(
+                cycle_id=cycle_id,
+                action=action,
+                history=history,
+            )
+        )
+
+    return results
+
 def fresh_reconstruction_unit_14(
     config,
     unit_13_result,
