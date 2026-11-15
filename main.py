@@ -15723,6 +15723,15 @@ def unit_14_stage_dispatch(
             h2_qty
         )
 
+    
+    recovery_started = any(
+        orders[action]["state"] != "NOT_CLAIMED"
+        for action in (
+            "R1-C", "R1-O",
+            "R2-C", "R2-O"
+        )
+    )
+
     if (
         not h2_complete
         and not recovery_started
