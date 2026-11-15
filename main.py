@@ -15754,10 +15754,25 @@ def unit_14_stage_dispatch(
 
     if not r1_complete:
 
-        r1_threshold = (
-            Decimal("1")
-            if h2_complete
-            else Decimal("0.5")
+        # R1 starts after ATR x1 retracement
+        # from the H1 trigger price.
+
+        h1_trigger_price = (
+            entry - atr
+            if original == "LONG"
+            else entry + atr
+        )
+
+        r1_trigger_price = (
+            h1_trigger_price + atr
+            if original == "LONG"
+            else h1_trigger_price - atr
+        )
+
+        r1_reached = (
+            price >= r1_trigger_price
+            if original == "LONG"
+            else price <= r1_trigger_price
         )
 
         if (
