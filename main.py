@@ -758,10 +758,30 @@ def fresh_reconstruction_unit_2():
         qualification["scalp"]["quality_threshold"],
         flush=True
     )
+    
+    
     print(
-        "PASS: TP ALLOCATION = 10 / 20 / 70",
+        "PASS: TP ALLOCATION =",
+        strategy["tp1_allocation_percent"],
+        "/",
+        strategy["tp2_allocation_percent"],
+        "/",
+        strategy["tp3_allocation_percent"],
         flush=True
     )
+
+    print(
+        "PASS: TP1 NET ROI FLOOR % =",
+        strategy["tp1_net_roi_floor_percent"],
+        flush=True
+    )
+
+    print(
+        "PASS: TP2 NET ROI FLOOR % =",
+        strategy["tp2_net_roi_floor_percent"],
+        flush=True
+    )
+
     print(
         "PASS: MARKET QUANTITY STEP =",
         market_precision["quantity_step"],
