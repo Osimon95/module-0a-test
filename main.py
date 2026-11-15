@@ -8331,12 +8331,12 @@ def fresh_reconstruction_unit_9(
             "UNIT9_CONFIG_SECTIONS_MISSING"
         )
 
+    
     if (
         config.get("execution_environment") != "DEMO"
         or exchange.get("name") != "WEEX"
-        or exchange.get("market_symbol") != "BTCUSDT"
-        or exchange.get("demo_order_symbol")
-            != "BTCSUSDT"
+        or not str(exchange.get("market_symbol") or "").strip()
+        or not str(exchange.get("demo_order_symbol") or "").strip()
     ):
         raise RuntimeError(
             "UNIT9_WEEX_DEMO_CONTRACT_INVALID"
