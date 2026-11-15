@@ -15777,7 +15777,7 @@ def unit_14_stage_dispatch(
 
         if (
             recovery_started
-            or adverse <= r1_threshold
+            or r1_reached
         ):
             return execute(
                 "R1",
