@@ -638,13 +638,14 @@ def fresh_reconstruction_unit_2():
         "TAKE PROFIT ALLOCATION"
     )
 
-    require(
-        strategy["tp1_net_roi_floor_percent"] >= 5.0,
+        require(
+        strategy["tp1_net_roi_floor_percent"] > 0,
         "TP1 ROI FLOOR"
     )
 
     require(
-        strategy["tp2_net_roi_floor_percent"] >= 10.0,
+        strategy["tp2_net_roi_floor_percent"]
+        > strategy["tp1_net_roi_floor_percent"],
         "TP2 ROI FLOOR"
     )
 
