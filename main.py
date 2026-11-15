@@ -5648,13 +5648,36 @@ def unit_6_validation_v9():
                 "BREAKOUT", "STRUCTURE"
             )
         ):
-            test_analysis["move_5m_pct"] = 1.0
-
-            test_analysis["atr14"] = max(
-                float(test_analysis["atr14"]),
-                float(test_analysis["latest_close"])
-                * 0.01
+            
+        if (
+            expected_intent is True
+            and expected_mode in (
+                "BREAKOUT", "STRUCTURE"
             )
+        ):
+            test_price = float(
+                test_analysis["latest_close"]
+            )
+
+            if expected_mode == "BREAKOUT":
+                # Synthetic LONG breakout with sufficient
+                # measured-range target distance.
+                test_analysis["support20"] = (
+                    test_price * 0.98
+                )
+                test_analysis["resistance20"] = (
+                    test_price * 0.995
+                )
+
+            elif expected_mode == "STRUCTURE":
+                # Synthetic SHORT structure with
+                # sufficient support target distance.
+                test_analysis["support20"] = (
+                    test_price * 0.99
+                )
+                test_analysis["resistance20"] = (
+                    test_price * 1.01
+                )
 
         result = fresh_reconstruction_unit_6(
             config,
