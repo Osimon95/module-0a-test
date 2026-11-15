@@ -5060,6 +5060,8 @@ def fresh_reconstruction_unit_6(
     fee_coverage_method = "NOT_APPLICABLE"
     fee_coverage_pass = False
 
+        required_move_pct = round_trip_fee_pct * fee_coverage_multiplier
+    fee_coverage_pass = projected_move_pct >= required_move_pct
     # ========================================================
     # FINAL ADMISSION ARBITRATION
     # ========================================================
