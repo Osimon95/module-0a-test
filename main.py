@@ -5056,7 +5056,9 @@ def fresh_reconstruction_unit_6(
     # This is only a screening estimate, not a
     # guaranteed profit projection.
     # ========================================================
-
+    projected_move_pct = 0.0
+    fee_coverage_method = "NOT_APPLICABLE"
+    fee_coverage_pass = False
 
     # ========================================================
     # FINAL ADMISSION ARBITRATION
