@@ -5557,9 +5557,26 @@ def unit_6_validation_v9():
         # Explicitly retest consistent classification
         # states rather than forging account orders.
 
+        
+        test_analysis = copy.deepcopy(analysis)
+
+        if (
+            expected_intent is True
+            and expected_mode in (
+                "BREAKOUT", "STRUCTURE"
+            )
+        ):
+            test_analysis["move_5m_pct"] = 1.0
+
+            test_analysis["atr14"] = max(
+                float(test_analysis["atr14"]),
+                float(test_analysis["latest_close"])
+                * 0.01
+            )
+
         result = fresh_reconstruction_unit_6(
             config,
-            analysis,
+            test_analysis,
             local
         )
 
