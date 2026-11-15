@@ -15082,6 +15082,292 @@ def unit_14_stage_reconcile_cycle(cycle_id):
 
     return results
 
+
+# ============================================================
+# UNIT 14 - H1/H2/R1/R2 ORDER EXECUTION
+# INDEPENDENT OR SEQUENTIAL FUNDING
+# ============================================================
+
+def unit_14_stage_execute_pair(
+    cycle_id,
+    stage,
+    quantity,
+    mark_price,
+    opening_leverage,
+    quantity_step,
+    minimum_quantity,
+    margin_buffer_percent="0.3",
+):
+    from decimal import Decimal
+
+    D = unit_14_v3_D
+
+    stage = str(stage).upper()
+
+    if stage not in ("H1", "H2", "R1", "R2"):
+        raise RuntimeError("INVALID STAGE")
+
+    cycle = unit_14_stage_read(cycle_id)
+
+    if cycle is None:
+        raise RuntimeError("STAGE CYCLE MISSING")
+
+    if cycle["state"] != "ACTIVE":
+        return {"status": "CYCLE_NOT_ACTIVE"}
+
+    original = cycle["original_side"]
+
+    if original not in ("LONG", "SHORT"):
+        raise RuntimeError("INVALID ORIGINAL SIDE")
+
+    opposite = (
+        "SHORT" if original == "LONG"
+        else "LONG"
+    )
+
+    if stage in ("H1", "H2"):
+        close_side = original
+        open_side = opposite
+        close_action = stage + "-C"
+        open_action = stage + "-H"
+    else:
+        close_side = opposite
+        open_side = original
+        close_action = stage + "-C"
+        open_action = stage + "-O"
+
+    qty = D(quantity, "STAGE QUANTITY")
+    mark = D(mark_price, "STAGE MARK PRICE")
+    leverage = D(
+        opening_leverage,
+        "OPENING LEVERAGE"
+    )
+    step = D(quantity_step, "QUANTITY STEP")
+    minimum = D(
+        minimum_quantity,
+        "MINIMUM QUANTITY"
+    )
+    buffer = D(
+        margin_buffer_percent,
+        "MARGIN BUFFER",
+        True
+    )
+
+    if (
+        qty < minimum
+        or unit_14_v3_floor(qty, step) != qty
+        or buffer >= 100
+    ):
+        return {
+            "status": "STAGE_QUANTITY_OR_BUFFER_INVALID"
+        }
+
+    # Reconcile before deciding whether any
+    # new order may be submitted.
+
+    history = unit_14_v3_history()
+
+    close_record = unit_14_stage_reconcile_order(
+        cycle_id, close_action, history
+    )
+
+    open_record = unit_14_stage_reconcile_order(
+        cycle_id, open_action, history
+    )
+
+    if (
+        close_record["complete"]
+        and open_record["complete"]
+    ):
+        return {
+            "status": stage + "_COMPLETE",
+            "complete": True,
+        }
+
+    required_margin = (
+        qty * mark / leverage
+    ) * (
+        Decimal("1")
+        + buffer / Decimal("100")
+    )
+
+    available = unit_14_v3_balance()
+
+    independent = available >= required_margin
+
+    # With insufficient extra funds, the
+    # closing fill must be confirmed before
+    # opening is considered.
+    #
+    # A fresh balance is required after that fill.
+
+    if not independent:
+
+        if close_record["complete"]:
+            available = unit_14_v3_balance()
+        else:
+            available = Decimal("0")
+
+    open_funded = (
+        independent
+        or (
+            close_record["complete"]
+            and available >= required_margin
+        )
+    )
+
+    actions = (
+        (
+            close_action,
+            close_side,
+            "SELL" if close_side == "LONG"
+            else "BUY",
+            True,
+        ),
+        (
+            open_action,
+            open_side,
+            "BUY" if open_side == "LONG"
+            else "SELL",
+            False,
+        ),
+    )
+
+    results = {}
+
+    for action, position_side, order_side, is_close in actions:
+
+        previous = (
+            close_record if is_close
+            else open_record
+        )
+
+        if previous["complete"]:
+            results[action] = "FILLED"
+            continue
+
+        # A prior claim, partial fill or uncertain
+        # acknowledgement is never resubmitted.
+
+        if previous["state"] != "NOT_CLAIMED":
+            results[action] = previous["state"]
+            continue
+
+        if not is_close and not open_funded:
+            results[action] = (
+                "WAITING_RELEASED_MARGIN"
+                if close_record["complete"]
+                else "WAITING_CLOSE_FILL"
+            )
+            continue
+
+        # Verify current exchange exposure.
+        position = unit_14_v3_position(
+            position_side
+        )
+
+        if is_close:
+
+            if position is None:
+                results[action] = (
+                    "CLOSE_POSITION_NOT_FOUND"
+                )
+                continue
+
+            available_qty = D(
+                position.get("size"),
+                "CLOSE POSITION SIZE"
+            )
+
+            if available_qty < qty:
+                results[action] = (
+                    "CLOSE_QUANTITY_UNAVAILABLE"
+                )
+                continue
+
+        # Claim persistently before transmission.
+        claim = unit_14_stage_claim(
+            cycle_id, action, qty
+        )
+
+        if not claim["claimed"]:
+            results[action] = (
+                "PREVIOUS_CLAIM_EXISTS"
+            )
+            continue
+
+        payload = {
+            "symbol": cycle["symbol"],
+            "side": order_side,
+            "positionSide": position_side,
+            "type": "MARKET",
+            "quantity": format(qty, "f"),
+            "newClientOrderId":
+                claim["client_id"],
+        }
+
+        try:
+            reply = unit_14_v3_signed_request(
+                "POST",
+                UNIT14_V3_ORDER,
+                payload=payload
+            )
+
+        except Exception as exc:
+
+            unit_14_stage_update(
+                claim["client_id"],
+                "ACK_UNKNOWN"
+            )
+
+            results[action] = "ACK_UNKNOWN"
+
+            print(
+                "UNIT 14", action,
+                "ACK UNKNOWN",
+                repr(exc),
+                flush=True
+            )
+
+            continue
+
+        if (
+            not isinstance(reply, dict)
+            or reply.get("success") is not True
+            or not reply.get("orderId")
+        ):
+
+            unit_14_stage_update(
+                claim["client_id"],
+                "ACK_UNKNOWN"
+            )
+
+            results[action] = "ACK_UNKNOWN"
+            continue
+
+        unit_14_stage_update(
+            claim["client_id"],
+            "SUBMITTED",
+            str(reply["orderId"])
+        )
+
+        results[action] = "SUBMITTED"
+
+    return {
+        "status": stage + "_IN_PROGRESS",
+        "cycle_id": cycle_id,
+        "funding_mode": (
+            "INDEPENDENT"
+            if independent
+            else "SEQUENTIAL"
+        ),
+        "required_opening_margin":
+            str(required_margin),
+        "available_margin": str(available),
+        "actions": results,
+        "complete": False,
+    }
+
 def fresh_reconstruction_unit_14(
     config,
     unit_13_result,
