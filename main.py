@@ -383,13 +383,22 @@ def fresh_reconstruction_unit_2():
         "progressive_backup_funding": True,
         "full_ladder_reservation_required": False,
 
-        "tp1_allocation_percent": 10.0,
-        "tp2_allocation_percent": 20.0,
-        "tp3_allocation_percent": 70.0,
+        
+        "tp1_allocation_percent": float(
+            allocation_parts["TP1"]
+        ),
+        "tp2_allocation_percent": float(
+            allocation_parts["TP2"]
+        ),
+        "tp3_allocation_percent": float(
+            allocation_parts["TP3"]
+        ),
 
-        "tp1_net_roi_floor_percent": 5.0,
-        "tp2_net_roi_floor_percent": 10.0,
-        "tp1_tp2_min_roi_separation_percent": 5.0,
+        "tp1_net_roi_floor_percent": float(tp1_roi),
+        "tp2_net_roi_floor_percent": float(tp2_roi),
+        "tp1_tp2_min_roi_separation_percent": float(
+            tp2_roi - tp1_roi
+        ),
 
         "tp3_trailing_reference_percent": 0.20,
         "tp3_trailing_min_percent": 0.10,
