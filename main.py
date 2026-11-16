@@ -17686,6 +17686,41 @@ def fresh_reconstruction_unit_14(
     else:
         runtime.pop(key, None)
 
+    
+    # ========================================================
+    # UNIT 14 V4 - BACKUP ACTIVATION AUTHORIZATION
+    # ========================================================
+
+    handover = result.get(
+        "backup_handover",
+        {}
+    )
+
+    if not handover.get("backup_ready", False):
+
+        result["status"] = (
+            "BACKUP_AWAITING_STAGE_HANDOVER"
+        )
+
+        result["skip_reason"] = (
+            "PROTECTION_CYCLE_NOT_CONFIRMED_FAILED"
+        )
+
+        print(
+            "UNIT 14 BACKUP ACTIVATION = WAITING",
+            flush=True
+        )
+
+        return result
+
+    print(
+        "UNIT 14 BACKUP ACTIVATION = AUTHORIZED",
+        flush=True
+    )
+
+    # Existing B1-B5 sizing, liquidation trigger,
+    # exposure cap and submission logic follows.
+
     # ========================================================
     # 11. NEXT BACKUP STAGE
     # ========================================================
