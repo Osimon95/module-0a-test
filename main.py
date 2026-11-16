@@ -16375,50 +16375,76 @@ def unit_14_stage_dispatch(
             "adverse_atr": str(adverse)
         }
 
-    # ------------------------------------------------
-    # H2 EXECUTION
-    # ------------------------------------------------
+    
+    # ========================================================
+    # UNIT 14 V4 PART 4
+    # H2 / R1 / R2 INDEPENDENT STAGE TRANSITIONS
+    # ========================================================
 
     recovery_started = any(
         started(action)
         for action in (
             "R1-C", "R1-O",
-            "R2-C", "R2-O"
+            "R2-C", "R2-O",
         )
     )
 
-    h2_started = (
-        started("H2-C")
-        or started("H2-H")
+    h2_started = any(
+        started(action)
+        for action in (
+            "H2-C", "H2-H",
+        )
     )
+
+    r1_started = any(
+        started(action)
+        for action in (
+            "R1-C", "R1-O",
+        )
+    )
+
+    r2_started = any(
+        started(action)
+        for action in (
+            "R2-C", "R2-O",
+        )
+    )
+
+    # ========================================================
+    # H2: SECOND ADVERSE ATR STAGE
+    # ========================================================
 
     h2_qty = unit_14_v3_floor(
         base_qty - filled("H1-C"),
         step
     )
 
-    if (
-        h2_started
-        and not pair_complete("H2")
-    ):
+    # A previously started H2 must be reconciled
+    # independently before any recovery transition.
+
+    if h2_started and not pair_complete("H2"):
+
         return execute(
             "H2",
             h2_qty
         )
+
+    # H2 may start only before recovery begins.
 
     if (
         not pair_complete("H2")
         and not recovery_started
         and adverse >= Decimal("2")
     ):
+
         return execute(
             "H2",
             h2_qty
         )
 
-    # ------------------------------------------------
-    # R1 EXECUTION
-    # ------------------------------------------------
+    # ========================================================
+    # R1: FIRST RECOVERY STAGE
+    # ========================================================
 
     hedge_total = (
         filled("H1-H")
@@ -16430,20 +16456,35 @@ def unit_14_stage_dispatch(
         step
     )
 
-    # H1 occurs at adverse ATR x1.
-    # R1 occurs after favorable ATR x1
-    # from that H1 trigger.
-
     r1_reached = (
         adverse <= Decimal("0")
     )
 
     if not pair_complete("R1"):
 
-        if (
-            recovery_started
-            or r1_reached
-        ):
+        # An already-started R1 remains the
+        # current recovery stage until reconciled.
+
+        if r1_started:
+
+            return execute(
+                "R1",
+                r1_qty
+            )
+
+        # Do not create R1 after R2 has started
+        # without an existing R1 record.
+
+        if r2_started:
+
+            return {
+                "status": "R1_RECONCILIATION_REQUIRED",
+                "handled": True,
+                "cycle_id": cycle_id,
+            }
+
+        if r1_reached and hedge_total > 0:
+
             return execute(
                 "R1",
                 r1_qty
@@ -16453,24 +16494,18 @@ def unit_14_stage_dispatch(
             "status": "R1_MONITORING",
             "handled": True,
             "cycle_id": cycle_id,
-            "adverse_atr": str(adverse)
+            "adverse_atr": str(adverse),
+            "hedge_quantity": str(hedge_total),
         }
 
-    # ------------------------------------------------
-    # R2 EXECUTION
-    # ------------------------------------------------
+    # ========================================================
+    # R2: FINAL RECOVERY STAGE
+    # ========================================================
 
     r2_qty = unit_14_v3_floor(
         hedge_total - filled("R1-C"),
         step
     )
-
-    r2_started = (
-        started("R2-C")
-        or started("R2-O")
-    )
-
-    # Further ATR x1 favorable after R1.
 
     r2_reached = (
         adverse <= Decimal("-1")
@@ -16478,10 +16513,15 @@ def unit_14_stage_dispatch(
 
     if not pair_complete("R2"):
 
-        if (
-            r2_started
-            or r2_reached
-        ):
+        if r2_started:
+
+            return execute(
+                "R2",
+                r2_qty
+            )
+
+        if r2_reached and r2_qty > 0:
+
             return execute(
                 "R2",
                 r2_qty
@@ -16491,8 +16531,15 @@ def unit_14_stage_dispatch(
             "status": "R2_MONITORING",
             "handled": True,
             "cycle_id": cycle_id,
-            "adverse_atr": str(adverse)
+            "adverse_atr": str(adverse),
+            "remaining_hedge_quantity": str(r2_qty),
         }
+
+    # ========================================================
+    # END UNIT 14 V4 PART 4
+    # EXISTING RECOVERY_COMPLETE BLOCK FOLLOWS
+    # ========================================================
+
 
     # ------------------------------------------------
     # ALL FOUR STAGES COMPLETED
