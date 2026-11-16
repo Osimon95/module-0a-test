@@ -15432,79 +15432,43 @@ def unit_14_stage_claim(
             WHERE client_id = ?
         """, (client_id,)).fetchone()
 
+        
         if existing is not None:
 
-            if Decimal(existing[0]) != qty:
+            # Preserve immutable cycle identity.
+            # Position size and market ATR can change
+            # between scans without creating a new cycle.
+
+            if (
+                str(existing[0]) != str(symbol)
+                or str(existing[1]) != str(original_side)
+            ):
                 raise RuntimeError(
-                    "PERSISTED ORDER QUANTITY MISMATCH"
+                    "PERSISTED CYCLE SYMBOL OR SIDE MISMATCH"
                 )
 
-            db.execute("COMMIT")
+            # Persisted original quantity, entry and
+            # frozen ATR remain authoritative.
+            # Do not overwrite or reset them.
 
-            return {
-                "claimed": False,
-                "client_id": client_id,
-                "state": existing[1],
-            }
+            for field_name, value in zip(
+                (
+                    "ORIGINAL QUANTITY",
+                    "ORIGINAL ENTRY",
+                    "FROZEN ATR",
+                ),
+                existing[2:],
+            ):
+                if unit_14_v3_D(value) <= 0:
+                    raise RuntimeError(
+                        "INVALID PERSISTED " + field_name
+                    )
 
-        db.execute("""
-            INSERT INTO stage_orders (
-                client_id, cycle_id,
-                action, quantity, state
+            print(
+                "UNIT 14 EXISTING STAGE CYCLE REUSED =",
+                cycle_id,
+                flush=True
             )
-            VALUES (?, ?, ?, ?, 'CLAIMED')
-        """, (
-            client_id,
-            cycle_id,
-            action,
-            str(qty)
-        ))
-
-        db.execute("COMMIT")
-
-        return {
-            "claimed": True,
-            "client_id": client_id,
-            "state": "CLAIMED",
-        }
-
-    except Exception:
-
-        if db.in_transaction:
-            db.execute("ROLLBACK")
-
-        raise
-
-    finally:
-        db.close()
-
-
-def unit_14_stage_update(
-    client_id,
-    state,
-    exchange_order_id=None,
-    confirmed_filled=None
-):
-
-    db = unit_14_stage_db()
-
-    try:
-
-        if confirmed_filled is None:
-
-            db.execute("""
-                UPDATE stage_orders
-                SET state = ?,
-                    exchange_order_id =
-                        COALESCE(?, exchange_order_id),
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE client_id = ?
-            """, (
-                state,
-                exchange_order_id,
-                client_id
-            ))
-
         else:
 
             db.execute("""
