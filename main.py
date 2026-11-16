@@ -18807,6 +18807,42 @@ def scan_one_cycle():
             flush=True
         )
 
+        
+        # --------------------------------------------
+        # RENDER DEMO POSITION CONTROL
+        # --------------------------------------------
+
+        control_mode = _scan_os.getenv(
+            "DEMO_POSITION_CONTROL", "OFF"
+        ).strip().upper()
+
+        if control_mode != "OFF":
+
+            try:
+                control_result = dpc_process()
+
+                print(
+                    "SCAN DEMO CONTROL STATUS =",
+                    control_result,
+                    flush=True
+                )
+
+            except Exception as exc:
+
+                print(
+                    "SCAN DEMO CONTROL ERROR =",
+                    repr(exc),
+                    flush=True
+                )
+
+                _scan_traceback.print_exc()
+
+            # Manual control has priority.
+            # Do not submit new entries or run
+            # automatic management in this cycle.
+            SCAN_LAST_STATUS = "MANUAL_CONTROL"
+            return
+
         # --------------------------------------------
         # NEW-ENTRY PIPELINE
         # --------------------------------------------
