@@ -14601,138 +14601,6 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
 # ============================================================
 
 
-
-# ============================================================
-# UNIT 14 V4 INTEGRATION - PART 1
-# VERIFIED UNIT 13 -> UNIT 14 HANDOVER
-# PRESERVE EXISTING H1 / H2 / R1 / R2 / B1-B5
-# ZERO INDENTATION
-# ============================================================
-
-def unit_14_v4_tp_handover(unit_13_result):
-
-    if not isinstance(unit_13_result, dict):
-        raise RuntimeError(
-            "UNIT 14 INVALID UNIT 13 HANDOVER"
-        )
-
-    if unit_13_result.get("unit") != 13:
-        raise RuntimeError(
-            "UNIT 14 EXPECTED UNIT 13 RESULT"
-        )
-
-    status = str(
-        unit_13_result.get("status", "")
-    ).upper()
-
-    pending_statuses = {
-        "TP_ORDER_ACKNOWLEDGED",
-        "TP_SUBMISSION_UNCERTAIN",
-        "TP_SUBMISSION_UNCONFIRMED",
-    }
-
-    unresolved = bool(
-        unit_13_result.get(
-            "tp_history_unresolved", False
-        )
-    )
-
-    legacy_unknown = bool(
-        unit_13_result.get(
-            "tp_legacy_closures_unattributed",
-            False
-        )
-    )
-
-    tp1_completed = bool(
-        unit_13_result.get(
-            "tp1_completed", False
-        )
-    )
-
-    tp2_completed = bool(
-        unit_13_result.get(
-            "tp2_completed", False
-        )
-    )
-
-    # Order acknowledgment is never proof of fill.
-    pending = (
-        status in pending_statuses
-        or unresolved
-        or legacy_unknown
-    )
-
-    tp3_armed = bool(
-        tp1_completed
-        and tp2_completed
-        and not pending
-        and unit_13_result.get(
-            "tp3_armed", False
-        )
-    )
-
-    # A pending TP order must not disable
-    # independent position protection.
-    position_exists = bool(
-        unit_13_result.get(
-            "position_exists",
-            unit_13_result.get(
-                "active_position_exists", False
-            )
-        )
-    )
-
-    handover = {
-        "unit_13_status": status,
-        "position_exists": position_exists,
-        "tp1_completed": tp1_completed,
-        "tp2_completed": tp2_completed,
-        "tp3_armed": tp3_armed,
-        "tp_order_pending": pending,
-        "tp_history_unresolved": unresolved,
-        "legacy_closures_unattributed":
-            legacy_unknown,
-        "hedge_management_enabled":
-            position_exists,
-        "backup_management_enabled":
-            position_exists,
-        "bot_mode_independent": True,
-    }
-
-    print(
-        "UNIT 14 TP1 COMPLETED =",
-        tp1_completed,
-        flush=True
-    )
-    print(
-        "UNIT 14 TP2 COMPLETED =",
-        tp2_completed,
-        flush=True
-    )
-    print(
-        "UNIT 14 TP3 ARMED =",
-        tp3_armed,
-        flush=True
-    )
-    print(
-        "UNIT 14 TP RECONCILIATION PENDING =",
-        pending,
-        flush=True
-    )
-    print(
-        "UNIT 14 EXISTING POSITION PROTECTION =",
-        position_exists,
-        flush=True
-    )
-
-    return handover
-
-
-# ============================================================
-# END UNIT 14 V4 INTEGRATION PART 1
-# ============================================================
-
 # ============================================================
 # COMPLETE UNIT 14 V3 REPLACEMENT
 # UNIT 13 -> UNIT 14 -> UNIT 15
@@ -16649,6 +16517,138 @@ def unit_14_stage_dispatch(
         "cycle_id": cycle_id
     }
    
+
+# ============================================================
+# UNIT 14 V4 INTEGRATION - PART 1
+# VERIFIED UNIT 13 -> UNIT 14 HANDOVER
+# PRESERVE EXISTING H1 / H2 / R1 / R2 / B1-B5
+# ZERO INDENTATION
+# ============================================================
+
+def unit_14_v4_tp_handover(unit_13_result):
+
+    if not isinstance(unit_13_result, dict):
+        raise RuntimeError(
+            "UNIT 14 INVALID UNIT 13 HANDOVER"
+        )
+
+    if unit_13_result.get("unit") != 13:
+        raise RuntimeError(
+            "UNIT 14 EXPECTED UNIT 13 RESULT"
+        )
+
+    status = str(
+        unit_13_result.get("status", "")
+    ).upper()
+
+    pending_statuses = {
+        "TP_ORDER_ACKNOWLEDGED",
+        "TP_SUBMISSION_UNCERTAIN",
+        "TP_SUBMISSION_UNCONFIRMED",
+    }
+
+    unresolved = bool(
+        unit_13_result.get(
+            "tp_history_unresolved", False
+        )
+    )
+
+    legacy_unknown = bool(
+        unit_13_result.get(
+            "tp_legacy_closures_unattributed",
+            False
+        )
+    )
+
+    tp1_completed = bool(
+        unit_13_result.get(
+            "tp1_completed", False
+        )
+    )
+
+    tp2_completed = bool(
+        unit_13_result.get(
+            "tp2_completed", False
+        )
+    )
+
+    # Order acknowledgment is never proof of fill.
+    pending = (
+        status in pending_statuses
+        or unresolved
+        or legacy_unknown
+    )
+
+    tp3_armed = bool(
+        tp1_completed
+        and tp2_completed
+        and not pending
+        and unit_13_result.get(
+            "tp3_armed", False
+        )
+    )
+
+    # A pending TP order must not disable
+    # independent position protection.
+    position_exists = bool(
+        unit_13_result.get(
+            "position_exists",
+            unit_13_result.get(
+                "active_position_exists", False
+            )
+        )
+    )
+
+    handover = {
+        "unit_13_status": status,
+        "position_exists": position_exists,
+        "tp1_completed": tp1_completed,
+        "tp2_completed": tp2_completed,
+        "tp3_armed": tp3_armed,
+        "tp_order_pending": pending,
+        "tp_history_unresolved": unresolved,
+        "legacy_closures_unattributed":
+            legacy_unknown,
+        "hedge_management_enabled":
+            position_exists,
+        "backup_management_enabled":
+            position_exists,
+        "bot_mode_independent": True,
+    }
+
+    print(
+        "UNIT 14 TP1 COMPLETED =",
+        tp1_completed,
+        flush=True
+    )
+    print(
+        "UNIT 14 TP2 COMPLETED =",
+        tp2_completed,
+        flush=True
+    )
+    print(
+        "UNIT 14 TP3 ARMED =",
+        tp3_armed,
+        flush=True
+    )
+    print(
+        "UNIT 14 TP RECONCILIATION PENDING =",
+        pending,
+        flush=True
+    )
+    print(
+        "UNIT 14 EXISTING POSITION PROTECTION =",
+        position_exists,
+        flush=True
+    )
+
+    return handover
+
+
+# ============================================================
+# END UNIT 14 V4 INTEGRATION PART 1
+# ============================================================
+
 def fresh_reconstruction_unit_14(
     config,
     unit_13_result,
