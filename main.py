@@ -17108,20 +17108,20 @@ def fresh_reconstruction_unit_14(
     # UNIT 13 TP STATE MUST MATCH ACTIVE POSITION
     # ========================================================
 
-    tp3_armed = (
-        unit_13_result.get("tp3_armed") is True
-        and unit_13_result.get(
-            "tp1_completed"
-        ) is True
-        and unit_13_result.get(
-            "tp2_completed"
-        ) is True
-        and unit_13_result.get(
-            "position_exists"
-        ) is True
+    
+    # ========================================================
+    # UNIT 14 V4 - VERIFIED TP3 ARMING
+    # ========================================================
+
+    tp3_armed = bool(
+        tp_handover["tp3_armed"]
+        and tp_handover["position_exists"]
         and unit_13_result.get(
             "position_side"
         ) == side
+        and not tp_handover[
+            "tp_order_pending"
+        ]
     )
 
     result["tp3_armed"] = tp3_armed
