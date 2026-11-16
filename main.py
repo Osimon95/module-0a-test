@@ -15308,6 +15308,7 @@ def unit_14_stage_client_id(cycle_id, action):
     )[:36]
 
 
+
 def unit_14_stage_create_cycle(
     cycle_id,
     symbol,
@@ -15316,25 +15317,29 @@ def unit_14_stage_create_cycle(
     original_entry,
     frozen_atr
 ):
+    """
+    Create a new hedge cycle, or reuse an existing
+    cycle without overwriting its frozen parameters.
+    """
+
+    D = unit_14_v3_D
+
+    cycle_id = str(cycle_id).strip()
+    symbol = str(symbol).strip().upper()
+    original_side = str(original_side).strip().upper()
+
+    if not cycle_id or not symbol:
+        raise RuntimeError("INVALID STAGE CYCLE IDENTITY")
 
     if original_side not in ("LONG", "SHORT"):
-        raise RuntimeError(
-            "INVALID ORIGINAL POSITION SIDE"
-        )
+        raise RuntimeError("INVALID ORIGINAL POSITION SIDE")
 
-    values = (
-        original_quantity,
-        original_entry,
-        frozen_atr
-    )
+    quantity = D(original_quantity, "ORIGINAL QUANTITY")
+    entry = D(original_entry, "ORIGINAL ENTRY")
+    atr = D(frozen_atr, "FROZEN ATR")
 
-    if any(
-        unit_14_v3_D(value) <= 0
-        for value in values
-    ):
-        raise RuntimeError(
-            "INVALID HEDGE CYCLE VALUES"
-        )
+    if quantity <= 0 or entry <= 0 or atr <= 0:
+        raise RuntimeError("INVALID HEDGE CYCLE VALUES")
 
     db = unit_14_stage_db()
 
@@ -15343,26 +15348,49 @@ def unit_14_stage_create_cycle(
 
         existing = db.execute("""
             SELECT symbol, original_side,
-                   original_quantity,
-                   original_entry, frozen_atr
+                   original_quantity, original_entry,
+                   frozen_atr, state
             FROM stage_cycles
             WHERE cycle_id = ?
         """, (cycle_id,)).fetchone()
 
-        expected = (
-            symbol,
-            original_side,
-            str(original_quantity),
-            str(original_entry),
-            str(frozen_atr)
-        )
-
         if existing is not None:
 
-            if existing != expected:
+            saved_symbol = str(existing[0]).upper()
+            saved_side = str(existing[1]).upper()
+            saved_state = str(existing[5]).upper()
+
+            if (
+                saved_symbol != symbol
+                or saved_side != original_side
+            ):
                 raise RuntimeError(
-                    "PERSISTED CYCLE IDENTITY MISMATCH"
+                    "PERSISTED CYCLE SYMBOL OR SIDE MISMATCH"
                 )
+
+            if saved_state != "ACTIVE":
+                raise RuntimeError(
+                    "PERSISTED CYCLE NOT ACTIVE"
+                )
+
+            for name, value in zip(
+                (
+                    "ORIGINAL QUANTITY",
+                    "ORIGINAL ENTRY",
+                    "FROZEN ATR",
+                ),
+                existing[2:5]
+            ):
+                if D(value, name) <= 0:
+                    raise RuntimeError(
+                        "INVALID PERSISTED " + name
+                    )
+
+            print(
+                "UNIT 14 EXISTING STAGE CYCLE REUSED =",
+                cycle_id,
+                flush=True
+            )
 
         else:
 
@@ -15373,17 +15401,27 @@ def unit_14_stage_create_cycle(
                     frozen_atr
                 )
                 VALUES (?, ?, ?, ?, ?, ?)
-            """, (cycle_id,) + expected)
+            """, (
+                cycle_id,
+                symbol,
+                original_side,
+                str(quantity),
+                str(entry),
+                str(atr)
+            ))
+
+            print(
+                "UNIT 14 NEW STAGE CYCLE CREATED =",
+                cycle_id,
+                flush=True
+            )
 
         db.execute("COMMIT")
-
         return cycle_id
 
     except Exception:
-
         if db.in_transaction:
             db.execute("ROLLBACK")
-
         raise
 
     finally:
@@ -15395,19 +15433,26 @@ def unit_14_stage_claim(
     action,
     quantity
 ):
+    """
+    Persist an order claim before transmission.
+    Existing claims are never automatically
+    submitted again.
+    """
 
     if action not in UNIT14_STAGE_ACTIONS:
-        raise RuntimeError(
-            "INVALID HEDGE ACTION"
-        )
+        raise RuntimeError("INVALID HEDGE ACTION")
 
     qty = unit_14_v3_D(
         quantity,
         "STAGE QUANTITY"
     )
 
+    if qty <= 0:
+        raise RuntimeError("INVALID STAGE QUANTITY")
+
     client_id = unit_14_stage_client_id(
-        cycle_id, action
+        cycle_id,
+        action
     )
 
     db = unit_14_stage_db()
@@ -15422,9 +15467,7 @@ def unit_14_stage_claim(
         """, (cycle_id,)).fetchone()
 
         if cycle is None or cycle[0] != "ACTIVE":
-            raise RuntimeError(
-                "STAGE CYCLE NOT ACTIVE"
-            )
+            raise RuntimeError("STAGE CYCLE NOT ACTIVE")
 
         existing = db.execute("""
             SELECT quantity, state
@@ -15432,63 +15475,160 @@ def unit_14_stage_claim(
             WHERE client_id = ?
         """, (client_id,)).fetchone()
 
-        
         if existing is not None:
 
-            # Preserve immutable cycle identity.
-            # Position size and market ATR can change
-            # between scans without creating a new cycle.
+            db.execute("COMMIT")
 
-            if (
-                str(existing[0]) != str(symbol)
-                or str(existing[1]) != str(original_side)
-            ):
-                raise RuntimeError(
-                    "PERSISTED CYCLE SYMBOL OR SIDE MISMATCH"
-                )
+            return {
+                "claimed": False,
+                "client_id": client_id,
+                "state": existing[1],
+                "quantity": existing[0],
+            }
 
-            # Persisted original quantity, entry and
-            # frozen ATR remain authoritative.
-            # Do not overwrite or reset them.
-
-            for field_name, value in zip(
-                (
-                    "ORIGINAL QUANTITY",
-                    "ORIGINAL ENTRY",
-                    "FROZEN ATR",
-                ),
-                existing[2:],
-            ):
-                if unit_14_v3_D(value) <= 0:
-                    raise RuntimeError(
-                        "INVALID PERSISTED " + field_name
-                    )
-
-            print(
-                "UNIT 14 EXISTING STAGE CYCLE REUSED =",
-                cycle_id,
-                flush=True
+        db.execute("""
+            INSERT INTO stage_orders (
+                client_id, cycle_id, action,
+                quantity, state
             )
-        else:
+            VALUES (?, ?, ?, ?, 'CLAIMED')
+        """, (
+            client_id,
+            cycle_id,
+            action,
+            str(qty)
+        ))
 
-            db.execute("""
-                UPDATE stage_orders
-                SET state = ?,
-                    exchange_order_id =
-                        COALESCE(?, exchange_order_id),
-                    confirmed_filled = ?,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE client_id = ?
-            """, (
-                state,
-                exchange_order_id,
-                str(confirmed_filled),
-                client_id
-            ))
+        db.execute("COMMIT")
+
+        return {
+            "claimed": True,
+            "client_id": client_id,
+            "state": "CLAIMED",
+            "quantity": str(qty),
+        }
+
+    except Exception:
+        if db.in_transaction:
+            db.execute("ROLLBACK")
+        raise
 
     finally:
         db.close()
 
+
+def unit_14_stage_update(
+    client_id,
+    state,
+    exchange_order_id=None,
+    confirmed_filled=None
+):
+    """
+    Update persisted exchange acknowledgement
+    and confirmed fill information.
+
+    Never decrease an already confirmed fill.
+    """
+
+    D = unit_14_v3_D
+
+    db = unit_14_stage_db()
+
+    try:
+        db.execute("BEGIN IMMEDIATE")
+
+        existing = db.execute("""
+            SELECT quantity, confirmed_filled,
+                   exchange_order_id, state
+            FROM stage_orders
+            WHERE client_id = ?
+        """, (client_id,)).fetchone()
+
+        if existing is None:
+            raise RuntimeError(
+                "STAGE ORDER CLAIM NOT FOUND"
+            )
+
+        expected = D(
+            existing[0],
+            "EXPECTED STAGE QUANTITY"
+        )
+
+        previous = D(
+            existing[1],
+            "PREVIOUS CONFIRMED FILL",
+            True
+        )
+
+        if confirmed_filled is None:
+            filled = previous
+        else:
+            filled = D(
+                confirmed_filled,
+                "CONFIRMED STAGE FILL",
+                True
+            )
+
+        if filled < previous:
+            raise RuntimeError(
+                "STAGE CONFIRMED FILL REGRESSION"
+            )
+
+        if filled > expected:
+            raise RuntimeError(
+                "STAGE FILL EXCEEDS CLAIMED QUANTITY"
+            )
+
+        saved_order_id = existing[2]
+
+        if (
+            saved_order_id
+            and exchange_order_id
+            and str(saved_order_id) != str(exchange_order_id)
+        ):
+            raise RuntimeError(
+                "STAGE EXCHANGE ORDER ID MISMATCH"
+            )
+
+        if (
+            str(existing[3]).upper() == "FILLED"
+            and str(state).upper() != "FILLED"
+        ):
+            raise RuntimeError(
+                "CONFIRMED FILLED ORDER STATE REGRESSION"
+            )
+
+        if str(state).upper() == "FILLED" and filled != expected:
+            raise RuntimeError(
+                "FILLED STATE WITHOUT COMPLETE QUANTITY"
+            )
+
+        db.execute("""
+            UPDATE stage_orders
+            SET state = ?,
+                exchange_order_id =
+                    COALESCE(?, exchange_order_id),
+                confirmed_filled = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE client_id = ?
+        """, (
+            state,
+            exchange_order_id,
+            str(filled),
+            client_id
+        ))
+
+        db.execute("COMMIT")
+
+        return True
+
+    except Exception:
+        if db.in_transaction:
+            db.execute("ROLLBACK")
+        raise
+
+    finally:
+        db.close()
 
 def unit_14_stage_read(cycle_id):
 
