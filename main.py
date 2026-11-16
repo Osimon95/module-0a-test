@@ -19607,7 +19607,7 @@ def fresh_unit_15_hybrid_adapter(
         flush=True
     )
 
-        manual_status = unit15_manual_controller_status()
+    manual_status = unit15_manual_controller_status()
 
     print(
         "UNIT 15 MANUAL CONTROLLER =",
