@@ -13836,6 +13836,368 @@ def fresh_reconstruction_unit_13(
     # ========================================================
 
 
+    # ========================================================
+    # 8. POSITION PNL AND TP EXECUTION REPORT
+    # ========================================================
+
+    direction = (
+        Decimal("1")
+        if side == "LONG"
+        else Decimal("-1")
+    )
+
+    unrealized_pnl = (
+        (mark - entry) * size * direction
+    )
+
+    estimated_margin = (
+        entry * size / leverage
+    )
+
+    estimated_roi = (
+        unrealized_pnl / estimated_margin
+        * Decimal("100")
+        if estimated_margin > 0
+        else Decimal("0")
+    )
+
+    result.update({
+        "position_leverage": float(leverage),
+        "position_entry_price": float(entry),
+        "position_mark_price": float(mark),
+        "position_unrealized_pnl":
+            float(unrealized_pnl),
+        "position_unrealized_roi_percent":
+            float(estimated_roi),
+        "tp1_target_reached": reached1,
+        "tp2_target_reached": reached2,
+        "tp_execution_attempted": False,
+        "tp_execution_completed": False,
+        "exchange_write": False,
+    })
+
+    print(
+        "UNIT 13 POSITION SIDE =",
+        side,
+        flush=True
+    )
+    print(
+        "UNIT 13 POSITION SIZE =",
+        size,
+        flush=True
+    )
+    print(
+        "UNIT 13 ENTRY PRICE =",
+        entry,
+        flush=True
+    )
+    print(
+        "UNIT 13 MARK PRICE =",
+        mark,
+        flush=True
+    )
+    print(
+        "UNIT 13 LEVERAGE =",
+        leverage,
+        flush=True
+    )
+    print(
+        "UNIT 13 ESTIMATED UNREALIZED PNL =",
+        unrealized_pnl,
+        flush=True
+    )
+    print(
+        "UNIT 13 ESTIMATED ROI % =",
+        estimated_roi,
+        flush=True
+    )
+    print(
+        "UNIT 13 TP1 TARGET =",
+        t1,
+        flush=True
+    )
+    print(
+        "UNIT 13 TP2 TARGET =",
+        t2,
+        flush=True
+    )
+    print(
+        "UNIT 13 TP1 VERIFIED FILLED =",
+        tp1_filled,
+        flush=True
+    )
+    print(
+        "UNIT 13 TP2 VERIFIED FILLED =",
+        tp2_filled,
+        flush=True
+    )
+    print(
+        "UNIT 13 TP HISTORY UNRESOLVED =",
+        unresolved,
+        flush=True
+    )
+    print(
+        "UNIT 13 TP ACTION =",
+        action,
+        flush=True
+    )
+
+    # ========================================================
+    # 9. EXCHANGE-CONFIRMED DEMO TP EXECUTION
+    # ========================================================
+
+    if action != "NONE":
+
+        if close_qty < minimum:
+
+            result["skip_reason"] = (
+                "TP_QUANTITY_BELOW_EXCHANGE_MINIMUM"
+            )
+
+            print(
+                "UNIT 13 TP BELOW MINIMUM =",
+                close_qty,
+                flush=True
+            )
+
+        elif close_qty > size:
+
+            result["skip_reason"] = (
+                "TP_QUANTITY_EXCEEDS_POSITION"
+            )
+
+        else:
+
+            if action in state["orders"]:
+
+                result["skip_reason"] = (
+                    "TP_PREVIOUS_ORDER_UNRESOLVED"
+                )
+
+            else:
+
+                client_id = (
+                    "FR13-"
+                    + action
+                    + "-"
+                    + hashlib.sha256(
+                        (
+                            cycle
+                            + ":"
+                            + action
+                        ).encode("utf-8")
+                    ).hexdigest()[:24]
+                )
+
+                close_side = (
+                    "SELL"
+                    if side == "LONG"
+                    else "BUY"
+                )
+
+                payload = {
+                    "symbol": "BTCSUSDT",
+                    "side": close_side,
+                    "positionSide": side,
+                    "type": "MARKET",
+                    "quantity": format(
+                        close_qty, "f"
+                    ),
+                    "newClientOrderId": client_id,
+                }
+
+                # Persist the intent before POST.
+                # Never blindly retry an uncertain
+                # exchange submission.
+
+                state["orders"][action] = {
+                    "client_id": client_id,
+                    "order_id": None,
+                    "quantity": str(close_qty),
+                    "status": "INTENT_PERSISTED",
+                    "created_at_ms": int(
+                        time.time() * 1000
+                    ),
+                }
+
+                unit_13_v4_save(
+                    state_path,
+                    state
+                )
+
+                print(
+                    "UNIT 13 DEMO TP SUBMISSION =",
+                    action,
+                    flush=True
+                )
+                print(
+                    "UNIT 13 TP CLOSE QUANTITY =",
+                    close_qty,
+                    flush=True
+                )
+                print(
+                    "UNIT 13 TP CLIENT ORDER ID =",
+                    client_id,
+                    flush=True
+                )
+
+                result["tp_execution_attempted"] = True
+
+                try:
+
+                    reply = unit_13_v4_signed_request(
+                        "POST",
+                        UNIT13_V4_ORDER,
+                        payload,
+                    )
+
+                except Exception:
+
+                    print(
+                        "UNIT 13 TP OUTCOME UNCERTAIN "
+                        "- EXCHANGE RECONCILIATION REQUIRED",
+                        flush=True
+                    )
+
+                    result["status"] = (
+                        "TP_SUBMISSION_UNCERTAIN"
+                    )
+                    result["skip_reason"] = (
+                        "TP_POST_OUTCOME_UNKNOWN"
+                    )
+
+                    # Keep the persistent intent.
+                    # Do not submit another order
+                    # with a new client ID.
+
+                    return result
+
+                if not isinstance(reply, dict):
+
+                    result["status"] = (
+                        "TP_SUBMISSION_UNCERTAIN"
+                    )
+                    result["skip_reason"] = (
+                        "INVALID_EXCHANGE_RESPONSE"
+                    )
+
+                    return result
+
+                order_id = reply.get("orderId")
+
+                if (
+                    reply.get("success") is not True
+                    or not order_id
+                ):
+
+                    result["status"] = (
+                        "TP_SUBMISSION_UNCONFIRMED"
+                    )
+                    result["skip_reason"] = (
+                        "EXCHANGE_ACK_NOT_CONFIRMED"
+                    )
+
+                    print(
+                        "UNIT 13 TP RESPONSE =",
+                        str(reply)[:400],
+                        flush=True
+                    )
+
+                    return result
+
+                state["orders"][action][
+                    "order_id"
+                ] = str(order_id)
+
+                state["orders"][action][
+                    "status"
+                ] = "ACKNOWLEDGED_NOT_FILL_VERIFIED"
+
+                unit_13_v4_save(
+                    state_path,
+                    state
+                )
+
+                result.update({
+                    "status": "TP_ORDER_ACKNOWLEDGED",
+                    "skip_reason":
+                        "AWAITING_EXCHANGE_CONFIRMED_FILL",
+                    "tp_execution_completed": False,
+                    "demo_order_executed": False,
+                    "tp_order_id": str(order_id),
+                    "tp_close_quantity":
+                        str(close_qty),
+                    "exchange_write": True,
+                })
+
+                print(
+                    "UNIT 13 TP ORDER ACKNOWLEDGED =",
+                    order_id,
+                    flush=True
+                )
+                print(
+                    "UNIT 13 TP FILL VERIFICATION = PENDING",
+                    flush=True
+                )
+
+    # ========================================================
+    # 10. FINAL UNIT 13 RESULT
+    # ========================================================
+
+    if (
+        result["status"] == "MONITORING"
+        and (
+            unresolved
+            or state.get(
+                "legacy_closures_unattributed"
+            )
+        )
+    ):
+
+        result["skip_reason"] = (
+            "TP_HISTORY_RECONCILIATION_REQUIRED"
+        )
+
+    print(
+        "UNIT 13 STATUS =",
+        result["status"],
+        flush=True
+    )
+    print(
+        "UNIT 13 TP1 COMPLETED =",
+        done1,
+        flush=True
+    )
+    print(
+        "UNIT 13 TP2 COMPLETED =",
+        done2,
+        flush=True
+    )
+    print(
+        "UNIT 13 TP3 ARMED =",
+        result["tp3_armed"],
+        flush=True
+    )
+    print(
+        "UNIT 13 EXCHANGE WRITE =",
+        result["exchange_write"],
+        flush=True
+    )
+    print(
+        "FRESH RECONSTRUCTION UNIT 13 RESULT = PASS",
+        flush=True
+    )
+    print("=" * 80, flush=True)
+
+    return result
+
+
+# ============================================================
+# END UNIT 13 V5 PART 4
+# MAIN FUNCTION COMPLETE
+# PART 5: HYBRID ADAPTER AND VALIDATION
+# ============================================================
+
 # ============================================================
 # COMPLETE UNIT 13 V4 REPLACEMENT
 # UNIT 12 -> UNIT 13 -> UNIT 14
