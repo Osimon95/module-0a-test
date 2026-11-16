@@ -15309,12 +15309,12 @@ def unit_14_stage_client_id(cycle_id, action):
 
 
 
-        # ====================================================
-        # REUSE EXISTING CYCLE WITHOUT REACTIVATING COMPLETED
-        # HEDGE / RECOVERY ORDERS
-        # ====================================================
+    # ====================================================
+    # REUSE EXISTING CYCLE WITHOUT REACTIVATING COMPLETED
+    # HEDGE / RECOVERY ORDERS
+    # ====================================================
 
-    persisted_cycle = unit_14_stage_read(
+        persisted_cycle = unit_14_stage_read(
             cycle_id
         )
 
