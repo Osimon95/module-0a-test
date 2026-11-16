@@ -17325,7 +17325,37 @@ def fresh_reconstruction_unit_14(
             flush=True
         )
 
-        if stage_result.get("handled"):
+        
+        # ====================================================
+        # UNIT 14 V4 - STAGE TO BACKUP HANDOVER
+        # ====================================================
+
+        handover = unit_14_v4_backup_handover(
+            stage_result,
+            stage_result.get("cycle_id"),
+        )
+
+        result["backup_handover"] = handover
+
+        if handover["backup_ready"]:
+
+            result["protection_stage_status"] = (
+                "BACKUP_READY"
+            )
+
+            result["backup_activation_reason"] = (
+                "FAILED_PROTECTION_CYCLE_CONFIRMED"
+            )
+
+            print(
+                "UNIT 14 BACKUP HANDOVER = READY",
+                flush=True
+            )
+
+            # Continue into the existing Unit 14
+            # position and B1-B5 management logic.
+
+        elif stage_result.get("handled"):
 
             result["status"] = (
                 stage_result.get(
@@ -17333,6 +17363,25 @@ def fresh_reconstruction_unit_14(
                     "STAGE_MANAGER_ACTIVE"
                 )
             )
+
+            result["skip_reason"] = (
+                "STAGE_MANAGER_ACTIVE"
+            )
+
+            return result
+
+        elif stage_result.get("status") == "RECOVERY_COMPLETE":
+
+            result["status"] = "RECOVERY_COMPLETE"
+            result["skip_reason"] = (
+                "PROTECTION_CYCLE_RECOVERED"
+            )
+
+            return result
+
+    # ========================================================
+    # EXISTING POSITION MANAGEMENT CONTINUES
+    # ========================================================
 
             result["skip_reason"] = (
                 "STAGE_MANAGER_ACTIVE"
