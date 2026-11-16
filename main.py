@@ -19510,6 +19510,46 @@ def unit15_worker():
 
 
 # ============================================================
+# UNIT 15 V5 - MANUAL CONTROLLER STATUS INTEGRATION
+# ZERO INDENTATION
+# NO EXCHANGE WRITE
+# ============================================================
+
+def unit15_manual_controller_status():
+
+    command = os.getenv(
+        "DEMO_POSITION_CONTROL", "OFF"
+    ).strip().upper()
+
+    armed = os.getenv(
+        "DEMO_CONTROL_ARM", "NO"
+    ).strip().upper() == "YES"
+
+    valid = {
+        "OFF",
+        "INSPECT",
+        "STATUS",
+        "CLOSE_LONG",
+        "CLOSE_SHORT",
+        "CLOSE_ALL",
+    }
+
+    return {
+        "manual_controller_available": True,
+        "manual_command": command,
+        "manual_command_valid": command in valid,
+        "manual_close_armed": armed,
+        "manual_control_active": command != "OFF",
+        "reporting_independent": True,
+        "exchange_write": False,
+    }
+
+
+# ============================================================
+# END UNIT 15 V5 MANUAL STATUS HELPER
+# ============================================================
+
+# ============================================================
 # 15. ADAPTER AND ACTIVATION
 # ============================================================
 
