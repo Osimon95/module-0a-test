@@ -16950,6 +16950,93 @@ def unit_14_v4_dispatch_once(
 # END UNIT 14 V4 INTEGRATION PART 1
 # ============================================================
 
+
+# ============================================================
+# UNIT 14 V4 - PART 5
+# EXPLICIT STAGE-TO-BACKUP HANDOVER
+# PRESERVE EXISTING B1-B5 EXECUTION ENGINE
+# ZERO INDENTATION
+# ============================================================
+
+def unit_14_v4_backup_handover(stage_result, cycle_id):
+
+    if not isinstance(stage_result, dict):
+        raise RuntimeError(
+            "UNIT 14 INVALID STAGE HANDOVER"
+        )
+
+    status = str(
+        stage_result.get("status", "")
+    ).upper()
+
+    # Only an explicitly confirmed failed cycle
+    # may release the stage manager to B1-B5.
+    #
+    # Monitoring, recovery completion, pending
+    # submissions and uncertain orders do not
+    # qualify as backup authorization.
+
+    if status != "BACKUP_READY":
+
+        return {
+            "backup_ready": False,
+            "stage_status": status,
+            "reason": "STAGE_MANAGER_RETAINS_CONTROL",
+        }
+
+    if not cycle_id:
+
+        return {
+            "backup_ready": False,
+            "stage_status": status,
+            "reason": "MISSING_STAGE_CYCLE",
+        }
+
+    if str(
+        stage_result.get("cycle_id", "")
+    ) != str(cycle_id):
+
+        return {
+            "backup_ready": False,
+            "stage_status": status,
+            "reason": "STAGE_CYCLE_MISMATCH",
+        }
+
+    cycle = unit_14_stage_read(cycle_id)
+
+    if not isinstance(cycle, dict):
+
+        return {
+            "backup_ready": False,
+            "stage_status": status,
+            "reason": "STAGE_CYCLE_NOT_FOUND",
+        }
+
+    if (
+        str(cycle.get("stage", "")).upper()
+        != "BACKUP_READY"
+        or str(cycle.get("state", "")).upper()
+        != "ACTIVE"
+    ):
+
+        return {
+            "backup_ready": False,
+            "stage_status": status,
+            "reason": "BACKUP_HANDOVER_NOT_PERSISTED",
+        }
+
+    return {
+        "backup_ready": True,
+        "stage_status": status,
+        "cycle_id": cycle_id,
+        "reason": "FAILED_PROTECTION_CYCLE_CONFIRMED",
+    }
+
+
+# ============================================================
+# END UNIT 14 V4 PART 5 HELPER
+# ============================================================
+
 def fresh_reconstruction_unit_14(
     config,
     unit_13_result,
