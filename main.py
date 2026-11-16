@@ -16646,6 +16646,75 @@ def unit_14_v4_tp_handover(unit_13_result):
 
 
 # ============================================================
+# UNIT 14 V4 - PART 2
+# SINGLE STAGE DISPATCH AND VERIFIED TP HANDOVER
+# PRESERVE EXISTING STAGE EXECUTOR
+# ZERO INDENTATION
+# ============================================================
+
+def unit_14_v4_dispatch_once(
+    active_positions,
+    original_position,
+    unit_13_result,
+    quantity_step,
+    minimum_quantity,
+    mark,
+):
+
+    handover = unit_14_v4_tp_handover(
+        unit_13_result
+    )
+
+    print(
+        "UNIT 14 V4 SINGLE STAGE DISPATCH",
+        flush=True
+    )
+
+    print(
+        "UNIT 14 TP ORDER PENDING =",
+        handover["tp_order_pending"],
+        flush=True
+    )
+
+    print(
+        "UNIT 14 VERIFIED TP3 ARMED =",
+        handover["tp3_armed"],
+        flush=True
+    )
+
+    # Existing-position protection must remain
+    # operational regardless of BOT_MODE.
+    #
+    # A pending TP acknowledgment does not
+    # establish a completed TP stage.
+    #
+    # Preserve the existing H1/H2/R1/R2
+    # execution implementation.
+
+    outcome = unit_14_stage_dispatch(
+        active_positions=active_positions,
+        original_position=original_position,
+        unit_13_result=unit_13_result,
+        quantity_step=quantity_step,
+        minimum_quantity=minimum_quantity,
+        mark=mark,
+    )
+
+    if not isinstance(outcome, dict):
+        raise RuntimeError(
+            "UNIT 14 STAGE DISPATCH RESULT INVALID"
+        )
+
+    outcome["tp_handover"] = handover
+
+    return outcome
+
+
+# ============================================================
+# END UNIT 14 V4 PART 2 HELPER
+# ============================================================
+
+# ============================================================
 # END UNIT 14 V4 INTEGRATION PART 1
 # ============================================================
 
