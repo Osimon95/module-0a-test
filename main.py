@@ -15309,107 +15309,80 @@ def unit_14_stage_client_id(cycle_id, action):
 
 
 
-def unit_14_stage_create_cycle(
-    cycle_id,
-    symbol,
-    original_side,
-    original_quantity,
-    original_entry,
-    frozen_atr
-):
-    """
-    Create a new hedge cycle, or reuse an existing
-    cycle without overwriting its frozen parameters.
-    """
+        # ====================================================
+        # REUSE EXISTING CYCLE WITHOUT REACTIVATING COMPLETED
+        # HEDGE / RECOVERY ORDERS
+        # ====================================================
 
-    D = unit_14_v3_D
+        persisted_cycle = unit_14_stage_read(
+            cycle_id
+        )
 
-    cycle_id = str(cycle_id).strip()
-    symbol = str(symbol).strip().upper()
-    original_side = str(original_side).strip().upper()
+        if persisted_cycle is not None:
 
-    if not cycle_id or not symbol:
-        raise RuntimeError("INVALID STAGE CYCLE IDENTITY")
+            persisted_state = str(
+                persisted_cycle.get("state", "")
+            ).upper()
 
-    if original_side not in ("LONG", "SHORT"):
-        raise RuntimeError("INVALID ORIGINAL POSITION SIDE")
+            persisted_stage = str(
+                persisted_cycle.get("stage", "")
+            ).upper()
 
-    quantity = D(original_quantity, "ORIGINAL QUANTITY")
-    entry = D(original_entry, "ORIGINAL ENTRY")
-    atr = D(frozen_atr, "FROZEN ATR")
+            persisted_symbol = str(
+                persisted_cycle.get("symbol", "")
+            ).upper()
 
-    if quantity <= 0 or entry <= 0 or atr <= 0:
-        raise RuntimeError("INVALID HEDGE CYCLE VALUES")
-
-    db = unit_14_stage_db()
-
-    try:
-        db.execute("BEGIN IMMEDIATE")
-
-        existing = db.execute("""
-            SELECT symbol, original_side,
-                   original_quantity, original_entry,
-                   frozen_atr, state
-            FROM stage_cycles
-            WHERE cycle_id = ?
-        """, (cycle_id,)).fetchone()
-
-        if existing is not None:
-
-            saved_symbol = str(existing[0]).upper()
-            saved_side = str(existing[1]).upper()
-            saved_state = str(existing[5]).upper()
+            persisted_side = str(
+                persisted_cycle.get("original_side", "")
+            ).upper()
 
             if (
-                saved_symbol != symbol
-                or saved_side != original_side
+                persisted_symbol != "BTCSUSDT"
+                or persisted_side != original_side
             ):
                 raise RuntimeError(
                     "PERSISTED CYCLE SYMBOL OR SIDE MISMATCH"
                 )
 
-            if saved_state != "ACTIVE":
-                raise RuntimeError(
-                    "PERSISTED CYCLE NOT ACTIVE"
+            if (
+                persisted_state == "COMPLETE"
+                and persisted_stage == "RECOVERED"
+            ):
+
+                print(
+                    "UNIT 14 RECOVERED CYCLE PRESERVED =",
+                    cycle_id,
+                    flush=True
                 )
 
-            for name, value in zip(
-                (
-                    "ORIGINAL QUANTITY",
-                    "ORIGINAL ENTRY",
-                    "FROZEN ATR",
-                ),
-                existing[2:5]
-            ):
-                if D(value, name) <= 0:
-                    raise RuntimeError(
-                        "INVALID PERSISTED " + name
-                    )
+                return {
+                    "status": "RECOVERY_COMPLETE",
+                    "handled": True,
+                    "cycle_id": cycle_id,
+                    "stage": "RECOVERED",
+                    "reused_completed_cycle": True
+                }
 
-            print(
-                "UNIT 14 EXISTING STAGE CYCLE REUSED =",
-                cycle_id,
-                flush=True
-            )
+            if persisted_state != "ACTIVE":
+
+                return {
+                    "status": "CYCLE_RECONCILIATION_REQUIRED",
+                    "handled": True,
+                    "cycle_id": cycle_id,
+                    "persisted_state": persisted_state,
+                    "persisted_stage": persisted_stage
+                }
 
         else:
 
-            db.execute("""
-                INSERT INTO stage_cycles (
-                    cycle_id, symbol, original_side,
-                    original_quantity, original_entry,
-                    frozen_atr
-                )
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (
+            unit_14_stage_create_cycle(
                 cycle_id,
-                symbol,
+                "BTCSUSDT",
                 original_side,
-                str(quantity),
-                str(entry),
-                str(atr)
-            ))
-
+                quantity,
+                entry,
+                atr
+            )
             print(
                 "UNIT 14 NEW STAGE CYCLE CREATED =",
                 cycle_id,
