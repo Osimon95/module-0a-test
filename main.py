@@ -16292,33 +16292,6 @@ def unit_14_stage_dispatch(
                 "CUM OPEN SIZE"
             )
         )
-
-        
-    cycle = unit_14_stage_read(cycle_id)
-
-    if cycle is None:
-        raise RuntimeError(
-            "STAGE CYCLE MISSING"
-        )
-
-    if cycle["state"] != "ACTIVE":
-
-        print(
-            "UNIT 14 PERSISTED CYCLE INACTIVE =",
-            cycle_id,
-            "STAGE =", cycle["stage"],
-            "STATE =", cycle["state"],
-            flush=True
-        )
-
-        return {
-            "status": "CYCLE_INACTIVE",
-            "handled": True,
-            "cycle_id": cycle_id,
-            "stage": cycle["stage"],
-            "persisted_state": cycle["state"]
-        }
-
         unit_14_stage_create_cycle(
             cycle_id,
             "BTCSUSDT",
