@@ -13261,6 +13261,582 @@ def unit_13_v4_verified(state, history, side, symbol):
 
 
 # ============================================================
+# UNIT 13 V5 - PART 3 OF 5
+# MAIN POSITION MANAGEMENT
+# EXISTING DEMO POSITIONS
+# VERIFIED TP1 / TP2 STATE
+# ZERO INDENTATION AT FUNCTION DECLARATION
+# ============================================================
+
+# ============================================================
+# 7. MAIN UNIT 13
+# ============================================================
+
+def fresh_reconstruction_unit_13(
+    config,
+    unit_12_result,
+):
+
+    print("=" * 80, flush=True)
+    print(
+        "UNIT 13 V5 EXISTING POSITION MANAGEMENT START",
+        flush=True
+    )
+
+    if not isinstance(config, dict):
+        raise RuntimeError(
+            "UNIT 13 INVALID CONFIG"
+        )
+
+    if not isinstance(unit_12_result, dict):
+        raise RuntimeError(
+            "UNIT 13 UNIT 12 RESULT INVALID"
+        )
+
+    exchange = config.get("exchange", {})
+    strategy = config.get("strategy", {})
+    precision = config.get("market_precision", {})
+
+    if (
+        config.get("execution_environment") != "DEMO"
+        or exchange.get("name") != "WEEX"
+        or exchange.get("api_version") != "V3"
+        or exchange.get("market_symbol") != "BTCUSDT"
+        or exchange.get("demo_order_symbol") != "BTCSUSDT"
+    ):
+        raise RuntimeError(
+            "UNIT 13 NON-DEMO CONTRACT BLOCKED"
+        )
+
+    D = unit_13_v4_D
+
+    step = D(
+        precision.get("quantity_step"),
+        "QTY STEP"
+    )
+    minimum = D(
+        precision.get("minimum_quantity"),
+        "MINIMUM QTY"
+    )
+    price_step = D(
+        precision.get("price_step"),
+        "PRICE STEP"
+    )
+
+    tp1_floor = D(
+        strategy.get(
+            "tp1_net_roi_floor_percent", 20
+        ),
+        "TP1 FLOOR"
+    )
+    tp2_floor = D(
+        strategy.get(
+            "tp2_net_roi_floor_percent", 40
+        ),
+        "TP2 FLOOR"
+    )
+    fee = D(
+        strategy.get(
+            "futures_taker_fee_percent", "0.08"
+        ),
+        "FEE",
+        True
+    )
+
+    trail_ref = D(
+        strategy.get(
+            "tp3_trailing_reference_percent",
+            "0.20"
+        ),
+        "TRAIL REF"
+    )
+    trail_min = D(
+        strategy.get(
+            "tp3_trailing_min_percent",
+            "0.10"
+        ),
+        "TRAIL MIN"
+    )
+    trail_max = D(
+        strategy.get(
+            "tp3_trailing_max_percent",
+            "0.40"
+        ),
+        "TRAIL MAX"
+    )
+
+    if (
+        tp1_floor <= 0
+        or tp2_floor <= tp1_floor
+        or not (
+            0 < trail_min
+            <= trail_ref
+            <= trail_max
+        )
+    ):
+        raise RuntimeError(
+            "UNIT 13 TP CONFIGURATION INVALID"
+        )
+
+    print(
+        "PASS: UNIT 13 RECEIVED UNIT 12 RESULT",
+        flush=True
+    )
+    print(
+        "UNIT 13 RECEIVED UNIT 12 STATUS =",
+        unit_12_result.get("status"),
+        flush=True
+    )
+    print(
+        "UNIT 13 POSITION MANAGEMENT INDEPENDENT "
+        "OF BOT_MODE = TRUE",
+        flush=True
+    )
+    print(
+        "UNIT 13 TP ALLOCATION =",
+        strategy.get("tp1_allocation_percent", 10),
+        "/",
+        strategy.get("tp2_allocation_percent", 20),
+        "/",
+        strategy.get("tp3_allocation_percent", 70),
+        flush=True
+    )
+    print(
+        "UNIT 13 TP1 NET ROI FLOOR =",
+        tp1_floor,
+        flush=True
+    )
+    print(
+        "UNIT 13 TP2 NET ROI FLOOR =",
+        tp2_floor,
+        flush=True
+    )
+
+    # ========================================================
+    # ALWAYS READ CURRENT WEEX DEMO POSITION.
+    # DO NOT CHECK BOT_MODE HERE.
+    # ========================================================
+
+    positions = unit_13_v4_signed_request(
+        "GET",
+        UNIT13_V4_POSITION,
+    )
+
+    if not isinstance(positions, list):
+        raise RuntimeError(
+            "UNIT 13 POSITIONS NOT LIST"
+        )
+
+    active = []
+
+    for p in positions:
+
+        if not isinstance(p, dict):
+            raise RuntimeError(
+                "UNIT 13 POSITION RECORD MALFORMED"
+            )
+
+        if str(
+            p.get("symbol", "")
+        ).upper() != "BTCSUSDT":
+            continue
+
+        size = D(
+            p.get("size"),
+            "POSITION SIZE",
+            True
+        )
+
+        if size > 0:
+            active.append(p)
+
+    if not active:
+
+        result = unit_13_v4_base_result(
+            unit_12_result,
+            "IDLE_NO_POSITION",
+            "NO_ACTIVE_BTCSUSDT_POSITION",
+        )
+
+        print(
+            "UNIT 13 STATUS = IDLE_NO_POSITION",
+            flush=True
+        )
+        print(
+            "UNIT 13 EXCHANGE WRITE = False",
+            flush=True
+        )
+
+        return result
+
+    if len(active) > 1:
+
+        original_side = str(
+            os.getenv(
+                "ORIGINAL_POSITION_SIDE",
+                ""
+            )
+        ).strip().upper()
+
+        if original_side not in ("LONG", "SHORT"):
+            raise RuntimeError(
+                "UNIT 13 ORIGINAL POSITION SIDE "
+                "REQUIRED FOR ACTIVE HEDGE PAIR"
+            )
+
+        matching = [
+            position
+            for position in active
+            if str(
+                position.get("side", "")
+            ).upper() == original_side
+        ]
+
+        if len(matching) != 1:
+            raise RuntimeError(
+                "UNIT 13 ORIGINAL POSITION "
+                "NOT UNIQUELY IDENTIFIED"
+            )
+
+        p = matching[0]
+
+    else:
+        p = active[0]
+
+    side = str(
+        p.get("side", "")
+    ).upper()
+
+    if side not in ("LONG", "SHORT"):
+        raise RuntimeError(
+            "UNIT 13 INVALID POSITION SIDE"
+        )
+
+    size = D(
+        p.get("size"),
+        "ACTIVE SIZE"
+    )
+
+    open_value = D(
+        p.get("openValue"),
+        "OPEN VALUE"
+    )
+
+    leverage = D(
+        p.get("leverage"),
+        "POSITION LEVERAGE"
+    )
+
+    entry = open_value / size
+
+    # Cumulative position data is used for
+    # quantity planning, never as proof of
+    # TP1 or TP2 completion.
+
+    if (
+        "cumOpenSize" not in p
+        or "cumCloseSize" not in p
+    ):
+        raise RuntimeError(
+            "UNIT 13 CUMULATIVE HISTORY MISSING "
+            "- NO TP ORDER"
+        )
+
+    cum_open = D(
+        p["cumOpenSize"],
+        "CUM OPEN"
+    )
+    cum_close = D(
+        p["cumCloseSize"],
+        "CUM CLOSE",
+        True
+    )
+
+    if (
+        cum_open < size
+        or cum_close > cum_open
+    ):
+        raise RuntimeError(
+            "UNIT 13 POSITION HISTORY INCONSISTENT"
+        )
+
+    # ========================================================
+    # STEP-AWARE TP ALLOCATION
+    # USE EXISTING UNIT 2 RENDER CONFIGURATION
+    # ========================================================
+
+    q1, q2, q3 = unit_13_v4_allocation(
+        cum_open,
+        step,
+        strategy.get(
+            "tp1_allocation_percent", 10
+        ),
+        strategy.get(
+            "tp2_allocation_percent", 20
+        ),
+    )
+
+    # ========================================================
+    # TP1 / TP2 NET ROI TARGETS
+    # ========================================================
+
+    t1, t2 = unit_13_v4_targets(
+        entry,
+        leverage,
+        side,
+        price_step,
+        tp1_floor,
+        tp2_floor,
+        fee,
+    )
+
+    mark = unit_13_v4_mark_price()
+
+    # ========================================================
+    # PERSISTENT ORIGINAL-POSITION CYCLE
+    # NEVER PROMOTE TP FROM cumCloseSize
+    # ========================================================
+
+    cycle = str(
+        p.get("id")
+        or (
+            str(
+                p.get("createdTime")
+                or p.get("openTime")
+                or ""
+            )
+            + ":"
+            + str(entry)
+            + ":"
+            + str(cum_open)
+        )
+    )
+
+    state_path = unit_13_v4_state_path(
+        "BTCSUSDT",
+        side,
+        cycle
+    )
+
+    state = unit_13_v4_load(state_path)
+
+    if state is None:
+
+        state = {
+            "cycle": cycle,
+            "orders": {},
+            "version": 1,
+            "legacy_closures_unattributed": bool(
+                cum_close > 0
+            ),
+        }
+
+        # Historical closures may be TP fills,
+        # hedges, or manual reductions.
+        # Never assign them to TP1 or TP2
+        # without their exchange order IDs.
+
+        unit_13_v4_save(
+            state_path,
+            state
+        )
+
+    # ========================================================
+    # EXCHANGE-CONFIRMED TP FILLS
+    # ========================================================
+
+    history = unit_13_v4_history(
+        "BTCSUSDT"
+    )
+
+    totals, unresolved = unit_13_v4_verified(
+        state,
+        history,
+        side,
+        "BTCSUSDT"
+    )
+
+    tp1_filled = totals["TP1"]
+    tp2_filled = totals["TP2"]
+
+    done1 = (
+        q1 == 0
+        or tp1_filled >= q1
+    )
+
+    done2 = (
+        q2 == 0
+        or tp2_filled >= q2
+    )
+
+    # ========================================================
+    # TARGET REACHED CHECK
+    # ========================================================
+
+    reached1 = (
+        mark >= t1
+        if side == "LONG"
+        else mark <= t1
+    )
+
+    reached2 = (
+        mark >= t2
+        if side == "LONG"
+        else mark <= t2
+    )
+
+    action = "NONE"
+    close_qty = Decimal(0)
+
+    # Never submit a duplicate TP order
+    # while its previous submission remains
+    # unresolved or partially filled.
+
+    if (
+        not unresolved
+        and not state.get(
+            "legacy_closures_unattributed"
+        )
+    ):
+
+        if (
+            not done1
+            and reached1
+            and "TP1" not in state["orders"]
+        ):
+
+            action = "TP1"
+            close_qty = q1
+
+        elif (
+            done1
+            and not done2
+            and reached2
+            and "TP2" not in state["orders"]
+        ):
+
+            action = "TP2"
+            close_qty = q2
+
+    if close_qty > 0:
+
+        close_qty = (
+            (
+                min(close_qty, size) / step
+            ).to_integral_value(
+                rounding=ROUND_DOWN
+            ) * step
+        )
+
+    # ========================================================
+    # TP3 ARMING
+    # ONLY VERIFIED TP COMPLETION COUNTS
+    # ========================================================
+
+    armed = bool(
+        done1
+        and done2
+        and q3 > 0
+        and size > 0
+        and not state.get(
+            "legacy_closures_unattributed"
+        )
+    )
+
+    result = unit_13_v4_base_result(
+        unit_12_result,
+        (
+            "TP3_ARMED"
+            if armed
+            else "MONITORING"
+        ),
+        (
+            "DYNAMIC_TP3_RUNTIME_REQUIRED"
+            if armed
+            else "DYNAMIC_TP_TARGET_NOT_REACHED"
+        ),
+    )
+
+    result.update({
+        "active_position_exists": True,
+        "position_exists": True,
+        "tp_management_required": True,
+        "position_side": side,
+        "position_size": float(size),
+        "average_entry_price": float(entry),
+        "mark_price": float(mark),
+
+        "tp_target_allocation": "{}/{}/{}".format(
+            strategy.get(
+                "tp1_allocation_percent", 10
+            ),
+            strategy.get(
+                "tp2_allocation_percent", 20
+            ),
+            strategy.get(
+                "tp3_allocation_percent", 70
+            ),
+        ),
+
+        "tp1_verified_filled_quantity":
+            str(tp1_filled),
+
+        "tp2_verified_filled_quantity":
+            str(tp2_filled),
+
+        "tp_history_unresolved": unresolved,
+
+        "tp_legacy_closures_unattributed": bool(
+            state.get(
+                "legacy_closures_unattributed"
+            )
+        ),
+
+        "tp1_target": float(t1),
+        "tp2_target": float(t2),
+
+        "tp1_target_price": str(t1),
+        "tp2_target_price": str(t2),
+
+        "tp1_quantity": float(q1),
+        "tp2_quantity": float(q2),
+        "tp3_quantity": float(q3),
+
+        "tp1_completed": done1,
+        "tp2_completed": done2,
+        "tp3_armed": armed,
+
+        "tp3_trailing_percent":
+            float(trail_ref),
+
+        "tp3_trailing_reference_percent":
+            float(trail_ref),
+
+        "tp3_trailing_min_percent":
+            float(trail_min),
+
+        "tp3_trailing_max_percent":
+            float(trail_max),
+
+        "tp3_trailing_dynamic": True,
+
+        "tp1_net_roi_floor_percent":
+            float(tp1_floor),
+
+        "tp2_net_roi_floor_percent":
+            float(tp2_floor),
+
+        "tp_action": action,
+    })
+
+    # ========================================================
+    # PART 3 ENDS INSIDE fresh_reconstruction_unit_13()
+    # PART 4 CONTINUES AT FOUR-SPACE INDENTATION
+    # DO NOT CLOSE OR EXECUTE THIS FUNCTION YET
+    # ========================================================
+
+
+# ============================================================
 # COMPLETE UNIT 13 V4 REPLACEMENT
 # UNIT 12 -> UNIT 13 -> UNIT 14
 # ZERO INDENTATION
