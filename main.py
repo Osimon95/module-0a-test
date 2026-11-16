@@ -16646,11 +16646,115 @@ def unit_14_v4_tp_handover(unit_13_result):
 
 
 # ============================================================
-# UNIT 14 V4 - PART 2
-# SINGLE STAGE DISPATCH AND VERIFIED TP HANDOVER
-# PRESERVE EXISTING STAGE EXECUTOR
+# UNIT 14 V4 - PART 3
+# RESTART-SAFE STAGE RECONCILIATION
+# SINGLE H1/H2/R1/R2 EXECUTION AUTHORITY
+# PRESERVE ORIGINAL UNIT 14 STAGE EXECUTOR
 # ZERO INDENTATION
 # ============================================================
+
+def unit_14_v4_stage_reconciliation(
+    cycle_id,
+):
+    """
+    Inspect the existing persistent stage cycle.
+
+    This function does not submit exchange orders.
+    The original Unit 14 dispatcher remains
+    responsible for reconciliation and execution.
+    """
+
+    if not cycle_id:
+        return {
+            "cycle_exists": False,
+            "cycle_id": None,
+            "status": "NO_ACTIVE_CYCLE",
+            "orders": {},
+            "execution_attempted": False,
+        }
+
+    cycle = unit_14_stage_read(cycle_id)
+
+    if cycle is None:
+        raise RuntimeError(
+            "UNIT 14 ACTIVE CYCLE NOT FOUND"
+        )
+
+    if cycle.get("state") != "ACTIVE":
+        return {
+            "cycle_exists": True,
+            "cycle_id": cycle_id,
+            "status": "CYCLE_NOT_ACTIVE",
+            "orders": {},
+            "execution_attempted": False,
+        }
+
+    orders = unit_14_stage_reconcile_cycle(
+        cycle_id
+    )
+
+    if not isinstance(orders, dict):
+        raise RuntimeError(
+            "UNIT 14 RECONCILIATION INVALID"
+        )
+
+    required_actions = (
+        "H1-C", "H1-H",
+        "H2-C", "H2-H",
+        "R1-C", "R1-O",
+        "R2-C", "R2-O",
+    )
+
+    summary = {}
+    incomplete = []
+    started = []
+
+    for action in required_actions:
+
+        record = orders.get(action)
+
+        if not isinstance(record, dict):
+            raise RuntimeError(
+                "UNIT 14 MISSING STAGE RECORD "
+                + action
+            )
+
+        state = str(
+            record.get("state", "")
+        ).upper()
+
+        complete = (
+            record.get("complete") is True
+        )
+
+        filled = unit_14_v3_D(
+            record.get("confirmed_filled", "0"),
+            action + " CONFIRMED FILLED",
+            True,
+        )
+
+        if state != "NOT_CLAIMED":
+            started.append(action)
+
+        if not complete:
+            incomplete.append(action)
+
+        summary[action] = {
+            "state": state,
+            "complete": complete,
+            "confirmed_filled": str(filled),
+        }
+
+    return {
+        "cycle_exists": True,
+        "cycle_id": cycle_id,
+        "status": "RECONCILED",
+        "orders": summary,
+        "started_actions": started,
+        "incomplete_actions": incomplete,
+        "execution_attempted": False,
+    }
+
 
 def unit_14_v4_dispatch_once(
     active_positions,
@@ -16660,36 +16764,100 @@ def unit_14_v4_dispatch_once(
     minimum_quantity,
     mark,
 ):
+    """
+    Single invocation of the existing
+    H1/H2/R1/R2 stage dispatcher.
+
+    No new exchange order implementation
+    is introduced here.
+    """
+
+    if not isinstance(active_positions, dict):
+        raise RuntimeError(
+            "UNIT 14 INVALID ACTIVE POSITIONS"
+        )
+
+    if not isinstance(unit_13_result, dict):
+        raise RuntimeError(
+            "UNIT 14 INVALID UNIT 13 RESULT"
+        )
 
     handover = unit_14_v4_tp_handover(
         unit_13_result
     )
 
+    original_side, cycle_id = (
+        unit_14_active_original_side()
+    )
+
+    if cycle_id is not None:
+
+        reconciliation = (
+            unit_14_v4_stage_reconciliation(
+                cycle_id
+            )
+        )
+
+    else:
+
+        reconciliation = {
+            "cycle_exists": False,
+            "cycle_id": None,
+            "status": "NEW_CYCLE_PENDING",
+            "orders": {},
+            "execution_attempted": False,
+        }
+
     print(
-        "UNIT 14 V4 SINGLE STAGE DISPATCH",
+        "UNIT 14 ACTIVE STAGE CYCLE =",
+        cycle_id,
         flush=True
     )
 
     print(
-        "UNIT 14 TP ORDER PENDING =",
-        handover["tp_order_pending"],
+        "UNIT 14 RECONCILIATION STATUS =",
+        reconciliation["status"],
         flush=True
     )
 
     print(
-        "UNIT 14 VERIFIED TP3 ARMED =",
+        "UNIT 14 TP1 COMPLETED =",
+        handover["tp1_completed"],
+        flush=True
+    )
+
+    print(
+        "UNIT 14 TP2 COMPLETED =",
+        handover["tp2_completed"],
+        flush=True
+    )
+
+    print(
+        "UNIT 14 TP3 ARMED =",
         handover["tp3_armed"],
         flush=True
     )
 
-    # Existing-position protection must remain
-    # operational regardless of BOT_MODE.
+    # Do not invoke a completed or inactive cycle
+    # through this wrapper.
+
+    if reconciliation["status"] == "CYCLE_NOT_ACTIVE":
+
+        return {
+            "status": "CYCLE_NOT_ACTIVE",
+            "handled": False,
+            "cycle_id": cycle_id,
+            "tp_handover": handover,
+            "stage_reconciliation": reconciliation,
+        }
+
+    # ========================================================
+    # THE ORIGINAL DISPATCHER REMAINS THE ONLY
+    # H1/H2/R1/R2 EXECUTION AUTHORITY.
     #
-    # A pending TP acknowledgment does not
-    # establish a completed TP stage.
-    #
-    # Preserve the existing H1/H2/R1/R2
-    # execution implementation.
+    # It independently reconciles exchange orders
+    # before deciding which stage to execute.
+    # ========================================================
 
     outcome = unit_14_stage_dispatch(
         active_positions=active_positions,
@@ -16702,17 +16870,34 @@ def unit_14_v4_dispatch_once(
 
     if not isinstance(outcome, dict):
         raise RuntimeError(
-            "UNIT 14 STAGE DISPATCH RESULT INVALID"
+            "UNIT 14 STAGE OUTCOME INVALID"
         )
 
     outcome["tp_handover"] = handover
+
+    outcome["stage_reconciliation"] = (
+        reconciliation
+    )
+
+    print(
+        "UNIT 14 STAGE DISPATCH STATUS =",
+        outcome.get("status"),
+        flush=True
+    )
+
+    print(
+        "UNIT 14 STAGE HANDLED =",
+        outcome.get("handled", False),
+        flush=True
+    )
 
     return outcome
 
 
 # ============================================================
-# END UNIT 14 V4 PART 2 HELPER
+# END UNIT 14 V4 PART 3
 # ============================================================
+
 
 # ============================================================
 # END UNIT 14 V4 INTEGRATION PART 1
