@@ -16229,8 +16229,10 @@ def unit_14_stage_dispatch(
         unit_14_active_original_side()
     )
 
+    
     # ------------------------------------------------
     # IDENTIFY OR INITIALIZE ORIGINAL TRADE
+    # PERSISTED CYCLE RECONCILIATION
     # ------------------------------------------------
 
     if cycle_id is None:
@@ -16267,52 +16269,178 @@ def unit_14_stage_dispatch(
             )
         )
 
-        snapshot = (
-            FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT
+        # --------------------------------------------
+        # CHECK PERSISTENT REGISTRY BEFORE CREATING
+        # --------------------------------------------
+
+        persisted_cycle = unit_14_stage_read(
+            cycle_id
         )
 
-        atr = D(
-            snapshot["atr14"],
-            "FROZEN ATR"
-        )
+        if persisted_cycle is not None:
 
-        quantity = D(
-            original_position["size"],
-            "ORIGINAL QUANTITY"
-        )
+            persisted_symbol = str(
+                persisted_cycle["symbol"]
+            ).upper()
 
-        entry = (
-            D(
-                original_position["openValue"],
-                "OPEN VALUE"
+            persisted_side = str(
+                persisted_cycle["original_side"]
+            ).upper()
+
+            if (
+                persisted_symbol != "BTCSUSDT"
+                or persisted_side != original_side
+            ):
+                raise RuntimeError(
+                    "PERSISTED CYCLE IDENTITY CONFLICT"
+                )
+
+            print(
+                "UNIT 14 EXISTING CYCLE FOUND =",
+                cycle_id,
+                flush=True
             )
-            /
-            D(
-                original_position["cumOpenSize"],
-                "CUM OPEN SIZE"
-            )
-        )
-        unit_14_stage_create_cycle(
-            cycle_id,
-            "BTCSUSDT",
-            original_side,
-            quantity,
-            entry,
-            atr
-        )
 
-    cycle = unit_14_stage_read(cycle_id)
+        else:
+
+            # ----------------------------------------
+            # INITIALIZE ONLY A GENUINELY NEW CYCLE
+            # ----------------------------------------
+
+            snapshot = (
+                FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT
+            )
+
+            atr = D(
+                snapshot["atr14"],
+                "FROZEN ATR"
+            )
+
+            quantity = D(
+                original_position["size"],
+                "ORIGINAL QUANTITY"
+            )
+
+            entry = (
+                D(
+                    original_position["openValue"],
+                    "OPEN VALUE"
+                )
+                /
+                D(
+                    original_position["cumOpenSize"],
+                    "CUM OPEN SIZE"
+                )
+            )
+
+            unit_14_stage_create_cycle(
+                cycle_id,
+                "BTCSUSDT",
+                original_side,
+                quantity,
+                entry,
+                atr
+            )
+
+            print(
+                "UNIT 14 NEW ORIGINAL TRADE CYCLE =",
+                cycle_id,
+                flush=True
+            )
+
+    # ------------------------------------------------
+    # LOAD THE PERSISTED CYCLE
+    # ------------------------------------------------
+
+    cycle = unit_14_stage_read(
+        cycle_id
+    )
 
     if cycle is None:
         raise RuntimeError(
-            "STAGE CYCLE MISSING"
+            "UNIT 14 STAGE CYCLE MISSING"
         )
 
-    if cycle["state"] != "ACTIVE":
+    persisted_state = str(
+        cycle["state"]
+    ).upper()
+
+    persisted_stage = str(
+        cycle["stage"]
+    ).upper()
+
+    print(
+        "UNIT 14 PERSISTED CYCLE =",
+        cycle_id,
+        flush=True
+    )
+
+    print(
+        "UNIT 14 PERSISTED STAGE =",
+        persisted_stage,
+        flush=True
+    )
+
+    print(
+        "UNIT 14 PERSISTED STATE =",
+        persisted_state,
+        flush=True
+    )
+
+    # ------------------------------------------------
+    # PRESERVE COMPLETED RECOVERY
+    # ------------------------------------------------
+
+    if (
+        persisted_state == "COMPLETE"
+        and persisted_stage == "RECOVERED"
+    ):
+
+        print(
+            "UNIT 14 COMPLETED RECOVERY PRESERVED =",
+            cycle_id,
+            flush=True
+        )
+
         return {
-            "status": "CYCLE_INACTIVE",
-            "handled": False
+            "status": "RECOVERY_COMPLETE",
+            "handled": True,
+            "cycle_id": cycle_id,
+            "stage": persisted_stage,
+            "persisted_state": persisted_state
         }
+
+    # ------------------------------------------------
+    # OTHER INACTIVE CYCLES REQUIRE RECONCILIATION
+    # ------------------------------------------------
+
+    if persisted_state != "ACTIVE":
+
+        print(
+            "UNIT 14 INACTIVE CYCLE RECONCILIATION =",
+            persisted_state,
+            persisted_stage,
+            flush=True
+        )
+
+        return {
+            "status": "CYCLE_RECONCILIATION_REQUIRED",
+            "handled": True,
+            "cycle_id": cycle_id,
+            "stage": persisted_stage,
+            "persisted_state": persisted_state
+        }
+
+    # ------------------------------------------------
+    # ACTIVE CYCLE CONTINUES TO EXISTING
+    # RECOVER PERSISTED PARAMETERS SECTION
+    # ------------------------------------------------
+
+    print(
+        "UNIT 14 ACTIVE CYCLE READY =",
+        cycle_id,
+        flush=True
+    )
 
     # ------------------------------------------------
     # RECOVER PERSISTED PARAMETERS
