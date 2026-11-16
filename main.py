@@ -15292,23 +15292,6 @@ def unit_14_stage_db():
     return db
 
 
-def unit_14_stage_client_id(cycle_id, action):
-
-    if action not in UNIT14_STAGE_ACTIONS:
-        raise RuntimeError(
-            "UNIT 14 INVALID STAGE ACTION"
-        )
-
-    digest = hashlib.sha256(
-        str(cycle_id).encode("utf-8")
-    ).hexdigest()[:20]
-
-    return (
-        "FR-" + action + "-" + digest
-    )[:36]
-
-
-    
 def unit_14_stage_create_cycle(
     cycle_id,
     symbol,
@@ -15318,8 +15301,8 @@ def unit_14_stage_create_cycle(
     frozen_atr
 ):
     """
-    Create a new stage cycle or preserve an existing
-    persisted cycle without resetting its history.
+    Create a new persisted cycle or preserve
+    an existing cycle and its order history.
     """
 
     D = unit_14_v3_D
@@ -15327,15 +15310,6 @@ def unit_14_stage_create_cycle(
     cycle_id = str(cycle_id).strip()
     symbol = str(symbol).strip().upper()
     original_side = str(original_side).strip().upper()
-
-    if (
-        not cycle_id
-        or not symbol
-        or original_side not in ("LONG", "SHORT")
-    ):
-        raise RuntimeError(
-            "INVALID STAGE CYCLE IDENTITY"
-        )
 
     quantity = D(
         original_quantity,
@@ -15351,6 +15325,15 @@ def unit_14_stage_create_cycle(
         frozen_atr,
         "FROZEN ATR"
     )
+
+    if (
+        not cycle_id
+        or not symbol
+        or original_side not in ("LONG", "SHORT")
+    ):
+        raise RuntimeError(
+            "INVALID STAGE CYCLE IDENTITY"
+        )
 
     if quantity <= 0 or entry <= 0 or atr <= 0:
         raise RuntimeError(
@@ -15392,7 +15375,10 @@ def unit_14_stage_create_cycle(
                 ("QUANTITY", "ENTRY", "ATR"),
                 existing[2:5]
             ):
-                if D(value, "PERSISTED " + name) <= 0:
+                if D(
+                    value,
+                    "PERSISTED " + name
+                ) <= 0:
                     raise RuntimeError(
                         "INVALID PERSISTED " + name
                     )
@@ -15432,6 +15418,19 @@ def unit_14_stage_create_cycle(
                 flush=True
             )
 
+        db.execute("COMMIT")
+
+        return cycle_id
+
+    except Exception:
+
+        if db.in_transaction:
+            db.execute("ROLLBACK")
+
+        raise
+
+    finally:
+        db.close()
 def unit_14_stage_claim(
     cycle_id,
     action,
