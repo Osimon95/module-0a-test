@@ -12888,6 +12888,379 @@ def unit_13_v4_targets(
 
 
 # ============================================================
+# UNIT 13 V5 - PART 2 OF 5
+# AUTHENTICATED WEEX DEMO REQUESTS
+# PERSISTENT TP STATE AND VERIFIED FILLS
+# ZERO INDENTATION
+# ============================================================
+
+# ============================================================
+# 4. WEEX SIGNED DEMO REQUESTS
+# ============================================================
+
+def unit_13_v4_signed_request(method, path, payload=None):
+
+    if (method, path) not in {
+        ("GET", UNIT13_V4_POSITION),
+        ("GET", UNIT13_V4_HISTORY),
+        ("POST", UNIT13_V4_ORDER),
+    }:
+        raise RuntimeError(
+            "UNIT 13 NON-DEMO ENDPOINT BLOCKED"
+        )
+
+    key = os.getenv("WEEX_API_KEY") or os.getenv("API_KEY")
+    secret = (
+        os.getenv("WEEX_API_SECRET")
+        or os.getenv("API_SECRET")
+    )
+    phrase = (
+        os.getenv("WEEX_API_PASSPHRASE")
+        or os.getenv("API_PASSPHRASE")
+    )
+
+    if not all((key, secret, phrase)):
+        raise RuntimeError(
+            "UNIT 13 DEMO CREDENTIALS MISSING"
+        )
+
+    if method == "GET" and payload is not None and path != UNIT13_V4_HISTORY:
+        raise RuntimeError("UNIT 13 GET PARAMS NOT ALLOWED")
+
+    if method == "POST" and not isinstance(
+        payload, dict
+    ):
+        raise RuntimeError(
+            "UNIT 13 POST BODY INVALID"
+        )
+
+    query = (urllib.parse.urlencode(payload)
+             if method == "GET" and payload else "")
+    request_path = path + ("?" + query if query else "")
+
+    body = (
+        json.dumps(
+            payload,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        )
+        if method == "POST" and payload is not None
+        else ""
+    )
+
+    timestamp = str(int(time.time() * 1000))
+    message = timestamp + method + request_path + body
+
+    signature = base64.b64encode(
+        hmac.new(
+            secret.encode("utf-8"),
+            message.encode("utf-8"),
+            hashlib.sha256,
+        ).digest()
+    ).decode("utf-8")
+
+    request = urllib.request.Request(
+        UNIT13_V4_BASE + request_path,
+        method=method,
+        data=(
+            body.encode("utf-8")
+            if method == "POST"
+            else None
+        ),
+        headers={
+            "ACCESS-KEY": key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-TIMESTAMP": timestamp,
+            "ACCESS-PASSPHRASE": phrase,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(
+            request,
+            timeout=15,
+        ) as response:
+
+            status = response.getcode()
+            raw = response.read().decode(
+                "utf-8", errors="replace"
+            )
+
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode(
+            "utf-8", errors="replace"
+        )[:400]
+        raise RuntimeError(
+            "UNIT 13 WEEX HTTP "
+            + str(exc.code) + ": " + detail
+        ) from exc
+
+    # Ambiguous POST results must NOT be
+    # automatically retried.
+
+    if not 200 <= status < 300:
+        raise RuntimeError(
+            "UNIT 13 HTTP STATUS " + str(status)
+        )
+
+    try:
+        response = json.loads(raw)
+    except ValueError as exc:
+        raise RuntimeError(
+            "UNIT 13 INVALID WEEX JSON"
+        ) from exc
+
+    return response
+
+
+# ============================================================
+# 5. PUBLIC MARK PRICE
+# ============================================================
+
+def unit_13_v4_mark_price():
+
+    query = urllib.parse.urlencode({
+        "symbol": "BTCUSDT",
+        "priceType": "MARK",
+    })
+
+    request = urllib.request.Request(
+        UNIT13_V4_BASE
+        + "/capi/v3/market/symbolPrice?"
+        + query,
+        method="GET",
+    )
+
+    with urllib.request.urlopen(
+        request,
+        timeout=15,
+    ) as response:
+
+        market = json.loads(
+            response.read().decode("utf-8")
+        )
+
+    if not isinstance(market, dict):
+        raise RuntimeError(
+            "UNIT 13 MARK PRICE RESPONSE INVALID"
+        )
+
+    if market.get("symbol") != "BTCUSDT":
+        raise RuntimeError(
+            "UNIT 13 WRONG MARKET SYMBOL"
+        )
+
+    return unit_13_v4_D(
+        market.get("price"),
+        "MARK PRICE",
+    )
+
+
+# ============================================================
+# 6. BASE RESULT FOR UNIT 14
+# ============================================================
+
+def unit_13_v4_base_result(unit_12_result, status, reason):
+
+    return {
+        "unit": 13,
+        "status": status,
+        "read_only": False,
+        "unit_12_status": unit_12_result.get(
+            "status"
+        ),
+        "active_position_exists": False,
+        "position_exists": False,
+        "tp_management_required": False,
+        "tp_execution_attempted": False,
+        "tp_execution_completed": False,
+        "tp3_armed": False,
+        "sl_execution_attempted": False,
+        "backup_execution_attempted": False,
+        "real_submission_attempted": False,
+        "exchange_write": False,
+        "skip_reason": reason,
+    }
+
+
+# ============================================================
+# EXCHANGE-VERIFIED TP ORDER TRACKING
+# RECORDS BELONG TO ONE ORIGINAL-POSITION CYCLE
+# NEVER INFER TP FILLS FROM cumCloseSize
+# ============================================================
+
+import pathlib as _u13_pathlib
+import uuid as _u13_uuid
+
+UNIT13_V4_STATE_ROOT = _u13_pathlib.Path(
+    os.getenv("UNIT13_STATE_DIR", "/var/data/unit13_tp")
+)
+
+
+def unit_13_v4_state_path(symbol, side, cycle):
+
+    key = hashlib.sha256(
+        (symbol + ":" + side + ":" + cycle).encode()
+    ).hexdigest()
+
+    return UNIT13_V4_STATE_ROOT / (key + ".json")
+
+
+def unit_13_v4_load(path):
+
+    if not path.exists():
+        return None
+
+    with path.open("r") as handle:
+        value = json.load(handle)
+
+    if not isinstance(value, dict):
+        raise RuntimeError("UNIT 13 STATE INVALID")
+
+    return value
+
+
+def unit_13_v4_save(path, state):
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    tmp = path.with_name(
+        path.name + ".tmp-" + _u13_uuid.uuid4().hex
+    )
+
+    with tmp.open("x") as handle:
+        json.dump(state, handle, sort_keys=True)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+    os.replace(tmp, path)
+
+
+def unit_13_v4_history(symbol):
+
+    # Fetch bounded history.
+    # No position reductions are counted.
+
+    records = unit_13_v4_signed_request(
+        "GET",
+        UNIT13_V4_HISTORY,
+        {
+            "symbol": symbol,
+            "limit": 500,
+            "page": 0
+        }
+    )
+
+    if not isinstance(records, list):
+        raise RuntimeError(
+            "UNIT 13 HISTORY NOT LIST"
+        )
+
+    return records
+
+
+def unit_13_v4_verified(state, history, side, symbol):
+
+    opposite = "SELL" if side == "LONG" else "BUY"
+
+    totals = {
+        "TP1": Decimal(0),
+        "TP2": Decimal(0)
+    }
+
+    pending = False
+
+    for stage in ("TP1", "TP2"):
+
+        order = state.get("orders", {}).get(stage)
+
+        if not order:
+            continue
+
+        client_id = order.get("client_id")
+        order_id = str(order.get("order_id") or "")
+
+        matches = [
+            r for r in history
+            if isinstance(r, dict) and (
+                (
+                    order_id
+                    and str(r.get("orderId")) == order_id
+                )
+                or (
+                    client_id
+                    and r.get("clientOrderId") == client_id
+                )
+            )
+        ]
+
+        if len(matches) != 1:
+            pending = True
+            continue
+
+        r = matches[0]
+
+        if (
+            r.get("symbol") != symbol
+            or str(
+                r.get("positionSide", "")
+            ).upper() != side
+            or str(
+                r.get("side", "")
+            ).upper() != opposite
+        ):
+            raise RuntimeError(
+                "UNIT 13 TP ORDER IDENTITY MISMATCH"
+            )
+
+        qty = unit_13_v4_D(
+            r.get("executedQty"),
+            "TP EXECUTED",
+            True
+        )
+
+        planned = unit_13_v4_D(
+            order["quantity"],
+            "TP PLAN"
+        )
+
+        if qty > planned:
+            raise RuntimeError(
+                "UNIT 13 TP OVERFILL IN HISTORY"
+            )
+
+        totals[stage] = qty
+
+        if str(
+            r.get("status", "")
+        ).upper() not in (
+            "FILLED",
+            "CANCELED",
+            "EXPIRED",
+            "REJECTED"
+        ):
+            pending = True
+
+        elif qty < planned:
+
+            # Partial fills must be reconciled
+            # before any new TP order.
+
+            pending = True
+
+    return totals, pending
+
+
+# ============================================================
+# END UNIT 13 V5 PART 2
+# NEXT: PART 3 - MAIN POSITION MANAGEMENT
+# ============================================================
+
+
+
+# ============================================================
 # COMPLETE UNIT 13 V4 REPLACEMENT
 # UNIT 12 -> UNIT 13 -> UNIT 14
 # ZERO INDENTATION
