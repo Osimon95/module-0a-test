@@ -19628,6 +19628,7 @@ def fresh_unit_15_hybrid_adapter(
         "performance_report_hours":
             (1, 8, 24),
         "timezone": "Africa/Lagos",
+        "manual_controller": manual_status,
     }
 
 
