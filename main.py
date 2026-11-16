@@ -15314,7 +15314,7 @@ def unit_14_stage_client_id(cycle_id, action):
         # HEDGE / RECOVERY ORDERS
         # ====================================================
 
-        persisted_cycle = unit_14_stage_read(
+    persisted_cycle = unit_14_stage_read(
             cycle_id
         )
 
