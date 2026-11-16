@@ -12675,6 +12675,219 @@ print(
 
 
 # ============================================================
+# COMPLETE UNIT 13 V5 REPLACEMENT
+# PART 1 OF 5
+# UNIT 12 -> UNIT 13 -> UNIT 14
+# ZERO INDENTATION
+#
+# WEEX DEMO EXISTING-POSITION TP MANAGEMENT
+# BOT_MODE DOES NOT CONTROL UNIT 13
+# STEP-AWARE TP ALLOCATION
+# CONFIGURABLE NET ROI FLOORS
+# TP3 TRAILING PARAMETERS TO UNIT 14
+# NO LIVE-CASH ENDPOINT
+# NO LEVERAGE OR QUANTITY RECALCULATION
+# ============================================================
+
+import os
+import json
+import time
+import hmac
+import base64
+import hashlib
+import urllib.request
+import urllib.parse
+import urllib.error
+from decimal import Decimal, ROUND_DOWN, ROUND_UP
+
+
+UNIT13_V4_BASE = "https://api-contract.weex.com"
+UNIT13_V4_POSITION = "/capi/v3/sim/position/allPosition"
+UNIT13_V4_ORDER = "/capi/v3/sim/order"
+UNIT13_V4_HISTORY = "/capi/v3/sim/order/history"
+
+
+# ============================================================
+# 1. DECIMAL VALIDATION
+# ============================================================
+
+def unit_13_v4_D(value, name="NUMBER", allow_zero=False):
+
+    if value is None or isinstance(value, bool):
+        raise RuntimeError("UNIT 13 MISSING " + name)
+
+    try:
+        x = Decimal(str(value))
+    except Exception as exc:
+        raise RuntimeError(
+            "UNIT 13 INVALID " + name
+        ) from exc
+
+    if not x.is_finite():
+        raise RuntimeError(
+            "UNIT 13 NONFINITE " + name
+        )
+
+    if x < 0 or (x == 0 and not allow_zero):
+        raise RuntimeError(
+            "UNIT 13 NONPOSITIVE " + name
+        )
+
+    return x
+
+
+# ============================================================
+# 2. STEP-AWARE TP ALLOCATION
+# EXACT SMALL-POSITION POLICY OF WORKING REFERENCE
+# ============================================================
+
+def unit_13_v4_allocation(total, step, pct1=10, pct2=20):
+
+    total = unit_13_v4_D(total, "CUM OPEN")
+    step = unit_13_v4_D(step, "QTY STEP")
+
+    if total % step != 0:
+        raise RuntimeError(
+            "UNIT 13 CUMULATIVE SIZE NOT STEP ALIGNED"
+        )
+
+    n = int(total / step)
+
+    if n == 1:
+        s1, s2, s3 = 0, 0, 1
+
+    elif n == 2:
+        s1, s2, s3 = 1, 0, 1
+
+    else:
+        s1 = max(1, int(n * float(pct1) / 100.0))
+        s2 = max(1, int(n * float(pct2) / 100.0))
+
+        while s1 + s2 >= n:
+            if s2 > 1:
+                s2 -= 1
+            elif s1 > 1:
+                s1 -= 1
+            else:
+                raise RuntimeError(
+                    "UNIT 13 TP ALLOCATION FAILED"
+                )
+
+        s3 = n - s1 - s2
+
+    return (
+        Decimal(s1) * step,
+        Decimal(s2) * step,
+        Decimal(s3) * step,
+    )
+
+
+# ============================================================
+# 3. NET-ROI TARGET CALCULATION
+# BASED ON EXCHANGE POSITION LEVERAGE
+# ============================================================
+
+def unit_13_v4_targets(
+    entry,
+    leverage,
+    side,
+    price_step,
+    tp1_floor,
+    tp2_floor,
+    taker_fee,
+):
+
+    D = unit_13_v4_D
+
+    entry = D(entry, "ENTRY")
+    lev = D(leverage, "LEVERAGE")
+    ps = D(price_step, "PRICE STEP")
+    p1 = D(tp1_floor, "TP1 ROI")
+    p2 = D(tp2_floor, "TP2 ROI")
+    fee = D(taker_fee, "TAKER FEE", True)
+
+    if p2 <= p1:
+        raise RuntimeError(
+            "UNIT 13 TP2 ROI MUST EXCEED TP1"
+        )
+
+    # Estimated round-trip trading fees
+    # expressed as ROI on leveraged margin.
+
+    fee_roi = Decimal(2) * fee * lev
+
+    move1 = (p1 + fee_roi) / lev
+    move2 = (p2 + fee_roi) / lev
+
+    if side == "LONG":
+
+        raw1 = entry * (
+            1 + move1 / Decimal(100)
+        )
+        raw2 = entry * (
+            1 + move2 / Decimal(100)
+        )
+
+        t1 = (
+            raw1 / ps
+        ).to_integral_value(
+            rounding=ROUND_UP
+        ) * ps
+
+        t2 = (
+            raw2 / ps
+        ).to_integral_value(
+            rounding=ROUND_UP
+        ) * ps
+
+        if t2 <= t1:
+            t2 = t1 + ps
+
+    elif side == "SHORT":
+
+        raw1 = entry * (
+            1 - move1 / Decimal(100)
+        )
+        raw2 = entry * (
+            1 - move2 / Decimal(100)
+        )
+
+        t1 = (
+            raw1 / ps
+        ).to_integral_value(
+            rounding=ROUND_DOWN
+        ) * ps
+
+        t2 = (
+            raw2 / ps
+        ).to_integral_value(
+            rounding=ROUND_DOWN
+        ) * ps
+
+        if t2 >= t1:
+            t2 = t1 - ps
+
+    else:
+        raise RuntimeError(
+            "UNIT 13 INVALID POSITION SIDE"
+        )
+
+    if min(t1, t2) <= 0:
+        raise RuntimeError(
+            "UNIT 13 TARGET PRICE NONPOSITIVE"
+        )
+
+    return t1, t2
+
+
+# ============================================================
+# END UNIT 13 V5 PART 1
+# NEXT: PART 2 - SIGNED WEEX DEMO REQUESTS
+# ============================================================
+
+
+
+# ============================================================
 # COMPLETE UNIT 13 V4 REPLACEMENT
 # UNIT 12 -> UNIT 13 -> UNIT 14
 # ZERO INDENTATION
