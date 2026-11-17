@@ -8463,6 +8463,175 @@ import sqlite3
 from datetime import datetime, timezone
 
 
+# ============================================================
+# UNIT 8 - WEEX V3 MARKET CONTRACT VERIFICATION
+# PUBLIC GET ONLY - NO ORDER SUBMISSION
+# ============================================================
+
+def unit_8_verify_market_contract(market_symbol):
+
+    market_symbol = str(
+        market_symbol or ""
+    ).strip().upper()
+
+    result = {
+        "market_symbol": market_symbol,
+        "market_verified": False,
+        "api_trading_enabled": False,
+        "demo_contract_verified": False,
+        "reason": "NOT_CHECKED",
+        "contract": None,
+    }
+
+    if not re.fullmatch(
+        r"[A-Z0-9]{3,30}",
+        market_symbol
+    ):
+        result["reason"] = "INVALID_MARKET_SYMBOL"
+        return result
+
+    base_url = "https://api-contract.weex.com"
+
+    def public_get(path, params=None):
+
+        query = urllib.parse.urlencode(
+            params or {}
+        )
+
+        url = base_url + path
+
+        if query:
+            url += "?" + query
+
+        request = urllib.request.Request(
+            url=url,
+            method="GET",
+            headers={
+                "Accept": "application/json",
+                "User-Agent": "WEEX-Unit8-Contract-Check",
+            }
+        )
+
+        with urllib.request.urlopen(
+            request,
+            timeout=15
+        ) as response:
+
+            if response.getcode() != 200:
+                raise RuntimeError(
+                    "WEEX CONTRACT HTTP STATUS INVALID"
+                )
+
+            return json.loads(
+                response.read().decode("utf-8")
+            )
+
+    try:
+
+        info = public_get(
+            "/capi/v3/market/exchangeInfo",
+            {"symbol": market_symbol}
+        )
+
+        if not isinstance(info, dict):
+            raise RuntimeError(
+                "INVALID EXCHANGE INFO RESPONSE"
+            )
+
+        symbols = info.get("symbols")
+
+        if not isinstance(symbols, list):
+            raise RuntimeError(
+                "EXCHANGE SYMBOL LIST MISSING"
+            )
+
+        matching = [
+            item
+            for item in symbols
+            if isinstance(item, dict)
+            and str(
+                item.get("symbol", "")
+            ).upper() == market_symbol
+        ]
+
+        if len(matching) != 1:
+            result["reason"] = (
+                "MARKET_CONTRACT_NOT_FOUND"
+            )
+            return result
+
+        contract = matching[0]
+
+        result["contract"] = contract
+        result["market_verified"] = True
+
+        tradable = public_get(
+            "/capi/v3/market/apiTradingSymbols"
+        )
+
+        if not isinstance(tradable, list):
+            raise RuntimeError(
+                "API TRADING SYMBOL LIST INVALID"
+            )
+
+        result["api_trading_enabled"] = (
+            market_symbol in {
+                str(item).upper()
+                for item in tradable
+                if isinstance(item, str)
+            }
+        )
+
+        result["reason"] = (
+            "MARKET_CONTRACT_VERIFIED"
+            if result["api_trading_enabled"]
+            else "MARKET_NOT_API_TRADABLE"
+        )
+
+    except (
+        urllib.error.HTTPError,
+        urllib.error.URLError,
+        ValueError,
+        RuntimeError,
+        TimeoutError
+    ) as exc:
+
+        result["reason"] = (
+            "WEEX_MARKET_VERIFICATION_ERROR: "
+            + str(exc)
+        )
+
+    print(
+        "UNIT 8 MARKET CONTRACT VERIFIED =",
+        result["market_verified"],
+        flush=True
+    )
+
+    print(
+        "UNIT 8 MARKET API TRADING ENABLED =",
+        result["api_trading_enabled"],
+        flush=True
+    )
+
+    print(
+        "UNIT 8 DEMO CONTRACT VERIFIED =",
+        result["demo_contract_verified"],
+        flush=True
+    )
+
+    print(
+        "UNIT 8 CONTRACT VERIFICATION REASON =",
+        result["reason"],
+        flush=True
+    )
+
+    return result
+
+
+# ============================================================
+# END UNIT 8 MARKET CONTRACT VERIFICATION
+# ============================================================
+
 def unit_8_symbol_switch_db():
 
     stage_path = os.getenv(
