@@ -9111,6 +9111,13 @@ if (
     # must be completed before a requested change
     # can be activated.
 
+    
+    FRESH_RECONSTRUCTION_CONTRACT_CHECK = (
+        unit_8_verify_market_contract(
+            os.getenv("WEEX_SYMBOL", "BTCUSDT")
+        )
+    )
+
     FRESH_RECONSTRUCTION_SYMBOL_SWITCH_RESULT = (
         unit_8_symbol_switch(
             requested_market=os.getenv(
