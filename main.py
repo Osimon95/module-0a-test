@@ -820,9 +820,10 @@ def fresh_reconstruction_unit_2():
     print("PASS: EXCHANGE = WEEX", flush=True)
     print("PASS: API VERSION = V3", flush=True)
     print(
-        "PASS: DEMO ORDER SYMBOL = BTCSUSDT",
-        flush=True
-    )
+    "UNIT 2 CONFIGURED DEMO ORDER SYMBOL =",
+    exchange["demo_order_symbol"],
+    flush=True
+)
     print(
         "PASS: EXECUTION ENVIRONMENT = DEMO",
         flush=True
