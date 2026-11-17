@@ -20995,6 +20995,118 @@ def scan_refresh_entry_pipeline():
         market,
     )
 
+    
+    # ========================================================
+    # UNIT 8 -> CONTINUOUS SYMBOL SWITCH RECONCILIATION
+    # RUN AFTER FRESH ACCOUNT READ, BEFORE NEW ENTRY
+    # ========================================================
+
+    global FRESH_RECONSTRUCTION_SYMBOL_SWITCH_RESULT
+
+    if (
+        not isinstance(account, dict)
+        or account.get("demo_positions_verified") is not True
+        or not isinstance(account.get("positions"), list)
+    ):
+        raise RuntimeError(
+            "SCAN SYMBOL SWITCH: ACCOUNT POSITIONS UNVERIFIED"
+        )
+
+    requested_market = os.getenv(
+        "WEEX_SYMBOL", "BTCUSDT"
+    ).strip().upper()
+
+    requested_demo = os.getenv(
+        "WEEX_DEMO_SYMBOL", "BTCSUSDT"
+    ).strip().upper()
+
+    # No assumption that a market symbol automatically
+    # proves support for its corresponding demo contract.
+    # A verified demo-contract check must supply True.
+    demo_contract_verified = False
+
+    switch_result = unit_8_symbol_switch(
+        requested_market=requested_market,
+        requested_demo=requested_demo,
+        positions=account["positions"],
+        positions_verified=True,
+        contract_verified=demo_contract_verified,
+    )
+
+    FRESH_RECONSTRUCTION_SYMBOL_SWITCH_RESULT = (
+        switch_result
+    )
+
+    print(
+        "SCAN SYMBOL SWITCH STATUS =",
+        switch_result["status"],
+        flush=True
+    )
+
+    print(
+        "SCAN ACTIVE MARKET SYMBOL =",
+        switch_result["active_market_symbol"],
+        flush=True
+    )
+
+    print(
+        "SCAN ACTIVE DEMO SYMBOL =",
+        switch_result["active_demo_symbol"],
+        flush=True
+    )
+
+    print(
+        "SCAN QUEUED MARKET SYMBOL =",
+        switch_result["queued_market_symbol"],
+        flush=True
+    )
+
+    print(
+        "SCAN QUEUED DEMO SYMBOL =",
+        switch_result["queued_demo_symbol"],
+        flush=True
+    )
+
+    active_market = switch_result[
+        "active_market_symbol"
+    ]
+
+    active_demo = switch_result[
+        "active_demo_symbol"
+    ]
+
+    # Do not mutate the active configuration here:
+    # Units 3 and 4 already used it in this scan.
+    # A new active pair requires a fresh market-data pass.
+
+    if (
+        config["exchange"]["market_symbol"]
+        != active_market
+        or config["exchange"]["demo_order_symbol"]
+        != active_demo
+    ):
+        raise RuntimeError(
+            "SCAN ACTIVE SYMBOL CONFIGURATION MISMATCH"
+        )
+
+    # A queued or unverified symbol request must not
+    # enter Unit 12's new-order submission path.
+    # scan_one_cycle() catches this exception and
+    # continues into existing-position management.
+
+    if (
+        requested_market != active_market
+        or requested_demo != active_demo
+    ):
+        raise RuntimeError(
+            "SCAN NEW ENTRY DEFERRED: "
+            + switch_result["status"]
+        )
+
+    # ========================================================
+    # END SYMBOL RECONCILIATION
+    # ========================================================
+
     # Unit 9: entry sizing
     entry = fresh_reconstruction_unit_9(
         config,
