@@ -8848,6 +8848,88 @@ FRESH_RECONSTRUCTION_ACCOUNT_CANDIDATE = (
     )
 )
 
+
+# ============================================================
+# UNIT 8 - PERSISTENT SYMBOL STATE INTEGRATION
+# EXISTING UNIT 8 OUTPUT REMAINS UNCHANGED
+# ZERO INDENTATION
+# ============================================================
+
+FRESH_RECONSTRUCTION_SYMBOL_SWITCH_RESULT = {
+    "status": "POSITION_VERIFICATION_PENDING",
+    "active_market_symbol": None,
+    "active_demo_symbol": None,
+    "requested_market_symbol": os.getenv(
+        "WEEX_SYMBOL", "BTCUSDT"
+    ).strip().upper(),
+    "requested_demo_symbol": os.getenv(
+        "WEEX_DEMO_SYMBOL", "BTCSUSDT"
+    ).strip().upper(),
+    "queued_market_symbol": None,
+    "queued_demo_symbol": None,
+}
+
+_u8_result = FRESH_RECONSTRUCTION_ACCOUNT_CANDIDATE
+
+if (
+    isinstance(_u8_result, dict)
+    and _u8_result.get("demo_positions_verified") is True
+    and isinstance(_u8_result.get("positions"), list)
+):
+
+    # No new contract is authorized here.
+    # Independent WEEX demo-contract validation
+    # must be completed before a requested change
+    # can be activated.
+
+    FRESH_RECONSTRUCTION_SYMBOL_SWITCH_RESULT = (
+        unit_8_symbol_switch(
+            requested_market=os.getenv(
+                "WEEX_SYMBOL", "BTCUSDT"
+            ),
+            requested_demo=os.getenv(
+                "WEEX_DEMO_SYMBOL", "BTCSUSDT"
+            ),
+            positions=_u8_result["positions"],
+            positions_verified=True,
+            contract_verified=False,
+        )
+    )
+
+print(
+    "UNIT 8 SYMBOL SWITCH STATUS =",
+    FRESH_RECONSTRUCTION_SYMBOL_SWITCH_RESULT["status"],
+    flush=True
+)
+
+print(
+    "UNIT 8 SYMBOL SWITCH ACTIVE MARKET =",
+    FRESH_RECONSTRUCTION_SYMBOL_SWITCH_RESULT[
+        "active_market_symbol"
+    ],
+    flush=True
+)
+
+print(
+    "UNIT 8 SYMBOL SWITCH ACTIVE DEMO =",
+    FRESH_RECONSTRUCTION_SYMBOL_SWITCH_RESULT[
+        "active_demo_symbol"
+    ],
+    flush=True
+)
+
+print(
+    "UNIT 8 SYMBOL SWITCH QUEUED MARKET =",
+    FRESH_RECONSTRUCTION_SYMBOL_SWITCH_RESULT[
+        "queued_market_symbol"
+    ],
+    flush=True
+)
+
+# ============================================================
+# END UNIT 8 SYMBOL STATE INTEGRATION
+# ============================================================
+
 # Original model-compatible Unit 9 input name
 FRESH_RECONSTRUCTION_UNIT_8_RESULT = (
     FRESH_RECONSTRUCTION_ACCOUNT_CANDIDATE
