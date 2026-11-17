@@ -163,6 +163,99 @@ import math
 from decimal import Decimal, InvalidOperation
 
 
+# ============================================================
+# UNIT 2 - READ PERSISTED ACTIVE SYMBOL
+# DOES NOT MODIFY SQLITE OR SUBMIT ORDERS
+# ============================================================
+
+def unit_2_active_symbol_pair():
+
+    import sqlite3
+    import re
+    from pathlib import Path
+
+    requested_market = os.getenv(
+        "WEEX_SYMBOL", "BTCUSDT"
+    ).strip().upper()
+
+    requested_demo = os.getenv(
+        "WEEX_DEMO_SYMBOL", "BTCSUSDT"
+    ).strip().upper()
+
+    result = {
+        "market_symbol": requested_market,
+        "demo_order_symbol": requested_demo,
+        "source": "RENDER_INITIAL_REQUEST",
+        "persisted_state_found": False,
+    }
+
+    stage_path = os.getenv(
+        "UNIT14_STAGE_DB_PATH",
+        "/var/data/unit14_stages.sqlite3"
+    )
+
+    database_path = os.path.join(
+        os.path.dirname(stage_path),
+        "weex_symbol_switch.sqlite3"
+    )
+
+    if not os.path.isfile(database_path):
+        return result
+
+    connection = None
+
+    try:
+        connection = sqlite3.connect(
+            Path(database_path).resolve().as_uri()
+            + "?mode=ro",
+            uri=True,
+            timeout=10
+        )
+
+        row = connection.execute("""
+            SELECT active_market, active_demo
+            FROM symbol_switch
+            WHERE id = 1
+        """).fetchone()
+
+        if row is None:
+            return result
+
+        active_market = str(row[0] or "").upper()
+        active_demo = str(row[1] or "").upper()
+
+        if not (
+            re.fullmatch(
+                r"[A-Z0-9]{3,30}",
+                active_market
+            )
+            and re.fullmatch(
+                r"[A-Z0-9]{3,30}",
+                active_demo
+            )
+        ):
+            raise RuntimeError(
+                "INVALID PERSISTED ACTIVE SYMBOL"
+            )
+
+        result.update({
+            "market_symbol": active_market,
+            "demo_order_symbol": active_demo,
+            "source": "PERSISTED_ACTIVE_SYMBOL",
+            "persisted_state_found": True,
+        })
+
+        return result
+
+    except sqlite3.Error as exc:
+        raise RuntimeError(
+            "UNIT 2 PERSISTED SYMBOL READ FAILED"
+        ) from exc
+
+    finally:
+        if connection is not None:
+            connection.close()
+
 def unit_2_v9_number(value, name, allow_zero=False):
     if isinstance(value, bool):
         raise RuntimeError("UNIT 2 INVALID " + name)
