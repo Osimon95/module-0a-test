@@ -21301,6 +21301,27 @@ def scan_one_cycle():
 
             _scan_traceback.print_exc()
 
+        
+        # --------------------------------------------
+        # DELIVER PENDING SYMBOL SWITCH NOTIFICATIONS
+        # --------------------------------------------
+
+        try:
+            delivered = unit_8_symbol_telegram_flush()
+
+            print(
+                "SCAN SYMBOL TELEGRAM DELIVERED =",
+                delivered,
+                flush=True
+            )
+
+        except Exception as exc:
+            print(
+                "SCAN SYMBOL TELEGRAM ERROR =",
+                repr(exc),
+                flush=True
+            )
+
         print(
             "SCAN FINAL STATUS =",
             SCAN_LAST_STATUS,
