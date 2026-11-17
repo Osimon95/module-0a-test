@@ -392,21 +392,59 @@ def fresh_reconstruction_unit_2():
     # ========================================================
 
     
+    active_symbol_pair = unit_2_active_symbol_pair()
+
     exchange = {
         "name": "WEEX",
         "api_version": "V3",
         "contract_base_url":
             "https://api-contract.weex.com",
-        "market_symbol": (
-            os.getenv("WEEX_SYMBOL", "BTCUSDT")
-            .strip().upper()
-        ),
-        "demo_order_symbol": (
-            os.getenv("WEEX_DEMO_SYMBOL", "BTCSUSDT")
-            .strip().upper()
-        ),
+
+        "market_symbol":
+            active_symbol_pair["market_symbol"],
+
+        "demo_order_symbol":
+            active_symbol_pair["demo_order_symbol"],
+
+        "requested_market_symbol":
+            os.getenv(
+                "WEEX_SYMBOL", "BTCUSDT"
+            ).strip().upper(),
+
+        "requested_demo_symbol":
+            os.getenv(
+                "WEEX_DEMO_SYMBOL", "BTCSUSDT"
+            ).strip().upper(),
+
+        "active_symbol_source":
+            active_symbol_pair["source"],
+
         "symbol_switch_deferred_until_flat": True,
     }
+
+    print(
+        "UNIT 2 ACTIVE MARKET SYMBOL =",
+        exchange["market_symbol"],
+        flush=True
+    )
+
+    print(
+        "UNIT 2 ACTIVE DEMO SYMBOL =",
+        exchange["demo_order_symbol"],
+        flush=True
+    )
+
+    print(
+        "UNIT 2 REQUESTED MARKET SYMBOL =",
+        exchange["requested_market_symbol"],
+        flush=True
+    )
+
+    print(
+        "UNIT 2 REQUESTED DEMO SYMBOL =",
+        exchange["requested_demo_symbol"],
+        flush=True
+    )
 
     safety = {
         "public_market_data_read_enabled": True,
