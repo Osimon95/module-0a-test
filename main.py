@@ -7810,15 +7810,17 @@ def fresh_reconstruction_unit_8(
 
         open_positions = []
 
+        
         for position in positions:
 
             if not isinstance(position, dict):
                 continue
 
-            if position.get("symbol") not in (
-                "BTCSUSDT",
-                "BTCUSDT"
-            ):
+            position_symbol = str(
+                position.get("symbol") or ""
+            ).strip().upper()
+
+            if not position_symbol:
                 continue
 
             size = unit_8_v6_decimal(
@@ -7829,6 +7831,21 @@ def fresh_reconstruction_unit_8(
 
             if size > 0:
                 open_positions.append(position)
+
+        print(
+            "UNIT 8 ACCOUNT-WIDE OPEN POSITIONS =",
+            len(open_positions),
+            flush=True
+        )
+
+        print(
+            "UNIT 8 OPEN POSITION SYMBOLS =",
+            sorted({
+                str(p.get("symbol", "")).upper()
+                for p in open_positions
+            }),
+            flush=True
+        )
 
         output["positions"] = open_positions
         output["demo_positions_verified"] = True
