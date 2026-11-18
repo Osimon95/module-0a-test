@@ -21207,6 +21207,47 @@ def scan_one_cycle():
 
         
         
+        # ====================================================
+        # MANUAL WEEX DEMO POSITION CONTROLLER
+        # Runs before new entries and automatic management.
+        # ====================================================
+
+        control_mode = _scan_os.getenv(
+            "DEMO_POSITION_CONTROL", "OFF"
+        ).strip().upper()
+
+        if control_mode != "OFF":
+
+            try:
+                control_result = dpc_process()
+
+                print(
+                    "SCAN DEMO CONTROL STATUS =",
+                    control_result,
+                    flush=True
+                )
+
+                SCAN_LAST_STATUS = (
+                    "MANUAL_CONTROL:"
+                    + str(control_result)
+                )
+
+            except Exception as exc:
+
+                SCAN_LAST_STATUS = (
+                    "MANUAL_CONTROL_ERROR"
+                )
+
+                print(
+                    "SCAN DEMO CONTROL ERROR =",
+                    repr(exc),
+                    flush=True
+                )
+
+                _scan_traceback.print_exc()
+
+            return
+
         # --------------------------------------------
         # NEW-ENTRY PIPELINE
         # --------------------------------------------
