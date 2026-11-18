@@ -8764,6 +8764,135 @@ def unit_8_verify_market_contract(market_symbol):
 # END UNIT 8 MARKET CONTRACT VERIFICATION
 # ============================================================
 
+
+def unit_8_discover_demo_contract(market_symbol):
+    """
+    Read-only discovery of a matching WEEX demo contract.
+    No Render demo-symbol input and no order submission.
+
+    A symbol is accepted only when WEEX exchange metadata
+    explicitly contains the demo contract.
+    """
+
+    import json
+    import re
+    import urllib.parse
+    import urllib.request
+
+    market = str(market_symbol or "").strip().upper()
+
+    result = {
+        "market_symbol": market,
+        "demo_symbol": None,
+        "verified": False,
+        "reason": "NOT_CHECKED",
+    }
+
+    if not re.fullmatch(r"[A-Z0-9]{3,30}", market):
+        result["reason"] = "INVALID_MARKET_SYMBOL"
+        return result
+
+    market_check = unit_8_verify_market_contract(market)
+
+    if not (
+        market_check.get("market_verified") is True
+        and market_check.get("api_trading_enabled") is True
+    ):
+        result["reason"] = market_check.get(
+            "reason", "MARKET_NOT_VERIFIED"
+        )
+        return result
+
+    try:
+        base_url = (
+            FRESH_RECONSTRUCTION_CONFIG["exchange"]
+            ["contract_base_url"]
+        )
+
+        query = urllib.parse.urlencode({
+            "symbol": market
+        })
+
+        request = urllib.request.Request(
+            base_url + "/capi/v3/market/exchangeInfo"
+            + "?" + query,
+            method="GET",
+            headers={"Accept": "application/json"}
+        )
+
+        with urllib.request.urlopen(
+            request, timeout=15
+        ) as response:
+            if response.getcode() != 200:
+                raise RuntimeError("HTTP_STATUS_INVALID")
+
+            data = json.loads(
+                response.read().decode("utf-8")
+            )
+
+        if not isinstance(data, dict):
+            raise RuntimeError("INVALID_EXCHANGE_INFO")
+
+        symbols = data.get("symbols")
+
+        if not isinstance(symbols, list):
+            raise RuntimeError("SYMBOL_LIST_MISSING")
+
+        # Candidate generation is NOT verification.
+        # Only an exact exchange-listed match is accepted.
+        if market.endswith("USDT"):
+            candidate = market[:-4] + "SUSDT"
+        else:
+            result["reason"] = "UNSUPPORTED_MARKET_FORMAT"
+            return result
+
+        matches = [
+            item for item in symbols
+            if isinstance(item, dict)
+            and str(item.get("symbol", "")).upper()
+            == candidate
+        ]
+
+        if len(matches) != 1:
+            result["reason"] = (
+                "DEMO_CONTRACT_NOT_CONFIRMED_BY_METADATA"
+            )
+            return result
+
+        result.update({
+            "demo_symbol": candidate,
+            "verified": True,
+            "reason": "EXCHANGE_METADATA_MATCH",
+        })
+
+    except Exception as exc:
+        result["reason"] = (
+            "DEMO_DISCOVERY_ERROR: " + str(exc)
+        )
+
+    print(
+        "UNIT 8 AUTO DEMO MARKET =",
+        result["market_symbol"],
+        flush=True
+    )
+    print(
+        "UNIT 8 AUTO DEMO SYMBOL =",
+        result["demo_symbol"],
+        flush=True
+    )
+    print(
+        "UNIT 8 AUTO DEMO VERIFIED =",
+        result["verified"],
+        flush=True
+    )
+    print(
+        "UNIT 8 AUTO DEMO REASON =",
+        result["reason"],
+        flush=True
+    )
+
+    return result
+
 def unit_8_symbol_switch_db():
 
     stage_path = os.getenv(
