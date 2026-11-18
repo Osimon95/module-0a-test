@@ -9025,6 +9025,138 @@ def unit_8_discover_demo_contract(market_symbol):
 
     return result
 
+
+def unit_8_inspect_demo_contract(demo_symbol):
+    """
+    Read-only authenticated contract inspection.
+
+    This is diagnostic evidence, NOT permission
+    to submit a demo order.
+    """
+
+    import os
+    import re
+    import json
+    import time
+    import hmac
+    import base64
+    import hashlib
+    import urllib.parse
+    import urllib.request
+    import urllib.error
+
+    symbol = str(demo_symbol or "").strip().upper()
+
+    result = {
+        "symbol": symbol,
+        "status": "UNVERIFIED",
+        "authenticated_read": False,
+        "symbol_returned": False,
+        "execution_verified": False,
+        "reason": "NOT_CHECKED",
+    }
+
+    if not re.fullmatch(r"[A-Z0-9]{3,30}", symbol):
+        result["reason"] = "INVALID_SYMBOL"
+        return result
+
+    key = os.getenv("WEEX_API_KEY") or os.getenv("API_KEY")
+    secret = os.getenv("WEEX_API_SECRET") or os.getenv("API_SECRET")
+    phrase = (
+        os.getenv("WEEX_API_PASSPHRASE")
+        or os.getenv("API_PASSPHRASE")
+    )
+
+    if not all((key, secret, phrase)):
+        result["reason"] = "API_CREDENTIALS_MISSING"
+        return result
+
+    path = "/capi/v3/account/symbolConfig"
+    query = urllib.parse.urlencode({"symbol": symbol})
+    target = path + "?" + query
+
+    timestamp = str(int(time.time() * 1000))
+    message = timestamp + "GET" + target
+
+    signature = base64.b64encode(
+        hmac.new(
+            secret.encode(),
+            message.encode(),
+            hashlib.sha256
+        ).digest()
+    ).decode()
+
+    request = urllib.request.Request(
+        "https://api-contract.weex.com" + target,
+        method="GET",
+        headers={
+            "ACCESS-KEY": key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-PASSPHRASE": phrase,
+            "ACCESS-TIMESTAMP": timestamp,
+            "Content-Type": "application/json",
+            "locale": "en-US",
+        }
+    )
+
+    try:
+        with urllib.request.urlopen(
+            request, timeout=12
+        ) as response:
+            payload = json.loads(
+                response.read().decode("utf-8")
+            )
+
+        if not isinstance(payload, dict):
+            result["reason"] = "INVALID_RESPONSE_STRUCTURE"
+            return result
+
+        code = payload.get("code")
+
+        if code is not None and str(code) not in (
+            "0", "200", "00000"
+        ):
+            result["reason"] = "WEEX_API_CODE_" + str(code)
+            return result
+
+        result["authenticated_read"] = True
+
+        data = payload.get("data", payload)
+
+        if isinstance(data, dict):
+            returned_symbol = str(
+                data.get("symbol")
+                or data.get("symbolName")
+                or ""
+            ).upper()
+
+            result["symbol_returned"] = (
+                returned_symbol == symbol
+            )
+
+        result["status"] = "READ_COMPLETE"
+        result["reason"] = (
+            "ACCOUNT_CONFIG_SYMBOL_MATCH"
+            if result["symbol_returned"]
+            else "ACCOUNT_CONFIG_SYMBOL_NOT_CONFIRMED"
+        )
+
+    except urllib.error.HTTPError as exc:
+        result["reason"] = "HTTP_" + str(exc.code)
+
+    except Exception as exc:
+        result["reason"] = (
+            "REQUEST_ERROR_" + type(exc).__name__
+        )
+
+    print(
+        "UNIT 8 AUTH DEMO INSPECTION =",
+        result,
+        flush=True
+    )
+
+    return result
+
 def unit_8_symbol_switch_db():
 
     stage_path = os.getenv(
