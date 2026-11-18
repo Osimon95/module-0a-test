@@ -21471,52 +21471,6 @@ def scan_forever():
 
         _scan_time.sleep(sleep_for)
 
-
-# ============================================================
-# 6. START CONTINUOUS SCANNING
-#
-# Runs on the main thread.
-# Unit 15's reporting thread remains independent.
-# ============================================================
-
-# --------------------------------------------
-        # RENDER DEMO POSITION CONTROL
-        # --------------------------------------------
-
-        control_mode = _scan_os.getenv(
-            "DEMO_POSITION_CONTROL", "OFF"
-        ).strip().upper()
-
-        if control_mode != "OFF":
-
-            try:
-                control_result = dpc_process()
-
-                print(
-                    "SCAN DEMO CONTROL STATUS =",
-                    control_result,
-                    flush=True
-                )
-
-            except Exception as exc:
-
-                print(
-                    "SCAN DEMO CONTROL ERROR =",
-                    repr(exc),
-                    flush=True
-                )
-
-                _scan_traceback.print_exc()
-
-            # Manual control has priority.
-            # Do not submit new entries or run
-            # automatic management in this cycle.
-            SCAN_LAST_STATUS = "MANUAL_CONTROL"
-            return
-
-scan_forever()
-
-
 # ============================================================
 # WEEX DEMO POSITION CONTROLLER V1
 # RENDER ENVIRONMENT CONTROL
