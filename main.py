@@ -21012,6 +21012,7 @@ def scan_refresh_entry_pipeline():
             "SCAN SYMBOL SWITCH: ACCOUNT POSITIONS UNVERIFIED"
         )
 
+    
     requested_market = os.getenv(
         "WEEX_SYMBOL", "BTCUSDT"
     ).strip().upper()
@@ -21020,10 +21021,49 @@ def scan_refresh_entry_pipeline():
         "WEEX_DEMO_SYMBOL", "BTCSUSDT"
     ).strip().upper()
 
-    # No assumption that a market symbol automatically
-    # proves support for its corresponding demo contract.
-    # A verified demo-contract check must supply True.
-    demo_contract_verified = False
+    market_check = unit_8_verify_market_contract(
+        requested_market
+    )
+
+    market_verified = (
+        market_check.get("market_verified") is True
+        and market_check.get("api_trading_enabled") is True
+    )
+
+    demo_contract_verified = (
+        market_verified
+        and market_check.get("demo_contract_verified") is True
+    )
+
+    print(
+        "SCAN REQUESTED MARKET SYMBOL =",
+        requested_market,
+        flush=True
+    )
+
+    print(
+        "SCAN REQUESTED DEMO SYMBOL =",
+        requested_demo,
+        flush=True
+    )
+
+    print(
+        "SCAN MARKET CONTRACT VERIFIED =",
+        market_verified,
+        flush=True
+    )
+
+    print(
+        "SCAN DEMO CONTRACT VERIFIED =",
+        demo_contract_verified,
+        flush=True
+    )
+
+    print(
+        "SCAN CONTRACT VALIDATION REASON =",
+        market_check.get("reason"),
+        flush=True
+    )
 
     switch_result = unit_8_symbol_switch(
         requested_market=requested_market,
