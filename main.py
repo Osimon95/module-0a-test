@@ -21146,23 +21146,18 @@ def scan_refresh_entry_pipeline():
         "WEEX_SYMBOL", "BTCUSDT"
     ).strip().upper()
 
-    requested_demo = os.getenv(
-        "WEEX_DEMO_SYMBOL", "BTCSUSDT"
-    ).strip().upper()
-
-    market_check = unit_8_verify_market_contract(
+    discovery = unit_8_discover_demo_contract(
         requested_market
     )
 
-    market_verified = (
-        market_check.get("market_verified") is True
-        and market_check.get("api_trading_enabled") is True
+    requested_demo = (
+        discovery.get("demo_symbol")
+        or config["exchange"]["demo_order_symbol"]
     )
 
-    demo_contract_verified = (
-        market_verified
-        and market_check.get("demo_contract_verified") is True
-    )
+    # Do not authorize demo orders based solely
+    # on public market metadata.
+    demo_contract_verified = False
 
     print(
         "SCAN REQUESTED MARKET SYMBOL =",
@@ -21171,14 +21166,14 @@ def scan_refresh_entry_pipeline():
     )
 
     print(
-        "SCAN REQUESTED DEMO SYMBOL =",
-        requested_demo,
+        "SCAN DISCOVERED DEMO SYMBOL =",
+        discovery.get("demo_symbol"),
         flush=True
     )
 
     print(
-        "SCAN MARKET CONTRACT VERIFIED =",
-        market_verified,
+        "SCAN DEMO DISCOVERY RESULT =",
+        discovery.get("reason"),
         flush=True
     )
 
@@ -21187,13 +21182,6 @@ def scan_refresh_entry_pipeline():
         demo_contract_verified,
         flush=True
     )
-
-    print(
-        "SCAN CONTRACT VALIDATION REASON =",
-        market_check.get("reason"),
-        flush=True
-    )
-
     switch_result = unit_8_symbol_switch(
         requested_market=requested_market,
         requested_demo=requested_demo,
