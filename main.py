@@ -9127,11 +9127,19 @@ def unit_8_symbol_switch(
         requested_demo or ""
     ).strip().upper()
 
-    valid_format = all(
-        re.fullmatch(r"[A-Z0-9]{3,30}", value)
-        for value in (
-            requested_market,
-            requested_demo
+    
+    valid_format = bool(
+        re.fullmatch(
+            r"[A-Z0-9]{3,30}",
+            requested_market
+        )
+    ) and (
+        not requested_demo
+        or bool(
+            re.fullmatch(
+                r"[A-Z0-9]{3,30}",
+                requested_demo
+            )
         )
     )
 
