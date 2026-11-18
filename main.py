@@ -9304,7 +9304,7 @@ def unit_8_symbol_switch(
 
                 status = "SYMBOL_CHANGE_QUEUED"
 
-            elif contract_verified is not True:
+            elif not requested_demo or contract_verified is not True:
 
                 # Account is flat, but the requested
                 # contract is not yet verified.
