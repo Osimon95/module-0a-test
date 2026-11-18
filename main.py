@@ -8767,32 +8767,40 @@ def unit_8_verify_market_contract(market_symbol):
 
 def unit_8_discover_demo_contract(market_symbol):
     """
-    Read-only discovery of a matching WEEX demo contract.
-    No Render demo-symbol input and no order submission.
+    Discover WEEX simulation contract identifiers.
 
-    A symbol is accepted only when WEEX exchange metadata
-    explicitly contains the demo contract.
+    No suffix guessing.
+    No exchange order submission.
+    No automatic execution authorization.
     """
 
     import json
     import re
-    import urllib.parse
     import urllib.request
+    import urllib.error
 
-    market = str(market_symbol or "").strip().upper()
+    market = str(
+        market_symbol or ""
+    ).strip().upper()
 
     result = {
         "market_symbol": market,
         "demo_symbol": None,
         "verified": False,
+        "directory_verified": False,
         "reason": "NOT_CHECKED",
+        "source": None,
+        "matches": [],
+        "errors": [],
     }
 
     if not re.fullmatch(r"[A-Z0-9]{3,30}", market):
         result["reason"] = "INVALID_MARKET_SYMBOL"
         return result
 
-    market_check = unit_8_verify_market_contract(market)
+    market_check = unit_8_verify_market_contract(
+        market
+    )
 
     if not (
         market_check.get("market_verified") is True
@@ -8803,91 +8811,215 @@ def unit_8_discover_demo_contract(market_symbol):
         )
         return result
 
-    try:
-        base_url = (
-            FRESH_RECONSTRUCTION_CONFIG["exchange"]
-            ["contract_base_url"]
-        )
+    endpoints = (
+        (
+            "SIM_EXCHANGE_INFO",
+            "https://api-sim.weex.com"
+            "/capi/v3/market/exchangeInfo"
+        ),
+        (
+            "SIM_TRADING_SYMBOLS",
+            "https://api-sim.weex.com"
+            "/capi/v3/market/apiTradingSymbols"
+        ),
+    )
 
-        query = urllib.parse.urlencode({
-            "symbol": market
-        })
+    def extract_records(payload):
+        """
+        Read records from supported common
+        exchange-response containers.
+        """
 
-        request = urllib.request.Request(
-            base_url + "/capi/v3/market/exchangeInfo"
-            + "?" + query,
-            method="GET",
-            headers={"Accept": "application/json"}
-        )
+        if isinstance(payload, list):
+            return payload
 
-        with urllib.request.urlopen(
-            request, timeout=15
-        ) as response:
-            if response.getcode() != 200:
-                raise RuntimeError("HTTP_STATUS_INVALID")
+        if not isinstance(payload, dict):
+            return []
 
-            data = json.loads(
-                response.read().decode("utf-8")
+        for key in (
+            "symbols",
+            "contracts",
+            "list",
+            "rows",
+        ):
+            value = payload.get(key)
+            if isinstance(value, list):
+                return value
+
+        data = payload.get("data")
+
+        if isinstance(data, list):
+            return data
+
+        if isinstance(data, dict):
+            return extract_records(data)
+
+        return []
+
+    def record_symbol(record):
+        if isinstance(record, str):
+            return record.strip().upper()
+
+        if not isinstance(record, dict):
+            return ""
+
+        for key in (
+            "symbol",
+            "symbolName",
+            "contractSymbol",
+            "contractCode",
+        ):
+            value = record.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip().upper()
+
+        return ""
+
+    def record_market(record):
+        if not isinstance(record, dict):
+            return ""
+
+        for key in (
+            "marketSymbol",
+            "underlyingSymbol",
+            "originSymbol",
+            "sourceSymbol",
+        ):
+            value = record.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip().upper()
+
+        return ""
+
+    discovered = {}
+
+    for source, url in endpoints:
+        try:
+            request = urllib.request.Request(
+                url,
+                headers={
+                    "Accept": "application/json"
+                },
+                method="GET",
             )
 
-        if not isinstance(data, dict):
-            raise RuntimeError("INVALID_EXCHANGE_INFO")
+            with urllib.request.urlopen(
+                request, timeout=15
+            ) as response:
+                status = response.getcode()
+                payload = json.loads(
+                    response.read().decode("utf-8")
+                )
 
-        symbols = data.get("symbols")
+            if status != 200:
+                raise RuntimeError(
+                    "HTTP_" + str(status)
+                )
 
-        if not isinstance(symbols, list):
-            raise RuntimeError("SYMBOL_LIST_MISSING")
+            records = extract_records(payload)
 
-        # Candidate generation is NOT verification.
-        # Only an exact exchange-listed match is accepted.
-        if market.endswith("USDT"):
-            candidate = market[:-4] + "SUSDT"
-        else:
-            result["reason"] = "UNSUPPORTED_MARKET_FORMAT"
-            return result
+            if not records:
+                result["errors"].append(
+                    source + ": NO_SYMBOL_RECORDS"
+                )
+                continue
 
-        matches = [
-            item for item in symbols
-            if isinstance(item, dict)
-            and str(item.get("symbol", "")).upper()
-            == candidate
-        ]
+            for record in records:
+                symbol = record_symbol(record)
 
-        if len(matches) != 1:
-            result["reason"] = (
-                "DEMO_CONTRACT_NOT_CONFIRMED_BY_METADATA"
+                if not symbol:
+                    continue
+
+                underlying = record_market(record)
+
+                # Accept an explicit underlying
+                # relationship or an exact identifier.
+                # Never infer an S suffix.
+                if (
+                    underlying == market
+                    or symbol == market
+                ):
+                    discovered[symbol] = {
+                        "symbol": symbol,
+                        "source": source,
+                        "record": record,
+                    }
+
+        except Exception as exc:
+            result["errors"].append(
+                source + ": " + str(exc)
             )
-            return result
 
-        result.update({
-            "demo_symbol": candidate,
-            "verified": True,
-            "reason": "EXCHANGE_METADATA_MATCH",
-        })
+    result["matches"] = sorted(discovered)
 
-    except Exception as exc:
+    if not discovered:
         result["reason"] = (
-            "DEMO_DISCOVERY_ERROR: " + str(exc)
+            "NO_MATCH_IN_SIMULATION_DIRECTORY"
+        )
+
+    elif len(discovered) > 1:
+        result["reason"] = (
+            "MULTIPLE_SIMULATION_MATCHES"
+        )
+
+    else:
+        symbol, detail = next(
+            iter(discovered.items())
+        )
+
+        result["demo_symbol"] = symbol
+        result["source"] = detail["source"]
+        result["directory_verified"] = True
+
+        # A directory match alone does not
+        # establish authenticated demo-order
+        # execution compatibility.
+        result["verified"] = False
+
+        result["reason"] = (
+            "SIMULATION_DIRECTORY_MATCH_"
+            "EXECUTION_UNVERIFIED"
         )
 
     print(
-        "UNIT 8 AUTO DEMO MARKET =",
-        result["market_symbol"],
+        "UNIT 8 DISCOVERY MARKET =",
+        market,
         flush=True
     )
+
     print(
-        "UNIT 8 AUTO DEMO SYMBOL =",
+        "UNIT 8 DISCOVERY MATCHES =",
+        result["matches"],
+        flush=True
+    )
+
+    print(
+        "UNIT 8 DISCOVERY SYMBOL =",
         result["demo_symbol"],
         flush=True
     )
+
     print(
-        "UNIT 8 AUTO DEMO VERIFIED =",
+        "UNIT 8 DIRECTORY VERIFIED =",
+        result["directory_verified"],
+        flush=True
+    )
+
+    print(
+        "UNIT 8 EXECUTION VERIFIED =",
         result["verified"],
         flush=True
     )
+
     print(
-        "UNIT 8 AUTO DEMO REASON =",
+        "UNIT 8 DISCOVERY REASON =",
         result["reason"],
+        flush=True
+    )
+
+    print(
+        "UNIT 8 DISCOVERY ERRORS =",
+        result["errors"],
         flush=True
     )
 
