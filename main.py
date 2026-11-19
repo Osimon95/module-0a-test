@@ -21522,7 +21522,7 @@ def scan_refresh_entry_pipeline():
 
     # Do not authorize demo orders based solely
     # on public market metadata.
-        demo_diagnostics = (
+    demo_diagnostics = (
         unit_8_demo_contract_diagnostics(
             discovery,
             account
