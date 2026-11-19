@@ -8786,264 +8786,88 @@ def unit_8_verify_market_contract(market_symbol):
 
 def unit_8_discover_demo_contract(market_symbol):
     """
-    Discover WEEX simulation contract identifiers.
+    Generate a WEEX demo-order symbol candidate.
 
-    No suffix guessing.
-    No exchange order submission.
-    No automatic execution authorization.
+    Uses the original working model's base_coin
+    + SUSDT convention.
+
+    Candidate readiness does not claim that an
+    exchange order has been accepted.
     """
-
-    import json
+    import os
     import re
-    import urllib.request
-    import urllib.error
 
-    market = str(
-        market_symbol or ""
-    ).strip().upper()
+    market = str(market_symbol or "").strip().upper()
+    market = market.replace("/", "").replace("-", "")
 
     result = {
         "market_symbol": market,
         "demo_symbol": None,
         "verified": False,
         "directory_verified": False,
+        "candidate_ready": False,
         "reason": "NOT_CHECKED",
         "source": None,
         "matches": [],
         "errors": [],
     }
 
-    if not re.fullmatch(r"[A-Z0-9]{3,30}", market):
+    if not re.fullmatch(r"[A-Z0-9]{2,20}USDT", market):
         result["reason"] = "INVALID_MARKET_SYMBOL"
         return result
 
-    market_check = unit_8_verify_market_contract(
-        market
+    base_coin = market[:-4]
+
+    override = os.getenv(
+        "WEEX_DEMO_ORDER_SYMBOL", ""
+    ).strip().upper()
+
+    candidate = (
+        override if override
+        else base_coin + "SUSDT"
     )
 
-    if not (
-        market_check.get("market_verified") is True
-        and market_check.get("api_trading_enabled") is True
-    ):
-        result["reason"] = market_check.get(
-            "reason", "MARKET_NOT_VERIFIED"
-        )
+    if not re.fullmatch(r"[A-Z0-9]{3,30}", candidate):
+        result["reason"] = "INVALID_DEMO_CANDIDATE"
         return result
 
-    endpoints = (
-        (
-            "SIM_EXCHANGE_INFO",
-            "https://api-sim.weex.com"
-            "/capi/v3/market/exchangeInfo"
-        ),
-        (
-            "SIM_TRADING_SYMBOLS",
-            "https://api-sim.weex.com"
-            "/capi/v3/market/apiTradingSymbols"
-        ),
+    result["demo_symbol"] = candidate
+    result["candidate_ready"] = True
+    result["matches"] = [candidate]
+
+    result["source"] = (
+        "RENDER_OVERRIDE"
+        if override
+        else "ORIGINAL_MODEL_SUSDT_MAPPING"
     )
 
-    def extract_records(payload):
-        """
-        Read records from supported common
-        exchange-response containers.
-        """
-
-        if isinstance(payload, list):
-            return payload
-
-        if not isinstance(payload, dict):
-            return []
-
-        for key in (
-            "symbols",
-            "contracts",
-            "list",
-            "rows",
-        ):
-            value = payload.get(key)
-            if isinstance(value, list):
-                return value
-
-        data = payload.get("data")
-
-        if isinstance(data, list):
-            return data
-
-        if isinstance(data, dict):
-            return extract_records(data)
-
-        return []
-
-    def record_symbol(record):
-        if isinstance(record, str):
-            return record.strip().upper()
-
-        if not isinstance(record, dict):
-            return ""
-
-        for key in (
-            "symbol",
-            "symbolName",
-            "contractSymbol",
-            "contractCode",
-        ):
-            value = record.get(key)
-            if isinstance(value, str) and value.strip():
-                return value.strip().upper()
-
-        return ""
-
-    def record_market(record):
-        if not isinstance(record, dict):
-            return ""
-
-        for key in (
-            "marketSymbol",
-            "underlyingSymbol",
-            "originSymbol",
-            "sourceSymbol",
-        ):
-            value = record.get(key)
-            if isinstance(value, str) and value.strip():
-                return value.strip().upper()
-
-        return ""
-
-    discovered = {}
-
-    for source, url in endpoints:
-        try:
-            request = urllib.request.Request(
-                url,
-                headers={
-                    "Accept": "application/json"
-                },
-                method="GET",
-            )
-
-            with urllib.request.urlopen(
-                request, timeout=15
-            ) as response:
-                status = response.getcode()
-                payload = json.loads(
-                    response.read().decode("utf-8")
-                )
-
-            if status != 200:
-                raise RuntimeError(
-                    "HTTP_" + str(status)
-                )
-
-            records = extract_records(payload)
-
-            if not records:
-                result["errors"].append(
-                    source + ": NO_SYMBOL_RECORDS"
-                )
-                continue
-
-            for record in records:
-                symbol = record_symbol(record)
-
-                if not symbol:
-                    continue
-
-                underlying = record_market(record)
-
-                # Accept an explicit underlying
-                # relationship or an exact identifier.
-                # Never infer an S suffix.
-                if (
-                    underlying == market
-                    or symbol == market
-                ):
-                    discovered[symbol] = {
-                        "symbol": symbol,
-                        "source": source,
-                        "record": record,
-                    }
-
-        except Exception as exc:
-            result["errors"].append(
-                source + ": " + str(exc)
-            )
-
-    result["matches"] = sorted(discovered)
-
-    if not discovered:
-        result["reason"] = (
-            "NO_MATCH_IN_SIMULATION_DIRECTORY"
-        )
-
-    elif len(discovered) > 1:
-        result["reason"] = (
-            "MULTIPLE_SIMULATION_MATCHES"
-        )
-
-    else:
-        symbol, detail = next(
-            iter(discovered.items())
-        )
-
-        result["demo_symbol"] = symbol
-        result["source"] = detail["source"]
-        result["directory_verified"] = True
-
-        # A directory match alone does not
-        # establish authenticated demo-order
-        # execution compatibility.
-        result["verified"] = False
-
-        result["reason"] = (
-            "SIMULATION_DIRECTORY_MATCH_"
-            "EXECUTION_UNVERIFIED"
-        )
+    result["reason"] = "DEMO_CANDIDATE_READY"
 
     print(
         "UNIT 8 DISCOVERY MARKET =",
         market,
         flush=True
     )
-
-    print(
-        "UNIT 8 DISCOVERY MATCHES =",
-        result["matches"],
-        flush=True
-    )
-
     print(
         "UNIT 8 DISCOVERY SYMBOL =",
-        result["demo_symbol"],
+        candidate,
         flush=True
     )
-
     print(
-        "UNIT 8 DIRECTORY VERIFIED =",
-        result["directory_verified"],
+        "UNIT 8 CANDIDATE READY = True",
         flush=True
     )
-
     print(
-        "UNIT 8 EXECUTION VERIFIED =",
-        result["verified"],
+        "UNIT 8 CANDIDATE SOURCE =",
+        result["source"],
         flush=True
     )
-
     print(
-        "UNIT 8 DISCOVERY REASON =",
-        result["reason"],
-        flush=True
-    )
-
-    print(
-        "UNIT 8 DISCOVERY ERRORS =",
-        result["errors"],
+        "UNIT 8 EXECUTION VERIFIED = False",
         flush=True
     )
 
     return result
-
 
 def unit_8_inspect_demo_contract(demo_symbol):
     """
