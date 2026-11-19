@@ -10763,9 +10763,13 @@ def fresh_reconstruction_unit_10(
         config.get("execution_environment") != "DEMO"
         or exchange.get("name") != "WEEX"
         or exchange.get("api_version") != "V3"
-        or exchange.get("market_symbol") != "BTCUSDT"
-        or exchange.get("demo_order_symbol")
-            != "BTCSUSDT"
+        or not str(
+    exchange.get("market_symbol", "")
+).strip().upper().endswith("USDT")
+or not str(
+    exchange.get("demo_order_symbol", "")
+).strip().upper().endswith("SUSDT")
+        
     ):
         raise RuntimeError(
             "UNIT 10 WEEX DEMO CONFIG INVALID"
