@@ -9158,16 +9158,10 @@ def unit_8_inspect_demo_contract(demo_symbol):
     return result
 
 
-def unit_8_demo_contract_diagnostics(
-    discovery,
-    account
-):
+def unit_8_demo_contract_diagnostics(discovery, account, inspection=None):
     """
-    Report evidence available for the requested
-    simulation contract.
-
-    Never infer authenticated demo-order
-    permission from directory discovery alone.
+    Combine directory and authenticated account evidence.
+    Never infer demo-order permission from read-only checks.
     """
 
     result = {
@@ -9175,6 +9169,8 @@ def unit_8_demo_contract_diagnostics(
         "directory_verified": False,
         "account_verified": False,
         "positions_verified": False,
+        "authenticated_read": False,
+        "authenticated_symbol_match": False,
         "execution_verified": False,
         "status": "UNVERIFIED",
     }
@@ -9205,6 +9201,19 @@ def unit_8_demo_contract_diagnostics(
         account.get("demo_positions_verified") is True
     )
 
+    if (
+        isinstance(inspection, dict)
+        and inspection.get("symbol") == symbol
+    ):
+        result["authenticated_read"] = (
+            inspection.get("authenticated_read") is True
+        )
+
+        result["authenticated_symbol_match"] = (
+            result["authenticated_read"]
+            and inspection.get("symbol_returned") is True
+        )
+
     if not result["directory_verified"]:
         result["status"] = "DIRECTORY_UNVERIFIED"
 
@@ -9214,9 +9223,12 @@ def unit_8_demo_contract_diagnostics(
     elif not result["positions_verified"]:
         result["status"] = "POSITIONS_UNVERIFIED"
 
+    elif not result["authenticated_symbol_match"]:
+        result["status"] = "AUTHENTICATED_SYMBOL_UNVERIFIED"
+
     else:
         result["status"] = (
-            "DIRECTORY_AND_ACCOUNT_READS_PASS_"
+            "ACCOUNT_SYMBOL_RECOGNIZED_"
             "ORDER_PERMISSION_UNVERIFIED"
         )
 
@@ -9227,7 +9239,7 @@ def unit_8_demo_contract_diagnostics(
     )
 
     return result
-
+    
 def unit_8_symbol_switch_db():
 
     stage_path = os.getenv(
