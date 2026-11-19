@@ -21607,6 +21607,18 @@ def scan_refresh_entry_pipeline():
         demo_diagnostics["execution_verified"]
     )
 
+    
+    switch_result = unit_8_symbol_switch(
+        requested_market=requested_market,
+        requested_demo=requested_demo,
+        positions=account["positions"],
+        positions_verified=account["demo_positions_verified"],
+        contract_verified=demo_contract_verified,
+    )
+
+    FRESH_RECONSTRUCTION_SYMBOL_SWITCH_RESULT = switch_result
+
+
     print(
         "SCAN AUTHENTICATED DEMO SYMBOL MATCH =",
         demo_diagnostics["authenticated_symbol_match"],
