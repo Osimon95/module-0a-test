@@ -21445,7 +21445,7 @@ def scan_refresh_entry_pipeline():
 
     global FRESH_RECONSTRUCTION_MARKET_SNAPSHOT
 
-FRESH_RECONSTRUCTION_MARKET_SNAPSHOT = (
+    FRESH_RECONSTRUCTION_MARKET_SNAPSHOT = (
         fresh_reconstruction_unit_3()
     )
 
