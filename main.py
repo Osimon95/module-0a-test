@@ -21532,57 +21532,36 @@ def scan_refresh_entry_pipeline():
         discovery.get("demo_symbol") or ""
     ).strip().upper()
 
-    # Do not authorize demo orders based solely
-    # on public market metadata.
-    demo_diagnostics = (
-        unit_8_demo_contract_diagnostics(
-            discovery,
-            account
-        )
+    
+    # Authenticated demo contract inspection.
+    # Read-only verification, not order authorization.
+
+    inspection = (
+        unit_8_inspect_demo_contract(requested_demo)
+        if requested_demo else None
     )
-    demo_contract_verified = False
+
+    demo_diagnostics = unit_8_demo_contract_diagnostics(
+        discovery,
+        account,
+        inspection
+    )
+
+    demo_contract_verified = (
+        demo_diagnostics["execution_verified"]
+    )
 
     print(
-        "SCAN REQUESTED MARKET SYMBOL =",
-        requested_market,
+        "SCAN AUTHENTICATED DEMO SYMBOL MATCH =",
+        demo_diagnostics["authenticated_symbol_match"],
         flush=True
     )
 
     print(
-        "SCAN DISCOVERED DEMO SYMBOL =",
-        discovery.get("demo_symbol"),
+        "SCAN DEMO CONTRACT DIAGNOSTIC STATUS =",
+        demo_diagnostics["status"],
         flush=True
     )
-
-    print(
-        "SCAN DEMO DISCOVERY RESULT =",
-        discovery.get("reason"),
-        flush=True
-    )
-
-    print(
-        "SCAN DEMO CONTRACT VERIFIED =",
-        demo_contract_verified,
-        flush=True
-    )
-    switch_result = unit_8_symbol_switch(
-        requested_market=requested_market,
-        requested_demo=requested_demo,
-        positions=account["positions"],
-        positions_verified=True,
-        contract_verified=demo_contract_verified,
-    )
-
-    FRESH_RECONSTRUCTION_SYMBOL_SWITCH_RESULT = (
-        switch_result
-    )
-
-    print(
-        "SCAN SYMBOL SWITCH STATUS =",
-        switch_result["status"],
-        flush=True
-    )
-
     print(
         "SCAN ACTIVE MARKET SYMBOL =",
         switch_result["active_market_symbol"],
