@@ -174,12 +174,17 @@ def unit_2_active_symbol_pair():
     import re
     from pathlib import Path
 
+    
     requested_market = os.getenv(
         "WEEX_SYMBOL", "BTCUSDT"
     ).strip().upper()
 
+    # Preserve BTC demo mapping.
+    # Other symbols require discovery and verification.
+
     requested_demo = os.getenv(
-        "WEEX_DEMO_SYMBOL", "BTCSUSDT"
+        "WEEX_DEMO_SYMBOL",
+        "BTCSUSDT" if requested_market == "BTCUSDT" else ""
     ).strip().upper()
 
     result = {
