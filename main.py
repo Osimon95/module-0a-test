@@ -229,6 +229,20 @@ def unit_2_active_symbol_pair():
         active_market = str(row[0] or "").upper()
         active_demo = str(row[1] or "").upper()
 
+        
+        # First-start initialization may have no
+        # verified active pair yet.
+
+        if not active_market and not active_demo:
+            result["source"] = "PENDING_DEMO_VERIFICATION"
+            result["persisted_state_found"] = True
+            return result
+
+        if not active_market or not active_demo:
+            raise RuntimeError(
+                "INCOMPLETE PERSISTED ACTIVE SYMBOL"
+            )
+
         if not (
             re.fullmatch(
                 r"[A-Z0-9]{3,30}",
