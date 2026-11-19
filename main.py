@@ -11724,9 +11724,16 @@ def fresh_reconstruction_unit_11(
         config.get("execution_environment") != "DEMO"
         or exchange.get("name") != "WEEX"
         or exchange.get("api_version") != "V3"
-        or exchange.get("market_symbol") != "BTCUSDT"
-        or exchange.get("demo_order_symbol")
-            != "BTCSUSDT"
+        or not str(
+    exchange.get("market_symbol", "")
+).strip().upper().endswith("USDT")
+or str(
+    exchange.get("demo_order_symbol", "")
+).strip().upper() != (
+    str(
+        exchange.get("market_symbol", "")
+    ).strip().upper()[:-4] + "SUSDT"
+)
     ):
         raise RuntimeError(
             "UNIT 11 DEMO ENVIRONMENT INVALID"
