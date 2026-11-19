@@ -12753,7 +12753,9 @@ def unit_12_v5_config_check(config):
             "UNIT 12 CONFIG SECTIONS MISSING"
         )
 
-        market_symbol = str(
+            exchange = config.get("exchange", {})
+
+    market_symbol = str(
         exchange.get("market_symbol", "")
     ).strip().upper()
 
@@ -12780,7 +12782,6 @@ def unit_12_v5_config_check(config):
         )
 
     return True
-
 
 # ============================================================
 # 5. VALIDATE UNIT 11 READY PAYLOAD
