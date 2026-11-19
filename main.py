@@ -9294,13 +9294,34 @@ def unit_8_symbol_switch(
             WHERE id = 1
         """).fetchone()
 
-        # Preserve the previously configured baseline.
-        # Initialization is NOT exchange verification.
+        
+        # First initialization must never promote an
+        # unverified requested symbol into active state.
+
         if row is None:
 
             if not valid_format:
                 raise RuntimeError(
                     "INITIAL WEEX SYMBOL FORMAT INVALID"
+                )
+
+            baseline_market = "BTCUSDT"
+            baseline_demo = "BTCSUSDT"
+
+            # This baseline preserves the previously
+            # configured BTC pair. It does not claim
+            # new exchange verification.
+
+            initial_queued_market = None
+            initial_queued_demo = None
+
+            if (
+                requested_market != baseline_market
+                or requested_demo != baseline_demo
+            ):
+                initial_queued_market = requested_market
+                initial_queued_demo = (
+                    requested_demo or None
                 )
 
             db.execute("""
@@ -9312,18 +9333,20 @@ def unit_8_symbol_switch(
                     queued_demo,
                     updated_at
                 )
-                VALUES (1, ?, ?, NULL, NULL, ?)
+                VALUES (1, ?, ?, ?, ?, ?)
             """, (
-                requested_market,
-                requested_demo,
+                baseline_market,
+                baseline_demo,
+                initial_queued_market,
+                initial_queued_demo,
                 now
             ))
 
             row = (
-                requested_market,
-                requested_demo,
-                None,
-                None
+                baseline_market,
+                baseline_demo,
+                initial_queued_market,
+                initial_queued_demo
             )
 
         active_market, active_demo, queued_market, queued_demo = row
