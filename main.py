@@ -12753,7 +12753,7 @@ def unit_12_v5_config_check(config):
             "UNIT 12 CONFIG SECTIONS MISSING"
         )
 
-            exchange = config.get("exchange", {})
+    exchange = config.get("exchange", {})
 
     market_symbol = str(
         exchange.get("market_symbol", "")
