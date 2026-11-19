@@ -9157,6 +9157,77 @@ def unit_8_inspect_demo_contract(demo_symbol):
 
     return result
 
+
+def unit_8_demo_contract_diagnostics(
+    discovery,
+    account
+):
+    """
+    Report evidence available for the requested
+    simulation contract.
+
+    Never infer authenticated demo-order
+    permission from directory discovery alone.
+    """
+
+    result = {
+        "demo_symbol": "",
+        "directory_verified": False,
+        "account_verified": False,
+        "positions_verified": False,
+        "execution_verified": False,
+        "status": "UNVERIFIED",
+    }
+
+    if not isinstance(discovery, dict):
+        result["status"] = "INVALID_DISCOVERY"
+        return result
+
+    if not isinstance(account, dict):
+        result["status"] = "INVALID_ACCOUNT"
+        return result
+
+    symbol = str(
+        discovery.get("demo_symbol") or ""
+    ).strip().upper()
+
+    result["demo_symbol"] = symbol
+
+    result["directory_verified"] = (
+        discovery.get("directory_verified") is True
+    )
+
+    result["account_verified"] = (
+        account.get("demo_balance_verified") is True
+    )
+
+    result["positions_verified"] = (
+        account.get("demo_positions_verified") is True
+    )
+
+    if not result["directory_verified"]:
+        result["status"] = "DIRECTORY_UNVERIFIED"
+
+    elif not result["account_verified"]:
+        result["status"] = "ACCOUNT_UNVERIFIED"
+
+    elif not result["positions_verified"]:
+        result["status"] = "POSITIONS_UNVERIFIED"
+
+    else:
+        result["status"] = (
+            "DIRECTORY_AND_ACCOUNT_READS_PASS_"
+            "ORDER_PERMISSION_UNVERIFIED"
+        )
+
+    print(
+        "UNIT 8 DEMO CONTRACT DIAGNOSTICS =",
+        result,
+        flush=True
+    )
+
+    return result
+
 def unit_8_symbol_switch_db():
 
     stage_path = os.getenv(
@@ -21448,10 +21519,6 @@ def scan_refresh_entry_pipeline():
         requested_demo = str(
         discovery.get("demo_symbol") or ""
     ).strip().upper()
-    requested_demo = (
-        discovery.get("demo_symbol")
-        or config["exchange"]["demo_order_symbol"]
-    )
 
     # Do not authorize demo orders based solely
     # on public market metadata.
