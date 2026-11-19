@@ -11361,13 +11361,24 @@ def unit_10_validation_v3():
         == "UNIT9_V4_DYNAMIC_ENTRY"
     )
 
+        exchange = config.get("exchange", {})
+
+    market_symbol = str(
+        exchange.get("market_symbol", "")
+    ).strip().upper()
+
+    demo_symbol = str(
+        exchange.get("demo_order_symbol", "")
+    ).strip().upper()
+
     record(
         "WEEX DEMO CONFIGURATION",
-        config.get("execution_environment")
-        == "DEMO"
-        and config.get("exchange", {}).get(
-            "demo_order_symbol"
-        ) == "BTCSUSDT"
+        config.get("execution_environment") == "DEMO"
+        and market_symbol.endswith("USDT")
+        and len(market_symbol) > 4
+        and demo_symbol == (
+            market_symbol[:-4] + "SUSDT"
+        )
     )
 
     record(
