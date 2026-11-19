@@ -14533,7 +14533,7 @@ def fresh_reconstruction_unit_13(
     strategy = config.get("strategy", {})
     precision = config.get("market_precision", {})
 
-        if (
+    if (
         config.get("execution_environment") != "DEMO"
         or exchange.get("name") != "WEEX"
         or exchange.get("api_version") != "V3"
