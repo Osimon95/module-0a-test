@@ -9157,7 +9157,8 @@ def unit_8_symbol_switch(
     requested_demo,
     positions,
     positions_verified,
-    contract_verified=False
+    contract_verified=False,
+    candidate_ready=False
 ):
     """
     Persistent WEEX demo symbol-switch controller.
