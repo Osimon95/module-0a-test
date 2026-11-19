@@ -9508,6 +9508,8 @@ def unit_8_symbol_switch(
             
             elif (
                 requested_pair == active_pair
+                and bool(active_market)
+                and bool(active_demo)
                 and contract_verified is True
             ):
 
