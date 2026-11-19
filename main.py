@@ -11361,7 +11361,7 @@ def unit_10_validation_v3():
         == "UNIT9_V4_DYNAMIC_ENTRY"
     )
 
-        exchange = config.get("exchange", {})
+    exchange = config.get("exchange", {})
 
     market_symbol = str(
         exchange.get("market_symbol", "")
