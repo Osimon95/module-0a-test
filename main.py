@@ -9500,7 +9500,11 @@ def unit_8_symbol_switch(
                 # on every scan: no event is emitted
                 # here until validation is integrated.
 
-            elif requested_pair == active_pair:
+            
+            elif (
+                requested_pair == active_pair
+                and contract_verified is True
+            ):
 
                 if queued_market is not None:
 
