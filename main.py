@@ -21443,6 +21443,9 @@ def scan_refresh_entry_pipeline():
         positions=account["positions"],
         positions_verified=account["demo_positions_verified"],
         contract_verified=demo_contract_verified,
+        candidate_ready=(
+        discovery.get("candidate_ready") is True
+    ),
     )
 
     FRESH_RECONSTRUCTION_SYMBOL_SWITCH_RESULT = switch_result
