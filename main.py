@@ -21516,7 +21516,7 @@ def scan_refresh_entry_pipeline():
         requested_market
     )
 
-        requested_demo = str(
+    requested_demo = str(
         discovery.get("demo_symbol") or ""
     ).strip().upper()
 
