@@ -14533,12 +14533,12 @@ def fresh_reconstruction_unit_13(
     strategy = config.get("strategy", {})
     precision = config.get("market_precision", {})
 
-    if (
+        if (
         config.get("execution_environment") != "DEMO"
         or exchange.get("name") != "WEEX"
         or exchange.get("api_version") != "V3"
-        or exchange.get("market_symbol") != "BTCUSDT"
-        or exchange.get("demo_order_symbol") != "BTCSUSDT"
+        or not str(exchange.get("market_symbol") or "").strip()
+        or not str(exchange.get("demo_order_symbol") or "").strip()
     ):
         raise RuntimeError(
             "UNIT 13 NON-DEMO CONTRACT BLOCKED"
