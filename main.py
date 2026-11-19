@@ -9393,24 +9393,15 @@ def unit_8_symbol_switch(
                     "INITIAL WEEX SYMBOL FORMAT INVALID"
                 )
 
-            baseline_market = "BTCUSDT"
-            baseline_demo = "BTCSUSDT"
+            
+            # No assumed active contract on first startup.
+            # Preserve the requested pair as pending.
 
-            # This baseline preserves the previously
-            # configured BTC pair. It does not claim
-            # new exchange verification.
+            initial_active_market = ""
+            initial_active_demo = ""
 
-            initial_queued_market = None
-            initial_queued_demo = None
-
-            if (
-                requested_market != baseline_market
-                or requested_demo != baseline_demo
-            ):
-                initial_queued_market = requested_market
-                initial_queued_demo = (
-                    requested_demo or None
-                )
+            initial_queued_market = requested_market
+            initial_queued_demo = requested_demo or None
 
             db.execute("""
                 INSERT INTO symbol_switch (
@@ -9423,16 +9414,16 @@ def unit_8_symbol_switch(
                 )
                 VALUES (1, ?, ?, ?, ?, ?)
             """, (
-                baseline_market,
-                baseline_demo,
+                initial_active_market,
+                initial_active_demo,
                 initial_queued_market,
                 initial_queued_demo,
                 now
             ))
 
             row = (
-                baseline_market,
-                baseline_demo,
+                initial_active_market,
+                initial_active_demo,
                 initial_queued_market,
                 initial_queued_demo
             )
