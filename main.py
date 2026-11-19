@@ -9459,6 +9459,9 @@ def unit_8_symbol_switch(
             queued_demo
         )
 
+        
+        occupied = True
+
         if (
             positions_verified is not True
             or not isinstance(positions, list)
