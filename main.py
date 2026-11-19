@@ -21448,9 +21448,46 @@ def scan_idle_unit12_result(reason):
 # Does not rerun unit validation tests.
 # ============================================================
 
+
 def scan_refresh_entry_pipeline():
 
     config = FRESH_RECONSTRUCTION_CONFIG
+
+    # Refresh the active market/demo pair from SQLite
+    # before fetching new market data.
+
+    active_pair = unit_2_active_symbol_pair()
+
+    active_market = active_pair["market_symbol"]
+    active_demo = active_pair["demo_order_symbol"]
+
+    if not active_market or not active_demo:
+        raise RuntimeError(
+            "SCAN ACTIVE SYMBOL PAIR MISSING"
+        )
+
+    if not isinstance(config.get("exchange"), dict):
+        raise RuntimeError(
+            "SCAN EXCHANGE CONFIGURATION INVALID"
+        )
+
+    config["exchange"]["market_symbol"] = active_market
+    config["exchange"]["demo_order_symbol"] = active_demo
+    config["exchange"]["active_symbol_source"] = (
+        active_pair["source"]
+    )
+
+    print(
+        "SCAN REFRESHED ACTIVE MARKET =",
+        active_market,
+        flush=True
+    )
+
+    print(
+        "SCAN REFRESHED ACTIVE DEMO =",
+        active_demo,
+        flush=True
+    )
     
     # UNIT 3 -> UNIT 4 FRESH MARKET HANDOVER
     # Unit 4 reads this global snapshot directly.
