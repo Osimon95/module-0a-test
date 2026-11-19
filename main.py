@@ -12753,18 +12753,27 @@ def unit_12_v5_config_check(config):
             "UNIT 12 CONFIG SECTIONS MISSING"
         )
 
+        market_symbol = str(
+        exchange.get("market_symbol", "")
+    ).strip().upper()
+
+    demo_symbol = str(
+        exchange.get("demo_order_symbol", "")
+    ).strip().upper()
+
+    expected_demo_symbol = (
+        market_symbol[:-4] + "SUSDT"
+        if market_symbol.endswith("USDT")
+        and len(market_symbol) > 4
+        else ""
+    )
+
     if (
-        config.get(
-            "execution_environment"
-        ) != "DEMO"
+        config.get("execution_environment") != "DEMO"
         or exchange.get("name") != "WEEX"
         or exchange.get("api_version") != "V3"
-        or exchange.get(
-            "market_symbol"
-        ) != "BTCUSDT"
-        or exchange.get(
-            "demo_order_symbol"
-        ) != UNIT_12_V5_SYMBOL
+        or not expected_demo_symbol
+        or demo_symbol != expected_demo_symbol
     ):
         raise RuntimeError(
             "UNIT 12 NON-DEMO CONFIG BLOCKED"
