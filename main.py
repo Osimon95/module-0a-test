@@ -21445,6 +21445,9 @@ def scan_refresh_entry_pipeline():
         requested_market
     )
 
+        requested_demo = str(
+        discovery.get("demo_symbol") or ""
+    ).strip().upper()
     requested_demo = (
         discovery.get("demo_symbol")
         or config["exchange"]["demo_order_symbol"]
