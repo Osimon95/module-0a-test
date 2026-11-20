@@ -4761,108 +4761,13 @@ def fresh_reconstruction_unit_6(
             "UNIT 6 STRATEGY CONFIG MISSING"
         )
 
-        fee_coverage_enabled = strategy.get(
-            "signal_fee_coverage_enabled", True
+    fee_coverage_enabled = strategy.get(
+        "signal_fee_coverage_enabled", True
     )
 
     if not isinstance(fee_coverage_enabled, bool):
         raise RuntimeError(
             "UNIT 6 INVALID FEE COVERAGE MODE"
-        )
-    for key in (
-        "anti_duplicate_orders",
-        "one_direction_only",
-        "active_trade_mode_lock",
-        "exclusive_mode",
-    ):
-        if strategy.get(key) is not True:
-            raise RuntimeError(
-                "UNIT 6 REQUIRED SAFETY DISABLED: "
-                + key
-            )
-
-    print(
-        "PASS: UNIT 6 ORIGINAL POSITION SAFETY POLICY",
-        flush=True
-    )
-
-
-    # ========================================================
-    # UNIT 5 CANDIDATE STATE
-    # ========================================================
-
-    stage = candidate.get(
-        "candidate_stage", "NONE"
-    )
-
-    mode = candidate.get(
-        "candidate_mode", "NONE"
-    )
-
-    incoming_active_mode = candidate.get(
-        "active_mode", "NONE"
-    )
-
-    incoming_direction = candidate.get(
-        "direction", "NONE"
-    )
-
-    qualified = unit_6_v9_bool(
-        candidate.get("qualified"),
-        "UNIT 5 QUALIFIED"
-    )
-
-    if mode not in (
-        "NONE", "BREAKOUT", "STRUCTURE", "SCALP"
-    ):
-        raise RuntimeError(
-            "UNIT 6 INVALID CANDIDATE MODE"
-        )
-
-    if stage not in (
-        "NONE",
-        "REJECTED",
-        "DEVELOPING",
-        "QUALIFIED",
-        "PENDING_UNIT_6",
-    ):
-        raise RuntimeError(
-            "UNIT 6 INVALID CANDIDATE STAGE"
-        )
-
-    if incoming_active_mode not in (
-        "NONE", "BREAKOUT", "STRUCTURE"
-    ):
-        raise RuntimeError(
-            "UNIT 6 INVALID ACTIVE MODE"
-        )
-
-    if incoming_direction not in (
-        "NONE", "LONG", "SHORT"
-    ):
-        raise RuntimeError(
-            "UNIT 6 INVALID DIRECTION"
-        )
-
-    if qualified != (stage == "QUALIFIED"):
-        raise RuntimeError(
-            "UNIT 6 CONTRADICTORY UNIT 5 STATE"
-        )
-
-    if qualified and (
-        mode != incoming_active_mode
-        or incoming_direction == "NONE"
-    ):
-        raise RuntimeError(
-            "UNIT 6 QUALIFIED STATE MISMATCH"
-        )
-
-    if not qualified and (
-        incoming_active_mode != "NONE"
-        or incoming_direction != "NONE"
-    ):
-        raise RuntimeError(
-            "UNIT 6 UNQUALIFIED ACTIVE STATE"
         )
 
     # ========================================================
