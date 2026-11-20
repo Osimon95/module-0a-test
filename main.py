@@ -9057,7 +9057,7 @@ def unit_8_demo_contract_diagnostics(discovery, account, inspection=None):
         )
 
     if not result["directory_verified"]:
-    result["status"] = "DEMO_CANDIDATE_UNVERIFIED"
+        result["status"] = "DEMO_CANDIDATE_UNVERIFIED"
 
     elif not result["account_verified"]:
         result["status"] = "ACCOUNT_UNVERIFIED"
