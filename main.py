@@ -5346,6 +5346,21 @@ def fresh_reconstruction_unit_6(
         and mode in ("BREAKOUT", "STRUCTURE")
         and not fee_estimate_verified
     ):
+            elif (
+        fee_coverage_enabled
+        and stage == "QUALIFIED"
+        and mode in ("BREAKOUT", "STRUCTURE")
+        and not fee_estimate_verified
+    ):
+        admission_reason = "QUALIFIED_MODE_FEES_NOT_VERIFIED"
+
+    elif (
+        fee_coverage_enabled
+        and stage == "QUALIFIED"
+        and mode in ("BREAKOUT", "STRUCTURE")
+        and not fee_coverage_pass
+    ):
+        admission_reason = "QUALIFIED_MODE_FEE_COVERAGE_FAILED"
 
         admission_reason = (
             "QUALIFIED_MODE_FEES_NOT_VERIFIED"
