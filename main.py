@@ -21416,6 +21416,48 @@ def scan_refresh_entry_pipeline():
         candidate,
     )
 
+    # ========================================================
+# UNIT 6 -> UNIT 9 FEE COVERAGE DIAGNOSTICS
+# NO CHANGE TO SIGNAL ADMISSION OR ORDER EXECUTION
+# ========================================================
+
+if (
+    execution.get("admission_reason")
+    == "QUALIFIED_MODE_FEE_COVERAGE_FAILED"
+):
+    print(
+        "SCAN FEE REJECTION DIAGNOSTICS =",
+        {
+            "market_symbol": os.getenv(
+                "WEEX_SYMBOL", ""
+            ),
+            "demo_symbol": os.getenv(
+                "WEEX_DEMO_SYMBOL", ""
+            ),
+            "candidate_mode": candidate.get(
+                "candidate_mode"
+            ),
+            "candidate_stage": candidate.get(
+                "candidate_stage"
+            ),
+            "direction": candidate.get(
+                "direction"
+            ),
+            "latest_close": analysis.get(
+                "latest_close"
+            ),
+            "support20": analysis.get(
+                "support20"
+            ),
+            "resistance20": analysis.get(
+                "resistance20"
+            ),
+            "admission_reason": execution.get(
+                "admission_reason"
+            ),
+        },
+        flush=True
+    )
     # Unit 7: dynamic sizing policy
     sizing = fresh_reconstruction_unit_7(
         config,
