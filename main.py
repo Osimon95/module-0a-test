@@ -21572,7 +21572,7 @@ def scan_refresh_entry_pipeline():
         != active_market
         or config["exchange"]["demo_order_symbol"]
         != active_demo
-):
+    ):
     print(
         "SCAN SYMBOL CHANGED DURING CYCLE =",
         active_market,
