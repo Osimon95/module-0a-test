@@ -5341,7 +5341,7 @@ def fresh_reconstruction_unit_6(
             "MARKET_EVIDENCE_STALE"
         )
 
-        elif (
+    elif (
         fee_coverage_enabled
         and stage == "QUALIFIED"
         and mode in ("BREAKOUT", "STRUCTURE")
