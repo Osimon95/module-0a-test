@@ -4762,7 +4762,7 @@ def fresh_reconstruction_unit_6(
         )
 
         fee_coverage_enabled = strategy.get(
-        "signal_fee_coverage_enabled", True
+            "signal_fee_coverage_enabled", True
     )
 
     if not isinstance(fee_coverage_enabled, bool):
