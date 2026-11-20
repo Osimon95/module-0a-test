@@ -19886,12 +19886,45 @@ def unit15_configuration_check():
     if (
         config.get("execution_environment") != "DEMO"
         or exchange.get("name") != "WEEX"
-        or exchange.get("demo_order_symbol")
-            != "BTCSUSDT"
+        or exchange.get("api_version") != "V3"
     ):
         raise RuntimeError(
             "UNIT 15 NON-DEMO CONFIGURATION"
         )
+
+    market_symbol = str(
+        exchange.get("market_symbol") or ""
+    ).strip().upper()
+
+    demo_symbol = str(
+        exchange.get("demo_order_symbol") or ""
+    ).strip().upper()
+
+    if not market_symbol or not demo_symbol:
+        raise RuntimeError(
+            "UNIT 15 DEMO SYMBOL MISSING"
+        )
+
+    if not (
+        demo_symbol.endswith("SUSDT")
+        and market_symbol.endswith("USDT")
+        and demo_symbol[:-5] == market_symbol[:-4]
+    ):
+        raise RuntimeError(
+            "UNIT 15 DEMO SYMBOL PAIR MISMATCH"
+        )
+
+    print(
+        "UNIT 15 MARKET SYMBOL =",
+        market_symbol,
+        flush=True
+    )
+
+    print(
+        "UNIT 15 DEMO SYMBOL =",
+        demo_symbol,
+        flush=True
+    )
 
     return True
 
