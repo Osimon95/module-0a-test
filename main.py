@@ -21568,10 +21568,10 @@ def scan_refresh_entry_pipeline():
     # A new active pair requires a fresh market-data pass.
 
     if (
-    config["exchange"]["market_symbol"]
-    != active_market
-    or config["exchange"]["demo_order_symbol"]
-    != active_demo
+        config["exchange"]["market_symbol"]
+        != active_market
+        or config["exchange"]["demo_order_symbol"]
+        != active_demo
 ):
     print(
         "SCAN SYMBOL CHANGED DURING CYCLE =",
