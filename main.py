@@ -571,6 +571,7 @@ def fresh_reconstruction_unit_2():
         "active_trade_mode_lock": True,
         "exclusive_mode": True,
         "mode_confirmations_required": 3,
+        "signal_fee_coverage_enabled": fee_coverage_enabled,
     }
 
     # No backup_multipliers key.
