@@ -5472,7 +5472,7 @@ def fresh_reconstruction_unit_6(
                 "SCALP_QUALITY_BELOW_THRESHOLD"
             )
 
-        elif not fee_estimate_verified:
+        elif fee_coverage_enabled and not fee_estimate_verified:
 
             admission_reason = (
                 "SCALP_FEES_NOT_VERIFIED"
