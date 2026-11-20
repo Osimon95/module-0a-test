@@ -5151,13 +5151,6 @@ def fresh_reconstruction_unit_6(
     incoming_direction = str(
         candidate.get("direction", "NONE")
     ).upper()
-    stage = str(
-        analysis.get("stage", "NONE")
-    ).upper()
-
-    mode = str(
-        analysis.get("mode", "NONE")
-    ).upper()
     if (
         stage == "QUALIFIED"
         and mode in ("STRUCTURE", "BREAKOUT")
@@ -5926,11 +5919,24 @@ def unit_6_validation_v9():
         fee_test
     )
 
-    tests.append((
-        "BREAKOUT FEE COVERAGE REJECTION",
+        fee_gate_enabled = config["strategy"].get(
+        "signal_fee_coverage_enabled", True
+    )
+
+    fee_test_pass = (
         fee_result["execution_intent"] is False
         and fee_result["admission_reason"]
         == "QUALIFIED_MODE_FEE_COVERAGE_FAILED"
+    ) if fee_gate_enabled else (
+        fee_result["execution_intent"] is True
+        and fee_result["active_mode"] == "BREAKOUT"
+        and fee_result["admission_reason"]
+        == "BREAKOUT_QUALIFIED_FOR_NEXT_UNITS"
+    )
+
+    tests.append((
+        "BREAKOUT FEE COVERAGE SWITCH",
+        fee_test_pass
     ))
 
     # Validate the unmodified live candidate last.
