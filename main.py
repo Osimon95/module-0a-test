@@ -21493,10 +21493,7 @@ def scan_refresh_entry_pipeline():
     # Authenticated demo contract inspection.
     # Read-only verification, not order authorization.
 
-    inspection = (
-        unit_8_inspect_demo_contract(requested_demo)
-        if requested_demo else None
-    )
+    inspection = None
 
     demo_diagnostics = unit_8_demo_contract_diagnostics(
         discovery,
