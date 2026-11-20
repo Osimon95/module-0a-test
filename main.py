@@ -9554,11 +9554,26 @@ if (
     # can be activated.
 
     
-    FRESH_RECONSTRUCTION_CONTRACT_CHECK = (
-        unit_8_verify_market_contract(
-            os.getenv("WEEX_SYMBOL", "BTCUSDT")
-        )
-    )
+    # ============================================================
+# UNIT 8 - RESTORED DEMO SYMBOL POLICY
+# ============================================================
+# No preliminary contract-directory verification is required.
+# The configured demo symbol is passed to the existing
+# authorized WEEX demo execution path.
+# WEEX determines whether the contract is supported.
+# ============================================================
+
+FRESH_RECONSTRUCTION_CONTRACT_CHECK = {
+    "status": "DEMO_SYMBOL_VERIFICATION_NOT_REQUIRED",
+    "market_symbol": os.getenv(
+        "WEEX_SYMBOL", "BTCUSDT"
+    ).strip().upper(),
+    "demo_order_symbol": os.getenv(
+        "WEEX_DEMO_SYMBOL",
+        os.getenv("WEEX_DEMO_ORDER_SYMBOL", "BTCSUSDT")
+    ).strip().upper(),
+    "verification_required": False,
+}
 
     FRESH_RECONSTRUCTION_SYMBOL_SWITCH_RESULT = (
         unit_8_symbol_switch(
