@@ -9563,7 +9563,7 @@ if (
 # WEEX determines whether the contract is supported.
 # ============================================================
 
-FRESH_RECONSTRUCTION_CONTRACT_CHECK = {
+    FRESH_RECONSTRUCTION_CONTRACT_CHECK = {
     "status": "DEMO_SYMBOL_VERIFICATION_NOT_REQUIRED",
     "market_symbol": os.getenv(
         "WEEX_SYMBOL", "BTCUSDT"
