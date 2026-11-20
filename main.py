@@ -21471,35 +21471,23 @@ def scan_refresh_entry_pipeline():
     ).strip().upper()
 
     
-    # Authenticated demo contract inspection.
-    # Read-only verification, not order authorization.
+    # Coin-base-vetted WEEX demo symbol.
+    # Optional authenticated inspection is not an
+    # order-submission prerequisite.
 
-    inspection = unit_8_inspect_demo_contract(
-        requested_demo
-    )
+    demo_contract_verified = False
 
-    demo_diagnostics = unit_8_demo_contract_diagnostics(
-        discovery,
-        account,
-        inspection
-    )
-
-    demo_contract_verified = (
-        demo_diagnostics["execution_verified"]
-    )
-
-    
     switch_result = unit_8_symbol_switch(
         requested_market=requested_market,
         requested_demo=requested_demo,
         positions=account["positions"],
         positions_verified=account["demo_positions_verified"],
-        contract_verified=demo_contract_verified,
+        contract_verified=False,
         candidate_ready=(
-        discovery.get("candidate_ready") is True
-    ),
+            discovery.get("candidate_ready") is True
+        ),
     )
-
+    
     FRESH_RECONSTRUCTION_SYMBOL_SWITCH_RESULT = switch_result
 
 
