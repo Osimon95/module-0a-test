@@ -373,7 +373,7 @@ def fresh_reconstruction_unit_2():
     tp1_roi = setting("TP1_NET_ROI_FLOOR_PERCENT", "20")
     tp2_roi = setting("TP2_NET_ROI_FLOOR_PERCENT", "40")
 
-        fee_mode = os.getenv(
+    fee_mode = os.getenv(
         "SIGNAL_FEE_COVERAGE_ENABLED", "true"
     ).strip().lower()
 
