@@ -4761,6 +4761,14 @@ def fresh_reconstruction_unit_6(
             "UNIT 6 STRATEGY CONFIG MISSING"
         )
 
+        fee_coverage_enabled = strategy.get(
+        "signal_fee_coverage_enabled", True
+    )
+
+    if not isinstance(fee_coverage_enabled, bool):
+        raise RuntimeError(
+            "UNIT 6 INVALID FEE COVERAGE MODE"
+        )
     for key in (
         "anti_duplicate_orders",
         "one_direction_only",
