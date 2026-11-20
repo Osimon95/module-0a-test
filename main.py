@@ -4770,17 +4770,17 @@ def fresh_reconstruction_unit_6(
             "UNIT 6 INVALID FEE COVERAGE MODE"
         )
 
-print(
-    "UNIT 6 SIGNAL FEE COVERAGE ENABLED =",
-    fee_coverage_enabled,
-    flush=True
-)
+    print(
+        "UNIT 6 SIGNAL FEE COVERAGE ENABLED =",
+        fee_coverage_enabled,
+        flush=True
+    )
 
-print(
-    "UNIT 6 FEE COVERAGE ADMISSION GATE =",
-    "ENFORCED" if fee_coverage_enabled else "BYPASSED",
-    flush=True
-)
+    print(
+        "UNIT 6 FEE COVERAGE ADMISSION GATE =",
+        "ENFORCED" if fee_coverage_enabled else "BYPASSED",
+        flush=True
+    )
     # ========================================================
     # MARKET AND FRESHNESS
     # ========================================================
