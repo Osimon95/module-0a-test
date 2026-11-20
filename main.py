@@ -9006,21 +9006,26 @@ def unit_8_demo_contract_diagnostics(discovery, account, inspection=None):
             and inspection.get("symbol_returned") is True
         )
 
-    if not result["directory_verified"]:
-        result["status"] = "DEMO_CANDIDATE_UNVERIFIED"
-
-    elif not result["account_verified"]:
+    if not result["account_verified"]:
         result["status"] = "ACCOUNT_UNVERIFIED"
 
     elif not result["positions_verified"]:
         result["status"] = "POSITIONS_UNVERIFIED"
 
+    elif not result["authenticated_read"]:
+        result["status"] = "AUTHENTICATED_READ_FAILED"
+
     elif not result["authenticated_symbol_match"]:
         result["status"] = "AUTHENTICATED_SYMBOL_UNVERIFIED"
 
+    elif not result["directory_verified"]:
+        result["status"] = (
+            "ACCOUNT_SYMBOL_CONFIRMED_DIRECTORY_UNVERIFIED"
+        )
+
     else:
         result["status"] = (
-            "ACCOUNT_SYMBOL_RECOGNIZED_"
+            "ACCOUNT_SYMBOL_CONFIRMED_"
             "ORDER_PERMISSION_UNVERIFIED"
         )
 
