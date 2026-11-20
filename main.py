@@ -5478,7 +5478,7 @@ def fresh_reconstruction_unit_6(
                 "SCALP_FEES_NOT_VERIFIED"
             )
 
-        elif not fee_coverage_pass:
+        elif fee_coverage_enabled and not fee_coverage_pass:
 
             admission_reason = (
                 "SCALP_ESTIMATED_FEE_COVERAGE_FAILED"
