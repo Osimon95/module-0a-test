@@ -21489,19 +21489,7 @@ def scan_refresh_entry_pipeline():
     )
     
     FRESH_RECONSTRUCTION_SYMBOL_SWITCH_RESULT = switch_result
-
-
-    print(
-        "SCAN AUTHENTICATED DEMO SYMBOL MATCH =",
-        demo_diagnostics["authenticated_symbol_match"],
-        flush=True
-    )
-
-    print(
-        "SCAN DEMO CONTRACT DIAGNOSTIC STATUS =",
-        demo_diagnostics["status"],
-        flush=True
-    )
+    
     print(
         "SCAN ACTIVE MARKET SYMBOL =",
         switch_result["active_market_symbol"],
