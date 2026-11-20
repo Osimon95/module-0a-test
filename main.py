@@ -5138,7 +5138,7 @@ def fresh_reconstruction_unit_6(
         estimated_fee * fee_coverage
     )
 
-        stage = str(
+    stage = str(
         candidate.get("candidate_stage", "NONE")
     ).upper()
 
