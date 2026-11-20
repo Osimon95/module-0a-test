@@ -5919,7 +5919,7 @@ def unit_6_validation_v9():
         fee_test
     )
 
-        fee_gate_enabled = config["strategy"].get(
+    fee_gate_enabled = config["strategy"].get(
         "signal_fee_coverage_enabled", True
     )
 
