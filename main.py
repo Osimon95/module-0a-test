@@ -5341,37 +5341,22 @@ def fresh_reconstruction_unit_6(
             "MARKET_EVIDENCE_STALE"
         )
 
-    elif (
-        stage == "QUALIFIED"
-        and mode in ("BREAKOUT", "STRUCTURE")
-        and not fee_estimate_verified
-    ):
-            elif (
+        elif (
         fee_coverage_enabled
         and stage == "QUALIFIED"
         and mode in ("BREAKOUT", "STRUCTURE")
         and not fee_estimate_verified
     ):
-        admission_reason = "QUALIFIED_MODE_FEES_NOT_VERIFIED"
-
-    elif (
-        fee_coverage_enabled
-        and stage == "QUALIFIED"
-        and mode in ("BREAKOUT", "STRUCTURE")
-        and not fee_coverage_pass
-    ):
-        admission_reason = "QUALIFIED_MODE_FEE_COVERAGE_FAILED"
-
         admission_reason = (
             "QUALIFIED_MODE_FEES_NOT_VERIFIED"
         )
 
     elif (
-        stage == "QUALIFIED"
+        fee_coverage_enabled
+        and stage == "QUALIFIED"
         and mode in ("BREAKOUT", "STRUCTURE")
         and not fee_coverage_pass
     ):
-
         admission_reason = (
             "QUALIFIED_MODE_FEE_COVERAGE_FAILED"
         )
