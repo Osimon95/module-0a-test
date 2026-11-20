@@ -5138,6 +5138,13 @@ def fresh_reconstruction_unit_6(
         estimated_fee * fee_coverage
     )
 
+        stage = str(
+        analysis.get("stage", "NONE")
+    ).upper()
+
+    mode = str(
+        analysis.get("mode", "NONE")
+    ).upper()
     if (
         stage == "QUALIFIED"
         and mode in ("STRUCTURE", "BREAKOUT")
