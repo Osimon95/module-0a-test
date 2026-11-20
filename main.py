@@ -5138,6 +5138,19 @@ def fresh_reconstruction_unit_6(
         estimated_fee * fee_coverage
     )
 
+        stage = str(
+        candidate.get("candidate_stage", "NONE")
+    ).upper()
+
+    mode = str(
+        candidate.get("candidate_mode", "NONE")
+    ).upper()
+
+    qualified = candidate.get("qualified") is True
+
+    incoming_direction = str(
+        candidate.get("direction", "NONE")
+    ).upper()
     stage = str(
         analysis.get("stage", "NONE")
     ).upper()
