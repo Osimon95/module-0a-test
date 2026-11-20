@@ -21568,14 +21568,30 @@ def scan_refresh_entry_pipeline():
     # A new active pair requires a fresh market-data pass.
 
     if (
-        config["exchange"]["market_symbol"]
-        != active_market
-        or config["exchange"]["demo_order_symbol"]
-        != active_demo
-    ):
-        raise RuntimeError(
-            "SCAN ACTIVE SYMBOL CONFIGURATION MISMATCH"
-        )
+    config["exchange"]["market_symbol"]
+    != active_market
+    or config["exchange"]["demo_order_symbol"]
+    != active_demo
+):
+    print(
+        "SCAN SYMBOL CHANGED DURING CYCLE =",
+        active_market,
+        "/",
+        active_demo,
+        flush=True
+    )
+
+    print(
+        "SCAN NEW ENTRY DEFERRED UNTIL "
+        "FRESH MARKET DATA",
+        flush=True
+    )
+
+    return {
+        "status": "SYMBOL_CHANGED_REFRESH_NEXT_SCAN",
+        "execution_authorized": False,
+        "exchange_write": False,
+    }
 
     # A queued or unverified symbol request must not
     # enter Unit 12's new-order submission path.
