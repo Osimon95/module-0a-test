@@ -21567,7 +21567,7 @@ def scan_refresh_entry_pipeline():
     # Units 3 and 4 already used it in this scan.
     # A new active pair requires a fresh market-data pass.
 
-        if (
+    if (
         config["exchange"]["market_symbol"] != active_market
         or config["exchange"]["demo_order_symbol"] != active_demo
     ):
