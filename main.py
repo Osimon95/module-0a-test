@@ -4770,7 +4770,7 @@ def fresh_reconstruction_unit_6(
             "UNIT 6 INVALID FEE COVERAGE MODE"
         )
 
-    print(
+print(
     "UNIT 6 SIGNAL FEE COVERAGE ENABLED =",
     fee_coverage_enabled,
     flush=True
