@@ -14261,6 +14261,39 @@ def unit_13_v4_signed_request(method, path, payload=None):
 # 5. PUBLIC MARK PRICE
 # ============================================================
 
+
+def unit_13_14_active_symbols():
+    """
+    Resolve the active market/demo pair from
+    the existing scanner configuration.
+    No independent BTC fallback.
+    """
+    config = globals().get(
+        "FRESH_RECONSTRUCTION_CONFIG"
+    )
+
+    if not isinstance(config, dict):
+        raise RuntimeError(
+            "ACTIVE SYMBOL CONFIG MISSING"
+        )
+
+    exchange = config.get("exchange", {})
+
+    market = str(
+        exchange.get("market_symbol") or ""
+    ).strip().upper()
+
+    demo = str(
+        exchange.get("demo_order_symbol") or ""
+    ).strip().upper()
+
+    if not market or not demo:
+        raise RuntimeError(
+            "ACTIVE MARKET/DEMO SYMBOL MISSING"
+        )
+
+    return market, demo
+
 def unit_13_v4_mark_price():
 
     query = urllib.parse.urlencode({
