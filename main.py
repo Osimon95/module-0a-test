@@ -21458,6 +21458,12 @@ def scan_refresh_entry_pipeline():
         active_pair["source"]
     )
 
+    
+    unit_9_load_symbol_specifications(
+        config,
+        active_market,
+    )
+
     print(
         "SCAN REFRESHED ACTIVE MARKET =",
         active_market,
