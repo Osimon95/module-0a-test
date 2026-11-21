@@ -14713,7 +14713,7 @@ def fresh_reconstruction_unit_13(
 
         if str(
             p.get("symbol", "")
-        ).upper() != "BTCSUSDT":
+                ).upper() != unit_13_14_active_symbols()[1]:
             continue
 
         size = D(
