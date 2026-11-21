@@ -14297,7 +14297,7 @@ def unit_13_14_active_symbols():
 def unit_13_v4_mark_price():
 
     query = urllib.parse.urlencode({
-        "symbol": "market_symbol",
+        "symbol": market_symbol,
         "priceType": "MARK",
     })
 
@@ -14322,7 +14322,7 @@ def unit_13_v4_mark_price():
             "UNIT 13 MARK PRICE RESPONSE INVALID"
         )
 
-    if market.get("symbol") != "BTCUSDT":
+    if market.get("symbol") != market_symbol:
         raise RuntimeError(
             "UNIT 13 WRONG MARKET SYMBOL"
         )
