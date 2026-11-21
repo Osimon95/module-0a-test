@@ -12862,7 +12862,7 @@ def unit_12_v5_validate_payload(
             "UNIT 12 PAYLOAD FIELDS INVALID"
         )
 
-        expected_side = (
+    expected_side = (
         "BUY" if direction == "LONG"
         else "SELL"
     )
