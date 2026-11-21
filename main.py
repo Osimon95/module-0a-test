@@ -13131,30 +13131,26 @@ def unit_12_v5_request(
 
     return status, data
 
-
-# ============================================================
-# 7. POSITION PARSER
-# ============================================================
-
-def unit_12_v5_active_positions(rows):
+def unit_12_v5_active_positions(rows, demo_symbol=None):
 
     if not isinstance(rows, list):
         raise RuntimeError(
             "UNIT 12 POSITION RESPONSE NOT LIST"
         )
 
+    expected_symbol = str(
+        demo_symbol or UNIT_12_V5_SYMBOL
+    ).strip().upper()
+
     active = []
 
     for p in rows:
-
         if not isinstance(p, dict):
             raise RuntimeError(
                 "UNIT 12 POSITION RECORD INVALID"
             )
 
-        if str(
-            p.get("symbol", "")
-        ).upper() != UNIT_12_V5_SYMBOL:
+        if str(p.get("symbol", "")).strip().upper() != expected_symbol:
             continue
 
         size = unit_12_v5_decimal(
@@ -13167,7 +13163,6 @@ def unit_12_v5_active_positions(rows):
             active.append(p)
 
     return active
-
 
 # ============================================================
 # 8. MAIN UNIT 12 EXECUTION
