@@ -16126,7 +16126,7 @@ def unit_14_v3_positions():
 
         if str(
             p.get("symbol", "")
-        ).upper() != "BTCSUSDT":
+        ).upper() != unit_13_14_active_symbols()[1]:
             continue
 
         size = unit_14_v3_D(
