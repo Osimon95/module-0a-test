@@ -14297,7 +14297,7 @@ def unit_13_14_active_symbols():
 def unit_13_v4_mark_price():
 
     query = urllib.parse.urlencode({
-        "symbol": "BTCUSDT",
+        "symbol": "market_symbol",
         "priceType": "MARK",
     })
 
