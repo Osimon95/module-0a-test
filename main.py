@@ -14730,7 +14730,7 @@ def fresh_reconstruction_unit_13(
         result = unit_13_v4_base_result(
             unit_12_result,
             "IDLE_NO_POSITION",
-            "NO_ACTIVE_BTCSUSDT_POSITION",
+            "NO_ACTIVE_DEMO_POSITION",
         )
 
         print(
