@@ -21744,32 +21744,107 @@ def unit_8_entry_margin_control(config, account, market):
 
             return status
 
+        
+        # ====================================================
+        # VERIFIED DEMO POSITION STATE RECONCILIATION
+        # ====================================================
+
         positions = account.get("positions")
+
         verified = (
             account.get("demo_positions_verified")
             is True
         )
 
+        flat_flag = account.get(
+            "position_flat_verified"
+        )
+
         if not verified or not isinstance(
             positions, list
         ):
+            print(
+                "ENTRY POSITION STATE = UNVERIFIED",
+                flush=True
+            )
             return {
                 "eligible": False,
                 "status": "POSITION_UNVERIFIED"
             }
 
-        occupied = any(
-            unit_8_v6_decimal(
-                p.get("size", "0"),
+        open_positions = []
+
+        for position in positions:
+            if not isinstance(position, dict):
+                print(
+                    "ENTRY POSITION STATE = INVALID_RECORD",
+                    flush=True
+                )
+                return {
+                    "eligible": False,
+                    "status": "POSITION_STATE_INCONSISTENT"
+                }
+
+            size = unit_8_v6_decimal(
+                position.get("size", "0"),
                 "POSITION SIZE",
                 allow_zero=True
-            ) > 0
-            for p in positions
+            )
+
+            if size > 0:
+                open_positions.append(position)
+
+        occupied = bool(open_positions)
+        computed_flat = not occupied
+
+        print(
+            "ENTRY POSITION COUNT =",
+            len(open_positions),
+            flush=True
         )
+
+        print(
+            "ENTRY POSITION FLAT FLAG =",
+            flat_flag,
+            flush=True
+        )
+
+        print(
+            "ENTRY POSITION COMPUTED FLAT =",
+            computed_flat,
+            flush=True
+        )
+
+        if (
+            not isinstance(flat_flag, bool)
+            or flat_flag != computed_flat
+        ):
+            print(
+                "ENTRY POSITION STATE = INCONSISTENT",
+                flush=True
+            )
+            return {
+                "eligible": False,
+                "status": "POSITION_STATE_INCONSISTENT"
+            }
 
         key = symbol + "|" + amount(margin)
 
         if occupied:
+            print(
+                "ENTRY POSITION STATE = CONFIRMED_OCCUPIED",
+                flush=True
+            )
+
+            print(
+                "ENTRY OPEN POSITION SYMBOLS =",
+                [
+                    p.get("symbol")
+                    for p in open_positions
+                ],
+                flush=True
+            )
+
             status = notify(
                 "QUEUED",
                 (
@@ -21781,8 +21856,16 @@ def unit_8_entry_margin_control(config, account, market):
 
             return {
                 "eligible": False,
-                "status": status
+                "status": status,
+                "open_position_count": len(open_positions)
             }
+
+        print(
+            "ENTRY POSITION STATE = CONFIRMED_FLAT",
+            flush=True
+        )
+
+        # Continue to the existing margin validation.
 
         precision = config.get(
             "market_precision", {}
