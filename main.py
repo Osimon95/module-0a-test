@@ -577,10 +577,18 @@ def fresh_reconstruction_unit_2():
     # No backup_multipliers key.
     # No hardcoded leverage_target key.
 
+    
+    # Symbol-specific precision is loaded by the
+    # scan controller before order sizing.
+    # These initial values are placeholders only.
+    # They must not authorize an order.
+
     market_precision = {
         "quantity_step": 0.0001,
         "minimum_quantity": 0.0001,
         "price_step": 0.1,
+        "contract_multiplier": 1.0,
+        "symbol_specifications_confirmed": False,
     }
 
     # ========================================================
