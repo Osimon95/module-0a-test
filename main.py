@@ -9594,17 +9594,38 @@ if (
     "verification_required": False,
 }
 
+    
+    # Use the same dynamic market/demo pair
+    # as the continuous scanner.
+
+    _requested_market = os.getenv(
+        "WEEX_SYMBOL", "BTCUSDT"
+    ).strip().upper()
+
+    _demo_discovery = unit_8_discover_demo_contract(
+        _requested_market
+    )
+
+    _requested_demo = (
+        _demo_discovery.get("demo_symbol") or ""
+    ).strip().upper()
+
+    FRESH_RECONSTRUCTION_CONTRACT_CHECK.update({
+        "market_symbol": _requested_market,
+        "demo_order_symbol": _requested_demo,
+    })
+
     FRESH_RECONSTRUCTION_SYMBOL_SWITCH_RESULT = (
         unit_8_symbol_switch(
-            requested_market=os.getenv(
-                "WEEX_SYMBOL", "BTCUSDT"
-            ),
-            requested_demo=os.getenv(
-                "WEEX_DEMO_SYMBOL", "BTCSUSDT"
-            ),
+            requested_market=_requested_market,
+            requested_demo=_requested_demo,
             positions=_u8_result["positions"],
             positions_verified=True,
             contract_verified=False,
+            candidate_ready=(
+                _demo_discovery.get("candidate_ready")
+                is True
+            ),
         )
     )
 
