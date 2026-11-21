@@ -21418,6 +21418,272 @@ def unit_9_load_symbol_specifications(config, symbol):
 
         return False
 
+
+# ============================================================
+# RENDER ENTRY MARGIN ELIGIBILITY CONTROLLER
+# Persistent decisions + existing Unit 15 Telegram queue
+# No exchange orders submitted here
+# ============================================================
+
+from decimal import Decimal, ROUND_CEILING
+import os
+
+
+def unit_8_entry_margin_control(config, account, market):
+
+    db = unit_8_symbol_switch_db()
+
+    try:
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS entry_margin_state (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                decision_key TEXT NOT NULL,
+                status TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
+
+        symbol = str(
+            config["exchange"]["market_symbol"]
+        ).strip().upper()
+
+        coin = (
+            symbol[:-4]
+            if symbol.endswith("USDT")
+            else symbol
+        )
+
+        raw = os.getenv(
+            "INITIAL_ENTRY_MARGIN_USDT"
+        )
+
+        if raw is None or not raw.strip():
+            raw = os.getenv("ENTRY_FIXED_USDT")
+
+        if raw is None or not raw.strip():
+            raw = str(
+                config["strategy"]["initial_fixed_usdt"]
+            )
+
+        margin = Decimal(str(raw))
+
+        if not margin.is_finite() or margin <= 0:
+            raise RuntimeError(
+                "INVALID_RENDER_ENTRY_MARGIN"
+            )
+
+        def amount(value):
+            return format(
+                Decimal(str(value)).normalize(), "f"
+            )
+
+        def notify(status, message, key):
+            now = datetime.now(
+                timezone.utc
+            ).isoformat()
+
+            db.execute("BEGIN IMMEDIATE")
+
+            previous = db.execute("""
+                SELECT decision_key, status
+                FROM entry_margin_state
+                WHERE id = 1
+            """).fetchone()
+
+            changed = (
+                previous is None
+                or previous != (key, status)
+            )
+
+            if changed:
+                db.execute("""
+                    INSERT INTO entry_margin_state (
+                        id, decision_key, status, updated_at
+                    )
+                    VALUES (1, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                        decision_key = excluded.decision_key,
+                        status = excluded.status,
+                        updated_at = excluded.updated_at
+                """, (key, status, now))
+
+                if message:
+                    unit_8_symbol_event(
+                        db,
+                        "ENTRY_MARGIN_" + status,
+                        message
+                    )
+
+            db.execute("COMMIT")
+
+            return status
+
+        positions = account.get("positions")
+        verified = (
+            account.get("demo_positions_verified")
+            is True
+        )
+
+        if not verified or not isinstance(
+            positions, list
+        ):
+            return {
+                "eligible": False,
+                "status": "POSITION_UNVERIFIED"
+            }
+
+        occupied = any(
+            unit_8_v6_decimal(
+                p.get("size", "0"),
+                "POSITION SIZE",
+                allow_zero=True
+            ) > 0
+            for p in positions
+        )
+
+        key = symbol + "|" + amount(margin)
+
+        if occupied:
+            status = notify(
+                "QUEUED",
+                (
+                    f"${amount(margin)} {coin} queued, "
+                    "position exists."
+                ),
+                key
+            )
+
+            return {
+                "eligible": False,
+                "status": status
+            }
+
+        precision = config.get(
+            "market_precision", {}
+        )
+
+        if (
+            precision.get(
+                "symbol_specifications_confirmed"
+            ) is not True
+        ):
+            return {
+                "eligible": False,
+                "status": "CONTRACT_SPECS_UNAVAILABLE"
+            }
+
+        price = Decimal(str(market["price"]))
+        step = Decimal(
+            str(precision["quantity_step"])
+        )
+        minimum = Decimal(
+            str(precision["minimum_quantity"])
+        )
+        multiplier = Decimal(
+            str(precision["contract_multiplier"])
+        )
+
+        long_leverage = Decimal(
+            str(account["long_leverage"])
+        )
+        short_leverage = Decimal(
+            str(account["short_leverage"])
+        )
+
+        leverage = min(
+            long_leverage, short_leverage
+        )
+
+        tp1_fraction = (
+            Decimal(str(
+                config["strategy"][
+                    "tp1_allocation_percent"
+                ]
+            )) / Decimal("100")
+        )
+
+        values = (
+            price, step, minimum, multiplier,
+            leverage, tp1_fraction
+        )
+
+        if any(
+            not v.is_finite() or v <= 0
+            for v in values
+        ):
+            raise RuntimeError(
+                "INVALID_ENTRY_CONTRACT_PARAMETERS"
+            )
+
+        # Minimum executable TP1, rounded to the
+        # contract quantity step.
+        tp1_steps = (
+            minimum / step
+        ).to_integral_value(
+            rounding=ROUND_CEILING
+        )
+
+        tp1_quantity = tp1_steps * step
+
+        # Initial quantity must support TP1 allocation.
+        entry_steps = (
+            tp1_quantity / tp1_fraction / step
+        ).to_integral_value(
+            rounding=ROUND_CEILING
+        )
+
+        entry_quantity = entry_steps * step
+
+        minimum_margin = (
+            entry_quantity
+            * price
+            * multiplier
+            / leverage
+        )
+
+        minimum_margin = minimum_margin.quantize(
+            Decimal("0.01"),
+            rounding=ROUND_CEILING
+        )
+
+        if margin < minimum_margin:
+            status = notify(
+                "REJECTED",
+                (
+                    f"{coin} entry rejected, "
+                    f"${amount(margin)} below min of "
+                    f"${amount(minimum_margin)}."
+                ),
+                key
+            )
+
+            return {
+                "eligible": False,
+                "status": status,
+                "minimum_margin": minimum_margin
+            }
+
+        status = notify(
+            "ACCEPTED",
+            (
+                f"{coin} entry accepted, "
+                f"${amount(margin)} entry enabled."
+            ),
+            key
+        )
+
+        return {
+            "eligible": True,
+            "status": status,
+            "accepted_margin": margin,
+            "minimum_margin": minimum_margin
+        }
+
+    finally:
+        if db.in_transaction:
+            db.execute("ROLLBACK")
+        db.close()
+
 # ============================================================
 # 2. REFRESH MARKET AND EXECUTION PIPELINE
 #
