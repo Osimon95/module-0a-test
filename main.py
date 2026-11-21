@@ -21915,6 +21915,40 @@ def scan_refresh_entry_pipeline():
     # END SYMBOL RECONCILIATION
     # ========================================================
 
+    
+    # ========================================================
+    # RENDER ENTRY MARGIN VALIDATION
+    # ========================================================
+
+    margin_decision = unit_8_entry_margin_control(
+        config,
+        account,
+        market,
+    )
+
+    print(
+        "SCAN ENTRY MARGIN STATUS =",
+        margin_decision["status"],
+        flush=True
+    )
+
+    print(
+        "SCAN UNIT 12 ENTRY ELIGIBLE =",
+        margin_decision["eligible"],
+        flush=True
+    )
+
+    if margin_decision["eligible"] is not True:
+        return {
+            "status": "IDLE",
+            "skip_reason": (
+                "ENTRY_MARGIN_"
+                + margin_decision["status"]
+            ),
+            "execution_authorized": False,
+            "exchange_write": False,
+        }
+
     # Unit 9: entry sizing
     entry = fresh_reconstruction_unit_9(
         config,
