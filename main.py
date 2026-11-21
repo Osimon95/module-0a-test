@@ -21351,69 +21351,295 @@ def scan_idle_unit12_result(reason):
 # NO EXCHANGE WRITE
 # ============================================================
 
+
 def unit_9_load_symbol_specifications(config, symbol):
+    """
+    Retrieve active-symbol contract specifications from WEEX.
+
+    Public market-data GET only.
+    No API credentials or exchange order submission.
+
+    Quantity is treated as base-asset quantity.
+    The contractVal field is retained separately.
+    """
+
     import json
-    import os
-    from decimal import Decimal
+    import urllib.parse
+    import urllib.request
+    import urllib.error
 
-    raw = os.getenv(
-        "WEEX_SYMBOL_CONTRACT_SPECS", ""
-    ).strip()
+    from decimal import Decimal, InvalidOperation
 
-    if not raw:
-        config["market_precision"][
-            "symbol_specifications_confirmed"
-        ] = False
-        return False
+    symbol = str(symbol).strip().upper()
+
+    precision = config.setdefault(
+        "market_precision", {}
+    )
+
+    # Never carry a previous symbol's specifications
+    # into a new symbol.
+    precision["symbol_specifications_confirmed"] = False
+
+    for key in (
+        "quantity_step",
+        "minimum_quantity",
+        "price_step",
+        "contract_multiplier",
+        "contract_value",
+        "specifications_symbol",
+    ):
+        precision.pop(key, None)
 
     try:
-        specifications = json.loads(raw)
-        selected = specifications.get(symbol)
+        if not symbol or not symbol.endswith("USDT"):
+            raise ValueError("INVALID_MARKET_SYMBOL")
 
-        if not isinstance(selected, dict):
-            raise ValueError("SYMBOL_SPECIFICATIONS_MISSING")
+        exchange = config.get("exchange", {})
 
-        required = (
-            "quantity_step",
-            "minimum_quantity",
-            "price_step",
-            "contract_multiplier",
+        base_url = str(
+            exchange.get(
+                "contract_base_url",
+                "https://api-contract.weex.com"
+            )
+        ).rstrip("/")
+
+        if base_url != "https://api-contract.weex.com":
+            raise ValueError("UNEXPECTED_MARKET_API_HOST")
+
+        endpoint = "/capi/v3/market/exchangeInfo"
+
+        query = urllib.parse.urlencode({
+            "symbol": symbol
+        })
+
+        url = base_url + endpoint + "?" + query
+
+        request = urllib.request.Request(
+            url,
+            method="GET",
+            headers={
+                "Accept": "application/json",
+                "User-Agent": "WEEX-Contract-Specs-V1",
+            },
         )
 
-        values = {}
+        with urllib.request.urlopen(
+            request,
+            timeout=15
+        ) as response:
 
-        for key in required:
-            value = Decimal(str(selected[key]))
-
-            if not value.is_finite() or value <= 0:
+            if response.status != 200:
                 raise ValueError(
-                    "INVALID_" + key.upper()
+                    "CONTRACT_INFO_HTTP_"
+                    + str(response.status)
                 )
 
-            values[key] = float(value)
+            payload = json.loads(
+                response.read().decode("utf-8")
+            )
 
-        config["market_precision"].update(values)
-        config["market_precision"][
+        if not isinstance(payload, dict):
+            raise ValueError(
+                "INVALID_CONTRACT_INFO_RESPONSE"
+            )
+
+        rows = payload.get("symbols")
+
+        if not isinstance(rows, list):
+            raise ValueError(
+                "CONTRACT_SYMBOL_LIST_MISSING"
+            )
+
+        selected = next(
+            (
+                row for row in rows
+                if isinstance(row, dict)
+                and str(
+                    row.get("symbol", "")
+                ).upper() == symbol
+            ),
+            None
+        )
+
+        if selected is None:
+            raise ValueError(
+                "SYMBOL_NOT_IN_EXCHANGE_INFO"
+            )
+
+        if str(
+            selected.get("quoteAsset", "")
+        ).upper() != "USDT":
+            raise ValueError(
+                "NOT_USDT_QUOTED"
+            )
+
+        def positive_number(value, name):
+            try:
+                result = Decimal(str(value))
+            except (
+                InvalidOperation,
+                TypeError,
+                ValueError,
+            ) as exc:
+                raise ValueError(
+                    "INVALID_" + name
+                ) from exc
+
+            if not result.is_finite() or result <= 0:
+                raise ValueError(
+                    "INVALID_" + name
+                )
+
+            return result
+
+        def precision_step(value, name):
+            try:
+                digits = int(value)
+            except (
+                TypeError,
+                ValueError,
+            ) as exc:
+                raise ValueError(
+                    "INVALID_" + name
+                ) from exc
+
+            if digits < 0 or digits > 18:
+                raise ValueError(
+                    "INVALID_" + name
+                )
+
+            return Decimal("1").scaleb(-digits)
+
+        # Use an explicit increment when WEEX returns
+        # one; otherwise derive the precision increment.
+        if selected.get("size_increment") is not None:
+            quantity_step = positive_number(
+                selected["size_increment"],
+                "QUANTITY_STEP"
+            )
+        else:
+            quantity_step = precision_step(
+                selected["quantityPrecision"],
+                "QUANTITY_PRECISION"
+            )
+
+        if selected.get("tick_size") is not None:
+            price_step = positive_number(
+                selected["tick_size"],
+                "PRICE_STEP"
+            )
+        else:
+            price_step = precision_step(
+                selected["pricePrecision"],
+                "PRICE_PRECISION"
+            )
+
+        minimum_quantity = positive_number(
+            selected["minOrderSize"],
+            "MINIMUM_ORDER_SIZE"
+        )
+
+        contract_value = positive_number(
+            selected["contractVal"],
+            "CONTRACT_VALUE"
+        )
+
+        # Existing Unit 8 and Unit 9 calculations use
+        # BASE-ASSET quantities:
+        #
+        # notional = base_quantity * price
+        #
+        # Therefore contract_multiplier is 1 here.
+        # contractVal is stored separately and must
+        # not be applied again to base-asset quantities.
+
+        values = {
+            "quantity_step": float(quantity_step),
+            "minimum_quantity": float(
+                minimum_quantity
+            ),
+            "price_step": float(price_step),
+            "contract_multiplier": 1.0,
+            "contract_value": float(contract_value),
+            "specifications_symbol": symbol,
+        }
+
+        precision.update(values)
+
+        precision[
             "symbol_specifications_confirmed"
         ] = True
+
+        print(
+            "UNIT 9 CONTRACT SPECIFICATIONS = LOADED",
+            flush=True
+        )
+
+        print(
+            "UNIT 9 CONTRACT SYMBOL =",
+            symbol,
+            flush=True
+        )
+
+        print(
+            "UNIT 9 QUANTITY STEP =",
+            quantity_step,
+            flush=True
+        )
+
+        print(
+            "UNIT 9 MINIMUM QUANTITY =",
+            minimum_quantity,
+            flush=True
+        )
+
+        print(
+            "UNIT 9 PRICE STEP =",
+            price_step,
+            flush=True
+        )
+
+        print(
+            "UNIT 9 CONTRACT VALUE =",
+            contract_value,
+            flush=True
+        )
+
+        print(
+            "UNIT 9 QUANTITY BASIS = BASE_ASSET",
+            flush=True
+        )
 
         return True
 
     except (
         ValueError,
-        TypeError,
         KeyError,
+        TypeError,
+        urllib.error.URLError,
+        TimeoutError,
         json.JSONDecodeError,
     ) as exc:
-        config["market_precision"][
+
+        precision[
             "symbol_specifications_confirmed"
         ] = False
 
         print(
-            "SYMBOL CONTRACT SPECIFICATIONS REJECTED =",
+            "UNIT 9 CONTRACT SPECIFICATIONS = UNAVAILABLE",
+            flush=True
+        )
+
+        print(
+            "UNIT 9 CONTRACT SYMBOL =",
             symbol,
+            flush=True
+        )
+
+        print(
+            "UNIT 9 CONTRACT REASON =",
             str(exc),
-            flush=True,
+            flush=True
         )
 
         return False
