@@ -12867,9 +12867,13 @@ def unit_12_v5_validate_payload(
         else "SELL"
     )
 
+        expected_demo_symbol = str(
+        config["exchange"]["demo_order_symbol"]
+    ).strip().upper()
+
     if (
-        original.get("symbol")
-            != UNIT_12_V5_SYMBOL
+        str(original.get("symbol", "")).strip().upper()
+            != expected_demo_symbol
         or original.get("side")
             != expected_side
         or original.get("positionSide")
@@ -12877,6 +12881,7 @@ def unit_12_v5_validate_payload(
         or original.get("type")
             != "MARKET"
     ):
+
         raise RuntimeError(
             "UNIT 12 PAYLOAD IDENTITY INVALID"
         )
