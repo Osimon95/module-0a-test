@@ -21851,6 +21851,40 @@ def unit_8_entry_margin_control(config, account, market):
 
         key = symbol + "|" + amount(margin)
 
+        
+        print(
+            "ENTRY POSITION SNAPSHOT VERIFIED =",
+            verified,
+            flush=True
+        )
+        print(
+            "ENTRY POSITION FLAT FLAG =",
+            account.get("position_flat_verified"),
+            flush=True
+        )
+        print(
+            "ENTRY POSITION COUNT =",
+            len(positions),
+            flush=True
+        )
+        print(
+            "ENTRY POSITION DETAILS =",
+            [
+                {
+                    "symbol": p.get("symbol"),
+                    "size": p.get("size"),
+                    "side": p.get("side")
+                }
+                for p in positions
+            ],
+            flush=True
+        )
+        print(
+            "ENTRY POSITION OCCUPIED =",
+            occupied,
+            flush=True
+        )
+
         if occupied:
             print(
                 "ENTRY POSITION STATE = CONFIRMED_OCCUPIED",
