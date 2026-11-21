@@ -16224,7 +16224,7 @@ def unit_14_v3_history():
     for page in range(20):
 
         query = urllib.parse.urlencode({
-            "symbol": "BTCSUSDT",
+            "symbol": market_symbol,
             "limit": 1000,
             "page": page,
         })
@@ -16269,7 +16269,7 @@ def unit_14_v3_history():
 def unit_14_v3_mark():
 
     query = urllib.parse.urlencode({
-        "symbol": "BTCUSDT",
+        "symbol": market_symbol,
         "priceType": "MARK",
     })
 
