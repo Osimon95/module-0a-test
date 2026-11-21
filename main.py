@@ -21351,6 +21351,78 @@ def scan_idle_unit12_result(reason):
 
 
 # ============================================================
+# SYMBOL-SPECIFIC RENDER CONTRACT CONFIGURATION
+# NO EXCHANGE WRITE
+# ============================================================
+
+def unit_9_load_symbol_specifications(config, symbol):
+    import json
+    import os
+    from decimal import Decimal
+
+    raw = os.getenv(
+        "WEEX_SYMBOL_CONTRACT_SPECS", ""
+    ).strip()
+
+    if not raw:
+        config["market_precision"][
+            "symbol_specifications_confirmed"
+        ] = False
+        return False
+
+    try:
+        specifications = json.loads(raw)
+        selected = specifications.get(symbol)
+
+        if not isinstance(selected, dict):
+            raise ValueError("SYMBOL_SPECIFICATIONS_MISSING")
+
+        required = (
+            "quantity_step",
+            "minimum_quantity",
+            "price_step",
+            "contract_multiplier",
+        )
+
+        values = {}
+
+        for key in required:
+            value = Decimal(str(selected[key]))
+
+            if not value.is_finite() or value <= 0:
+                raise ValueError(
+                    "INVALID_" + key.upper()
+                )
+
+            values[key] = float(value)
+
+        config["market_precision"].update(values)
+        config["market_precision"][
+            "symbol_specifications_confirmed"
+        ] = True
+
+        return True
+
+    except (
+        ValueError,
+        TypeError,
+        KeyError,
+        json.JSONDecodeError,
+    ) as exc:
+        config["market_precision"][
+            "symbol_specifications_confirmed"
+        ] = False
+
+        print(
+            "SYMBOL CONTRACT SPECIFICATIONS REJECTED =",
+            symbol,
+            str(exc),
+            flush=True,
+        )
+
+        return False
+
+# ============================================================
 # 2. REFRESH MARKET AND EXECUTION PIPELINE
 #
 # Uses the existing validated unit functions.
