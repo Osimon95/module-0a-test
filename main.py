@@ -17402,6 +17402,89 @@ def unit_14_stage_reconcile_cycle(cycle_id):
 # INDEPENDENT OR SEQUENTIAL FUNDING
 # ============================================================
 
+
+def unit_14_h1_claim_audit(cycle_id):
+    """
+    Audit the two persisted H1 claims.
+
+    Never clear claims or infer an order rejection
+    merely because history has no matching record.
+    """
+
+    cycle = unit_14_stage_read(cycle_id)
+
+    if cycle is None:
+        raise RuntimeError(
+            "UNIT 14 H1 AUDIT CYCLE MISSING"
+        )
+
+    history = unit_14_v3_history()
+
+    if not isinstance(history, list):
+        raise RuntimeError(
+            "UNIT 14 H1 AUDIT HISTORY INVALID"
+        )
+
+    results = {}
+
+    for action in ("H1-C", "H1-H"):
+
+        record = cycle["orders"].get(action)
+
+        if record is None:
+            results[action] = "NOT_CLAIMED"
+            continue
+
+        client_id = str(record["client_id"])
+
+        matches = [
+            order for order in history
+            if isinstance(order, dict)
+            and client_id in {
+                str(order.get(field))
+                for field in (
+                    "clientOrderId",
+                    "newClientOrderId",
+                    "clientOid",
+                )
+                if order.get(field) is not None
+            }
+        ]
+
+        if matches:
+            result = unit_14_stage_reconcile_order(
+                cycle_id,
+                action,
+                history
+            )
+
+            results[action] = result["state"]
+
+        else:
+            results[action] = (
+                "EXCHANGE_OUTCOME_UNRESOLVED"
+            )
+
+        print(
+            "UNIT 14 H1 CLAIM AUDIT",
+            "ACTION =", action,
+            "CLIENT ID =", client_id,
+            "PERSISTED STATE =", record["state"],
+            "EXCHANGE ORDER ID =",
+            record["exchange_order_id"],
+            "HISTORY MATCHES =", len(matches),
+            "RESULT =", results[action],
+            flush=True
+        )
+
+    print(
+        "UNIT 14 H1 CLAIM AUDIT SUMMARY =",
+        results,
+        flush=True
+    )
+
+    return results
+
 def unit_14_stage_execute_pair(
     cycle_id,
     stage,
