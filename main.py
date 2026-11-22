@@ -17588,11 +17588,87 @@ def unit_14_stage_dispatch(
                 "INVALID ORIGINAL SIDE"
             )
 
-        cycle_id = (
-            "U14-"
-            + unit_14_v3_trade_key(
-                original_position
+        
+        import hashlib
+
+        _, demo_symbol = unit_13_14_active_symbols()
+
+        demo_symbol = str(
+            demo_symbol
+        ).strip().upper()
+
+        trade_key = unit_14_v3_trade_key(
+            original_position
+        )
+
+        legacy_cycle_id = "U14-" + trade_key
+
+        identity = (
+            demo_symbol
+            + "|"
+            + original_side
+            + "|"
+            + trade_key
+        )
+
+        digest = hashlib.sha256(
+            identity.encode("utf-8")
+        ).hexdigest()[:20]
+
+        cycle_id = "U14-" + digest
+
+        legacy_cycle = unit_14_stage_read(
+            legacy_cycle_id
+        )
+
+        if legacy_cycle is not None:
+
+            legacy_symbol = str(
+                legacy_cycle["symbol"]
+            ).strip().upper()
+
+            legacy_side = str(
+                legacy_cycle["original_side"]
+            ).strip().upper()
+
+            legacy_orders = legacy_cycle.get(
+                "orders", {}
             )
+
+            if legacy_orders:
+                raise RuntimeError(
+                    "UNIT 14 LEGACY CYCLE HAS "
+                    "ORDER HISTORY; RECONCILE BEFORE "
+                    "CREATING SYMBOL-SPECIFIC CYCLE: "
+                    + legacy_cycle_id
+                )
+
+            if (
+                legacy_symbol == demo_symbol
+                and legacy_side == original_side
+            ):
+                cycle_id = legacy_cycle_id
+
+                print(
+                    "UNIT 14 MATCHING LEGACY "
+                    "CYCLE PRESERVED =",
+                    cycle_id,
+                    flush=True
+                )
+
+            else:
+                print(
+                    "UNIT 14 DIFFERENT-SYMBOL "
+                    "LEGACY CYCLE PRESERVED =",
+                    legacy_cycle_id,
+                    legacy_symbol,
+                    flush=True
+                )
+
+        print(
+            "UNIT 14 SELECTED CYCLE ID =",
+            cycle_id,
+            flush=True
         )
 
         # --------------------------------------------
