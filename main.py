@@ -19200,7 +19200,7 @@ or str(
                 return result
 
             payload = {
-                "symbol": "BTCSUSDT",
+                "symbol": unit_13_14_active_symbols()[1],
                 "side": (
                     "SELL" if side == "LONG"
                     else "BUY"
@@ -19560,7 +19560,7 @@ or str(
     # ========================================================
 
     payload = {
-        "symbol": "BTCSUSDT",
+        "symbol": unit_13_14_active_symbols()[1],
         "side": (
             "BUY" if side == "LONG"
             else "SELL"
