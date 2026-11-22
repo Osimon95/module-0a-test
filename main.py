@@ -17613,6 +17613,8 @@ def unit_14_stage_dispatch(
                 persisted_cycle["original_side"]
             ).upper()
 
+            _, demo_symbol = unit_13_14_active_symbols()
+
             if (
                 persisted_symbol != demo_symbol
                 or persisted_side != original_side
