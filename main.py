@@ -18007,6 +18007,7 @@ def unit_14_stage_dispatch(
             "POSITION LEVERAGE"
         )
 
+        
         outcome = unit_14_stage_execute_pair(
             cycle_id=cycle_id,
             stage=stage,
@@ -18019,6 +18020,36 @@ def unit_14_stage_dispatch(
 
         outcome["handled"] = True
         outcome["stage"] = stage
+
+        print(
+            "UNIT 14 STAGE EXECUTION =",
+            stage,
+            flush=True
+        )
+
+        print(
+            "UNIT 14 STAGE STATUS =",
+            outcome.get("status"),
+            flush=True
+        )
+
+        print(
+            "UNIT 14 STAGE ACTION RESULTS =",
+            outcome.get("actions", {}),
+            flush=True
+        )
+
+        print(
+            "UNIT 14 STAGE FUNDING MODE =",
+            outcome.get("funding_mode"),
+            flush=True
+        )
+
+        print(
+            "UNIT 14 STAGE COMPLETE =",
+            outcome.get("complete", False),
+            flush=True
+        )
 
         return outcome
 
