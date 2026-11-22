@@ -16268,6 +16268,7 @@ def unit_14_v3_history():
 
 
 def unit_14_v3_mark():
+    market_symbol, _ = unit_13_14_active_symbols()
 
     query = urllib.parse.urlencode({
         "symbol": market_symbol,
