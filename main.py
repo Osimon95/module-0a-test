@@ -16226,7 +16226,7 @@ def unit_14_v3_history():
     for page in range(20):
 
         query = urllib.parse.urlencode({
-            "symbol": market_symbol,
+            "symbol": demo_symbol,
             "limit": 1000,
             "page": page,
         })
