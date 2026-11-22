@@ -16214,8 +16214,9 @@ def unit_14_v3_balance():
         "UNIT 14 SUSDT BALANCE MISSING"
     )
 
-
 def unit_14_v3_history():
+
+    _, demo_symbol = unit_13_14_active_symbols()
 
     orders = []
 
