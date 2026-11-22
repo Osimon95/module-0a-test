@@ -14922,14 +14922,14 @@ def fresh_reconstruction_unit_13(
     # ========================================================
 
     history = unit_13_v4_history(
-        "BTCSUSDT"
+        demo_symbol
     )
 
     totals, unresolved = unit_13_v4_verified(
         state,
         history,
         side,
-        "BTCSUSDT"
+        demo_symbol
     )
 
     tp1_filled = totals["TP1"]
@@ -15272,7 +15272,7 @@ def fresh_reconstruction_unit_13(
                 )
 
                 payload = {
-                    "symbol": "BTCSUSDT",
+                    "symbol": demo_symbol,
                     "side": close_side,
                     "positionSide": side,
                     "type": "MARKET",
