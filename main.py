@@ -14799,6 +14799,30 @@ def fresh_reconstruction_unit_13(
         "OPEN VALUE"
     )
 
+    
+    print(
+        "UNIT 13 EXCHANGE POSITION LEVERAGE FIELDS =",
+        {
+            key: value
+            for key, value in p.items()
+            if "lever" in key.lower()
+            or "margin" in key.lower()
+        },
+        flush=True
+    )
+
+    print(
+        "UNIT 13 RENDER LONG LEVERAGE =",
+        os.getenv("WEEX_LEVERAGE_LONG"),
+        flush=True
+    )
+
+    print(
+        "UNIT 13 RENDER SHORT LEVERAGE =",
+        os.getenv("WEEX_LEVERAGE_SHORT"),
+        flush=True
+    )
+
     leverage = D(
         p.get("leverage"),
         "POSITION LEVERAGE"
