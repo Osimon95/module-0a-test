@@ -17547,7 +17547,10 @@ def unit_14_stage_dispatch(
     unit_14_stage_execute_pair().
     """
 
+    
     from decimal import Decimal
+
+    D = unit_14_v3_D
 
     _, demo_symbol = unit_13_14_active_symbols()
 
