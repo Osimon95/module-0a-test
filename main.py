@@ -14889,7 +14889,7 @@ def fresh_reconstruction_unit_13(
     )
 
     state_path = unit_13_v4_state_path(
-        "BTCSUSDT",
+        demo_symbol,
         side,
         cycle
     )
