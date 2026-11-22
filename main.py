@@ -14584,6 +14584,7 @@ def fresh_reconstruction_unit_13(
             "UNIT 13 NON-DEMO CONTRACT BLOCKED"
         )
 
+    D = unit_13_v4_D
     _, demo_symbol = unit_13_14_active_symbols()
 
     step = D(
