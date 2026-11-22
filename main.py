@@ -17599,6 +17599,7 @@ def unit_14_stage_dispatch(
         # CHECK PERSISTENT REGISTRY BEFORE CREATING
         # --------------------------------------------
 
+        
         persisted_cycle = unit_14_stage_read(
             cycle_id
         )
@@ -17607,20 +17608,56 @@ def unit_14_stage_dispatch(
 
             persisted_symbol = str(
                 persisted_cycle["symbol"]
-            ).upper()
+            ).strip().upper()
 
             persisted_side = str(
                 persisted_cycle["original_side"]
-            ).upper()
+            ).strip().upper()
 
             _, demo_symbol = unit_13_14_active_symbols()
 
+            demo_symbol = str(
+                demo_symbol
+            ).strip().upper()
+
+            current_side = str(
+                original_side
+            ).strip().upper()
+
+            print(
+                "UNIT 14 PERSISTED CYCLE ID =",
+                cycle_id,
+                flush=True
+            )
+            print(
+                "UNIT 14 PERSISTED SYMBOL =",
+                persisted_symbol,
+                flush=True
+            )
+            print(
+                "UNIT 14 CURRENT DEMO SYMBOL =",
+                demo_symbol,
+                flush=True
+            )
+            print(
+                "UNIT 14 PERSISTED SIDE =",
+                persisted_side,
+                flush=True
+            )
+            print(
+                "UNIT 14 CURRENT ORIGINAL SIDE =",
+                current_side,
+                flush=True
+            )
+
             if (
                 persisted_symbol != demo_symbol
-                or persisted_side != original_side
+                or persisted_side != current_side
             ):
                 raise RuntimeError(
-                    "PERSISTED CYCLE IDENTITY CONFLICT"
+                    "PERSISTED CYCLE IDENTITY CONFLICT: "
+                    f"stored={persisted_symbol}/{persisted_side}, "
+                    f"current={demo_symbol}/{current_side}"
                 )
 
             print(
