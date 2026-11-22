@@ -17646,19 +17646,57 @@ def unit_14_stage_execute_pair(
             continue
 
         
+        # Inspect the actual WEEX demo response.
+        # A top-level orderId is the acknowledgement;
+        # success=True is not mandatory.
+
+        print(
+            "UNIT 14 DEMO ORDER RESPONSE",
+            "ACTION =", action,
+            "CLIENT ID =", claim["client_id"],
+            "RESPONSE =", repr(reply)[:1200],
+            flush=True
+        )
+
+        order_id = None
+        returned_client_id = None
+
+        if isinstance(reply, dict):
+            order_id = reply.get("orderId")
+            returned_client_id = reply.get(
+                "clientOrderId"
+            )
+
         if (
-            not isinstance(reply, dict)
-            or reply.get("success") is not True
-            or not reply.get("orderId")
+            order_id is not None
+            and str(order_id).strip()
+            and (
+                returned_client_id is None
+                or str(returned_client_id)
+                == claim["client_id"]
+            )
+            and (
+                not isinstance(reply, dict)
+                or reply.get("success") is not False
+            )
         ):
 
+            unit_14_stage_update(
+                claim["client_id"],
+                "SUBMITTED",
+                str(order_id)
+            )
+
+            results[action] = "SUBMITTED"
+
             print(
-                "UNIT 14 ORDER RESPONSE DIAGNOSTIC",
+                "UNIT 14 DEMO ORDER ACCEPTED",
                 "ACTION =", action,
-                "CLIENT ID =", claim["client_id"],
-                "RESPONSE =", reply,
+                "ORDER ID =", order_id,
                 flush=True
             )
+
+        else:
 
             unit_14_stage_update(
                 claim["client_id"],
@@ -17666,16 +17704,13 @@ def unit_14_stage_execute_pair(
             )
 
             results[action] = "ACK_UNKNOWN"
-            continue
 
-        unit_14_stage_update(
-            claim["client_id"],
-            "SUBMITTED",
-            str(reply["orderId"])
-        )
-
-        results[action] = "SUBMITTED"
-
+            print(
+                "UNIT 14 DEMO ORDER UNRESOLVED",
+                "ACTION =", action,
+                "CLIENT ID =", claim["client_id"],
+                flush=True
+            )
     return {
         "status": stage + "_IN_PROGRESS",
         "cycle_id": cycle_id,
