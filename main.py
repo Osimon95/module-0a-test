@@ -17661,26 +17661,46 @@ def unit_14_stage_execute_pair(
         order_id = None
         returned_client_id = None
 
+        
+        # WEEX demo submission acknowledgement.
+        # An order acknowledgement is not a fill.
+
+        print(
+            "UNIT 14 DEMO POST RESPONSE",
+            "ACTION =", action,
+            "CLIENT ID =", claim["client_id"],
+            "RESPONSE =", repr(reply)[:1500],
+            flush=True
+        )
+
+        order_id = None
+        returned_client_id = None
+        explicit_failure = False
+
         if isinstance(reply, dict):
             order_id = reply.get("orderId")
             returned_client_id = reply.get(
                 "clientOrderId"
             )
 
+            explicit_failure = (
+                reply.get("success") is False
+                or bool(reply.get("errorCode"))
+                or bool(reply.get("errorMsg"))
+            )
+
+        client_id_matches = (
+            returned_client_id is None
+            or str(returned_client_id)
+            == claim["client_id"]
+        )
+
         if (
             order_id is not None
             and str(order_id).strip()
-            and (
-                returned_client_id is None
-                or str(returned_client_id)
-                == claim["client_id"]
-            )
-            and (
-                not isinstance(reply, dict)
-                or reply.get("success") is not False
-            )
+            and client_id_matches
+            and not explicit_failure
         ):
-
             unit_14_stage_update(
                 claim["client_id"],
                 "SUBMITTED",
@@ -17690,14 +17710,13 @@ def unit_14_stage_execute_pair(
             results[action] = "SUBMITTED"
 
             print(
-                "UNIT 14 DEMO ORDER ACCEPTED",
+                "UNIT 14 DEMO ORDER ACKNOWLEDGED",
                 "ACTION =", action,
                 "ORDER ID =", order_id,
                 flush=True
             )
 
         else:
-
             unit_14_stage_update(
                 claim["client_id"],
                 "ACK_UNKNOWN"
@@ -17706,7 +17725,7 @@ def unit_14_stage_execute_pair(
             results[action] = "ACK_UNKNOWN"
 
             print(
-                "UNIT 14 DEMO ORDER UNRESOLVED",
+                "UNIT 14 DEMO ACK UNRESOLVED",
                 "ACTION =", action,
                 "CLIENT ID =", claim["client_id"],
                 flush=True
