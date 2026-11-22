@@ -16293,7 +16293,7 @@ def unit_14_v3_mark():
 
     if (
         not isinstance(data, dict)
-        or data.get("symbol") != "BTCUSDT"
+        or data.get("symbol") != market_symbol
     ):
         raise RuntimeError(
             "UNIT 14 INVALID MARK RESPONSE"
