@@ -17091,14 +17091,42 @@ def unit_14_stage_reconcile_order(
             "INVALID STAGE ORDER HISTORY"
         )
 
-    matches = [
-        order
-        for order in history
-        if isinstance(order, dict)
-        and str(
-            order.get("clientOrderId", "")
-        ) == client_id
-    ]
+    
+    # Match the persisted H1/H2/R1/R2 claim against
+    # recognized exchange client-order ID fields.
+    # Never infer a fill from symbol or quantity alone.
+
+    client_id_fields = (
+        "clientOrderId",
+        "newClientOrderId",
+        "clientOid",
+    )
+
+    matches = []
+
+    for order in history:
+
+        if not isinstance(order, dict):
+            continue
+
+        returned_ids = {
+            str(order[field])
+            for field in client_id_fields
+            if order.get(field) is not None
+            and str(order[field]).strip()
+        }
+
+        if client_id in returned_ids:
+            matches.append(order)
+
+    if matches:
+        print(
+            "UNIT 14 STAGE CLIENT ID MATCH =",
+            action,
+            "CLIENT ID =", client_id,
+            "MATCH COUNT =", len(matches),
+            flush=True
+        )
 
     
     if action in ("H1-C", "H1-H") and not matches:
