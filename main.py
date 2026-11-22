@@ -17548,7 +17548,7 @@ def unit_14_stage_dispatch(
 
     from decimal import Decimal
 
-    D = unit_14_v3_D
+    _, demo_symbol = unit_13_14_active_symbols()
 
     original_side, cycle_id = (
         unit_14_active_original_side()
