@@ -17100,11 +17100,106 @@ def unit_14_stage_reconcile_order(
         ) == client_id
     ]
 
+    
     if not matches:
 
-        # No history record does not prove
-        # that a claimed order was never sent.
-        # Preserve the claim and do not retry.
+        print(
+            "UNIT 14 RECONCILIATION DIAGNOSTIC START",
+            flush=True
+        )
+
+        print(
+            "UNIT 14 ACTION =",
+            action,
+            flush=True
+        )
+
+        print(
+            "UNIT 14 CYCLE ID =",
+            cycle_id,
+            flush=True
+        )
+
+        print(
+            "UNIT 14 CLAIM CLIENT ID =",
+            client_id,
+            flush=True
+        )
+
+        print(
+            "UNIT 14 PERSISTED ORDER STATE =",
+            record.get("state"),
+            flush=True
+        )
+
+        print(
+            "UNIT 14 PERSISTED EXCHANGE ORDER ID =",
+            record.get("exchange_order_id"),
+            flush=True
+        )
+
+        print(
+            "UNIT 14 EXPECTED QUANTITY =",
+            str(expected),
+            flush=True
+        )
+
+        print(
+            "UNIT 14 PREVIOUS CONFIRMED FILL =",
+            str(previous_filled),
+            flush=True
+        )
+
+        print(
+            "UNIT 14 HISTORY RECORD COUNT =",
+            len(history),
+            flush=True
+        )
+
+        for index, order in enumerate(history[:5]):
+
+            if not isinstance(order, dict):
+                continue
+
+            print(
+                "UNIT 14 HISTORY",
+                index,
+                "FIELD NAMES =",
+                sorted(order.keys()),
+                flush=True
+            )
+
+            for field in (
+                "clientOrderId",
+                "newClientOrderId",
+                "clientOid",
+                "orderId",
+                "status",
+                "state",
+                "executedQty",
+                "filledQty",
+                "symbol",
+                "side",
+                "positionSide",
+            ):
+                if field in order:
+                    print(
+                        "UNIT 14 HISTORY",
+                        index,
+                        field,
+                        "=",
+                        order[field],
+                        flush=True
+                    )
+
+        print(
+            "UNIT 14 RECONCILIATION DIAGNOSTIC END",
+            flush=True
+        )
+
+        # Missing history does not prove the order
+        # was rejected or never transmitted.
+        # Preserve the claim; never resubmit here.
 
         return {
             "action": action,
