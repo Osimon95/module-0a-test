@@ -16707,6 +16707,32 @@ def unit_14_stage_create_cycle(
 
     finally:
         db.close()
+
+def unit_14_stage_client_id(cycle_id, action):
+    """
+    Stable client ID for each cycle and stage action.
+    Same cycle/action always produces the same ID.
+    """
+
+    cycle_id = str(cycle_id).strip()
+    action = str(action).strip().upper()
+
+    if not cycle_id:
+        raise RuntimeError(
+            "UNIT 14 CYCLE ID MISSING"
+        )
+
+    if action not in UNIT14_STAGE_ACTIONS:
+        raise RuntimeError(
+            "UNIT 14 INVALID STAGE ACTION"
+        )
+
+    digest = hashlib.sha256(
+        (cycle_id + "|" + action).encode("utf-8")
+    ).hexdigest()[:20]
+
+    return "U14-" + action + "-" + digest
+
 def unit_14_stage_claim(
     cycle_id,
     action,
