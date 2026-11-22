@@ -17488,8 +17488,9 @@ def unit_14_stage_execute_pair(
         "complete": False,
     }
 
-
-def unit_14_active_original_side(symbol="BTCSUSDT"):
+def unit_14_active_original_side(symbol=None):
+    if symbol is None:
+        _, symbol = unit_13_14_active_symbols()
     """
     Resolve original position side from a persisted
     active hedge/recovery cycle.
