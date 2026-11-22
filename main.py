@@ -17613,7 +17613,7 @@ def unit_14_stage_dispatch(
             ).upper()
 
             if (
-                persisted_symbol != "BTCSUSDT"
+                persisted_symbol != demo_symbol
                 or persisted_side != original_side
             ):
                 raise RuntimeError(
@@ -17660,7 +17660,7 @@ def unit_14_stage_dispatch(
 
             unit_14_stage_create_cycle(
                 cycle_id,
-                "BTCSUSDT",
+                demo_symbol,
                 original_side,
                 quantity,
                 entry,
