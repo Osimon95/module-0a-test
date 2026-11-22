@@ -14295,6 +14295,7 @@ def unit_13_14_active_symbols():
     return market, demo
 
 def unit_13_v4_mark_price():
+    market_symbol, _ = unit_13_14_active_symbols()
 
     query = urllib.parse.urlencode({
         "symbol": market_symbol,
