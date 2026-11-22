@@ -17617,11 +17617,20 @@ def unit_14_stage_execute_pair(
 
             continue
 
+        
         if (
             not isinstance(reply, dict)
             or reply.get("success") is not True
             or not reply.get("orderId")
         ):
+
+            print(
+                "UNIT 14 ORDER RESPONSE DIAGNOSTIC",
+                "ACTION =", action,
+                "CLIENT ID =", claim["client_id"],
+                "RESPONSE =", reply,
+                flush=True
+            )
 
             unit_14_stage_update(
                 claim["client_id"],
