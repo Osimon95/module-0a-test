@@ -17101,6 +17101,52 @@ def unit_14_stage_reconcile_order(
     ]
 
     
+    if action in ("H1-C", "H1-H") and not matches:
+
+        print(
+            "UNIT 14 H1 MATCH DIAGNOSTIC:",
+            "ACTION =", action,
+            "CLIENT ID =", client_id,
+            "PERSISTED STATE =", record.get("state"),
+            "SAVED ORDER ID =", record.get("exchange_order_id"),
+            "HISTORY COUNT =", len(history),
+            flush=True
+        )
+
+        for index, order in enumerate(history[:5]):
+            if not isinstance(order, dict):
+                continue
+
+            print(
+                "UNIT 14 H1 HISTORY RECORD",
+                index,
+                "=",
+                {
+                    key: order.get(key)
+                    for key in (
+                        "symbol",
+                        "clientOrderId",
+                        "newClientOrderId",
+                        "clientOid",
+                        "orderId",
+                        "status",
+                        "state",
+                        "executedQty",
+                        "filledQty",
+                        "side",
+                        "positionSide",
+                    )
+                    if key in order
+                },
+                flush=True
+            )
+
+            print(
+                "UNIT 14 H1 HISTORY FIELD NAMES =",
+                sorted(order.keys()),
+                flush=True
+            )
+
     if not matches:
 
         print(
