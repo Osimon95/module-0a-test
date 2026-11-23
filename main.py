@@ -17814,20 +17814,24 @@ def unit_14_stage_execute_pair(
                 flush=True
             )
     
+    
+    unresolved_states = {
+        "ACK_UNKNOWN",
+        "ACK_OR_HISTORY_UNKNOWN",
+        "CLAIMED",
+        "PREVIOUS_CLAIM_EXISTS",
+    }
+
     unresolved = [
         action
         for action, state in results.items()
-        if state in (
-            "ACK_UNKNOWN",
-            "CLAIMED",
-            "PREVIOUS_CLAIM_EXISTS",
-        )
+        if state in unresolved_states
     ]
 
     if unresolved:
         status = stage + "_ACK_UNRESOLVED"
     elif any(
-        state in ("SUBMITTED", "PARTIALLY_FILLED")
+        state in ("SUBMITTED", "PENDING", "PARTIAL")
         for state in results.values()
     ):
         status = stage + "_EXECUTION_PENDING"
@@ -17839,8 +17843,7 @@ def unit_14_stage_execute_pair(
         "cycle_id": cycle_id,
         "funding_mode": (
             "INDEPENDENT"
-            if independent
-            else "SEQUENTIAL"
+            if independent else "SEQUENTIAL"
         ),
         "required_opening_margin": str(required_margin),
         "available_margin": str(available),
