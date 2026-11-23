@@ -22015,6 +22015,23 @@ def unit_9_load_symbol_specifications(config, symbol):
                 "SYMBOL_NOT_IN_EXCHANGE_INFO"
             )
 
+        
+        print(
+            "UNIT 9 EXCHANGE PRECISION FIELDS =",
+            {
+                key: selected.get(key)
+                for key in (
+                    "quantityPrecision",
+                    "size_increment",
+                    "pricePrecision",
+                    "tick_size",
+                    "minOrderSize",
+                    "contractVal",
+                )
+            },
+            flush=True
+        )
+
         if str(
             selected.get("quoteAsset", "")
         ).upper() != "USDT":
