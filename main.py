@@ -18472,7 +18472,29 @@ def unit_14_stage_dispatch(
     # A previously started H2 must be reconciled
     # independently before any recovery transition.
 
+    
     if h2_started and not pair_complete("H2"):
+
+        h2_states = {
+            action: orders[action]["state"]
+            for action in ("H2-C", "H2-H")
+        }
+
+        if any(
+            state in (
+                "PARTIAL_TERMINAL",
+                "TERMINAL_UNFILLED",
+            )
+            for state in h2_states.values()
+        ):
+            return {
+                "status": "H2_MANUAL_RECONCILIATION_REQUIRED",
+                "handled": True,
+                "cycle_id": cycle_id,
+                "h2_states": h2_states,
+                "reconciliation_required": True,
+                "exchange_write": False,
+            }
 
         return execute(
             "H2",
