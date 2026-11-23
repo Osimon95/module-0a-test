@@ -22016,19 +22016,38 @@ def unit_9_load_symbol_specifications(config, symbol):
         "market_precision", {}
     )
 
-    # Never carry a previous symbol's specifications
-    # into a new symbol.
-    precision["symbol_specifications_confirmed"] = False
-
-    for key in (
+    
+    # Preserve the last valid specifications for this
+    # exact symbol until a replacement is available.
+    spec_keys = (
         "quantity_step",
         "minimum_quantity",
         "price_step",
         "contract_multiplier",
         "contract_value",
         "specifications_symbol",
-    ):
-        precision.pop(key, None)
+    )
+
+    previous_valid = (
+        precision.get("symbol_specifications_confirmed")
+        is True
+        and str(
+            precision.get("specifications_symbol") or ""
+        ).strip().upper() == symbol
+        and all(
+            precision.get(key) is not None
+            for key in spec_keys
+        )
+    )
+
+    previous_specs = (
+        {
+            key: precision.get(key)
+            for key in spec_keys
+        }
+        if previous_valid
+        else {}
+    )
 
     try:
         if not symbol or not symbol.endswith("USDT"):
