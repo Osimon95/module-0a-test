@@ -22895,10 +22895,21 @@ def scan_refresh_entry_pipeline():
     )
 
     
-    unit_9_load_symbol_specifications(
+    specifications_loaded = unit_9_load_symbol_specifications(
         config,
         active_market,
     )
+
+    if specifications_loaded is not True:
+        print(
+            "SCAN CONTRACT SPECIFICATIONS UNAVAILABLE =",
+            active_market,
+            flush=True,
+        )
+        raise RuntimeError(
+            "SCAN ACTIVE CONTRACT SPECIFICATIONS UNAVAILABLE: "
+            + active_market
+        )
 
     print(
         "SCAN REFRESHED ACTIVE MARKET =",
