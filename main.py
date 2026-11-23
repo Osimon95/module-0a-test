@@ -16147,9 +16147,18 @@ def unit_14_v3_balance():
         "UNIT 14 SUSDT BALANCE MISSING"
     )
 
-def unit_14_v3_history():
 
-    _, demo_symbol = unit_13_14_active_symbols()
+def unit_14_v3_history(demo_symbol=None):
+
+    if demo_symbol is None:
+        _, demo_symbol = unit_13_14_active_symbols()
+
+    demo_symbol = str(demo_symbol).strip().upper()
+
+    if not demo_symbol.endswith("SUSDT"):
+        raise RuntimeError(
+            "UNIT 14 INVALID DEMO HISTORY SYMBOL"
+        )
 
     orders = []
 
