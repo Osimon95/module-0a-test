@@ -9125,6 +9125,38 @@ def unit_8_symbol_event(db, event_type, message):
     )
 
 
+def unit_8_candidate_compatible(market_symbol, demo_symbol):
+    import copy
+
+    market = str(market_symbol or "").strip().upper()
+    demo = str(demo_symbol or "").strip().upper()
+
+    if not market or not demo:
+        return False
+
+    candidate_config = copy.deepcopy(
+        FRESH_RECONSTRUCTION_CONFIG
+    )
+
+    candidate_config["exchange"]["market_symbol"] = market
+    candidate_config["exchange"]["demo_order_symbol"] = demo
+
+    try:
+        return (
+            unit_9_load_symbol_specifications(
+                candidate_config,
+                market
+            ) is True
+        )
+    except Exception as exc:
+        print(
+            "UNIT 8 CANDIDATE CHECK FAILED =",
+            market,
+            str(exc),
+            flush=True
+        )
+        return False
+
 def unit_8_symbol_switch(
     requested_market,
     requested_demo,
