@@ -22093,7 +22093,7 @@ def unit_9_load_symbol_specifications(config, symbol):
             if (
                 not number.is_finite()
                 or number != number.to_integral_value()
-                or number < 0
+                or number < -18
                 or number > 18
             ):
                 raise ValueError(
