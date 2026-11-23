@@ -18440,23 +18440,33 @@ def unit_14_stage_dispatch(
     # H1 EXECUTION
     # ------------------------------------------------
 
+    
     if not pair_complete("H1"):
+
+        if (
+            unresolved("H1-C")
+            or unresolved("H1-H")
+        ):
+            return {
+                "status": "H1_ACK_UNRESOLVED",
+                "handled": True,
+                "cycle_id": cycle_id,
+                "adverse_atr": str(adverse),
+                "reconciliation_required": True,
+            }
 
         if (
             adverse >= Decimal("1")
             or started("H1-C")
             or started("H1-H")
         ):
-            return execute(
-                "H1",
-                h1_qty
-            )
+            return execute("H1", h1_qty)
 
         return {
             "status": "H1_MONITORING",
             "handled": True,
             "cycle_id": cycle_id,
-            "adverse_atr": str(adverse)
+            "adverse_atr": str(adverse),
         }
 
     
