@@ -17813,18 +17813,39 @@ def unit_14_stage_execute_pair(
                 "CLIENT ID =", claim["client_id"],
                 flush=True
             )
+    
+    unresolved = [
+        action
+        for action, state in results.items()
+        if state in (
+            "ACK_UNKNOWN",
+            "CLAIMED",
+            "PREVIOUS_CLAIM_EXISTS",
+        )
+    ]
+
+    if unresolved:
+        status = stage + "_ACK_UNRESOLVED"
+    elif any(
+        state in ("SUBMITTED", "PARTIALLY_FILLED")
+        for state in results.values()
+    ):
+        status = stage + "_EXECUTION_PENDING"
+    else:
+        status = stage + "_NOT_COMPLETED"
+
     return {
-        "status": stage + "_IN_PROGRESS",
+        "status": status,
         "cycle_id": cycle_id,
         "funding_mode": (
             "INDEPENDENT"
             if independent
             else "SEQUENTIAL"
         ),
-        "required_opening_margin":
-            str(required_margin),
+        "required_opening_margin": str(required_margin),
         "available_margin": str(available),
         "actions": results,
+        "unresolved_actions": unresolved,
         "complete": False,
     }
 
