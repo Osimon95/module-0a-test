@@ -17668,16 +17668,37 @@ def unit_14_stage_execute_pair(
         returned_client_id = None
         explicit_failure = False
 
+        
         if isinstance(reply, dict):
-            order_id = reply.get("orderId")
-            returned_client_id = reply.get(
-                "clientOrderId"
-            )
-
             explicit_failure = (
                 reply.get("success") is False
                 or bool(reply.get("errorCode"))
                 or bool(reply.get("errorMsg"))
+            )
+
+            response_data = reply.get("data")
+
+            if isinstance(response_data, dict):
+                response_order = response_data
+            else:
+                response_order = reply
+
+            order_id = (
+                response_order.get("orderId")
+                or response_order.get("order_id")
+            )
+
+            returned_client_id = (
+                response_order.get("clientOrderId")
+                or response_order.get("newClientOrderId")
+                or response_order.get("clientOid")
+            )
+
+            explicit_failure = (
+                explicit_failure
+                or response_order.get("success") is False
+                or bool(response_order.get("errorCode"))
+                or bool(response_order.get("errorMsg"))
             )
 
         client_id_matches = (
