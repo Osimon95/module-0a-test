@@ -23697,7 +23697,7 @@ def dpc_close(side, command_id):
         return "POSITION_CHANGED"
 
     payload = {
-        "symbol": "BTCSUSDT",
+        "symbol": unit_13_14_active_symbols()[1],
         "side": "SELL" if side == "LONG" else "BUY",
         "positionSide": side,
         "type": "MARKET",
