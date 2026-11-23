@@ -18263,6 +18263,33 @@ def unit_14_stage_dispatch(
             "CLAIMED",
         }
 
+    
+    # Block new stage transitions while any previously
+    # claimed stage order has an unknown exchange outcome.
+    # Continue exchange reconciliation on every scan.
+
+    unresolved_actions = [
+        action
+        for action in UNIT14_STAGE_ACTIONS
+        if unresolved(action)
+    ]
+
+    if unresolved_actions:
+        print(
+            "UNIT 14 STAGE ACK RECONCILIATION REQUIRED =",
+            unresolved_actions,
+            flush=True
+        )
+
+        return {
+            "status": "STAGE_ACK_UNRESOLVED",
+            "handled": True,
+            "cycle_id": cycle_id,
+            "unresolved_actions": unresolved_actions,
+            "reconciliation_required": True,
+            "exchange_write": False,
+        }
+
     def pair_complete(stage):
 
         close_action = stage + "-C"
