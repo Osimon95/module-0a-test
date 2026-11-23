@@ -22280,6 +22280,23 @@ def unit_9_load_symbol_specifications(config, symbol):
         json.JSONDecodeError,
     ) as exc:
 
+        
+        if previous_valid:
+            precision.update(previous_specs)
+            precision[
+                "symbol_specifications_confirmed"
+            ] = True
+
+            print(
+                "UNIT 9 CONTRACT SPECIFICATIONS = "
+                "PRESERVED_SAME_SYMBOL",
+                flush=True
+            )
+            return True
+
+        for key in spec_keys:
+            precision.pop(key, None)
+
         precision[
             "symbol_specifications_confirmed"
         ] = False
