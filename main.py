@@ -22041,10 +22041,31 @@ def unit_9_load_symbol_specifications(config, symbol):
 
             return result
 
+        
         def precision_step(value, name):
+            """
+            Convert a decimal-place count into a positive step.
+
+            Accept:
+                0       -> 1
+                "0"     -> 1
+                "0.0"   -> 1
+                "3"     -> 0.001
+                3.0     -> 0.001
+
+            Reject missing, fractional, negative,
+            nonfinite or excessive precision.
+            """
+
+            if isinstance(value, bool) or value is None:
+                raise ValueError(
+                    "INVALID_" + name
+                )
+
             try:
-                digits = int(value)
+                number = Decimal(str(value).strip())
             except (
+                InvalidOperation,
                 TypeError,
                 ValueError,
             ) as exc:
@@ -22052,13 +22073,19 @@ def unit_9_load_symbol_specifications(config, symbol):
                     "INVALID_" + name
                 ) from exc
 
-            if digits < 0 or digits > 18:
+            if (
+                not number.is_finite()
+                or number != number.to_integral_value()
+                or number < 0
+                or number > 18
+            ):
                 raise ValueError(
                     "INVALID_" + name
                 )
 
-            return Decimal("1").scaleb(-digits)
+            return Decimal("1").scaleb(-int(number))
 
+        
         # Use an explicit increment when WEEX returns
         # one; otherwise derive the precision increment.
         if selected.get("size_increment") is not None:
