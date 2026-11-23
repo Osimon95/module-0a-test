@@ -19700,6 +19700,47 @@ or str(
     # UNIT 14 V4 - BACKUP ACTIVATION AUTHORIZATION
     # ========================================================
 
+    
+    # ========================================================
+    # RENDER CONTROL: ENABLE / DISABLE NEW B1-B5 ORDERS
+    # Existing backup reconciliation remains unchanged.
+    # ========================================================
+
+    backup_enabled_raw = os.getenv(
+        "BACKUP_EXECUTION_ENABLED",
+        "true"
+    ).strip().lower()
+
+    if backup_enabled_raw not in ("true", "false"):
+        raise RuntimeError(
+            "BACKUP_EXECUTION_ENABLED MUST BE true OR false"
+        )
+
+    backup_enabled = (
+        backup_enabled_raw == "true"
+    )
+
+    result["backup_execution_enabled"] = backup_enabled
+
+    print(
+        "UNIT 14 BACKUP EXECUTION ENABLED =",
+        backup_enabled,
+        flush=True
+    )
+
+    if not backup_enabled:
+        result["status"] = "BACKUPS_DISABLED"
+        result["skip_reason"] = (
+            "RENDER_BACKUP_EXECUTION_DISABLED"
+        )
+
+        print(
+            "UNIT 14 B1-B5 NEW SUBMISSIONS = DISABLED",
+            flush=True
+        )
+
+        return result
+
     handover = result.get(
         "backup_handover",
         {}
