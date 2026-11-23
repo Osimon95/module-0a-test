@@ -9157,6 +9157,7 @@ def unit_8_candidate_compatible(market_symbol, demo_symbol):
         )
         return False
 
+
 def unit_8_symbol_switch(
     requested_market,
     requested_demo,
@@ -9165,24 +9166,6 @@ def unit_8_symbol_switch(
     contract_verified=False,
     candidate_ready=False
 ):
-    """
-    Persistent WEEX demo symbol-switch controller.
-
-    OCCUPIED:
-        Queue a requested change, without interrupting
-        management of existing positions.
-
-    FLAT:
-        Activate a requested change only after the
-        exact market/demo pair is verified.
-
-    contract_verified must come from an independent
-    WEEX contract-validation step, never from
-    symbol formatting or an assumed S suffix.
-
-    This function does not submit exchange orders.
-    """
-
     requested_market = str(
         requested_market or ""
     ).strip().upper()
@@ -9191,20 +9174,9 @@ def unit_8_symbol_switch(
         requested_demo or ""
     ).strip().upper()
 
-    
-    valid_format = bool(
-        re.fullmatch(
-            r"[A-Z0-9]{3,30}",
-            requested_market
-        )
-    ) and (
-        not requested_demo
-        or bool(
-            re.fullmatch(
-                r"[A-Z0-9]{3,30}",
-                requested_demo
-            )
-        )
+    requested_pair = (
+        requested_market,
+        requested_demo
     )
 
     db = unit_8_symbol_switch_db()
@@ -9212,111 +9184,45 @@ def unit_8_symbol_switch(
     try:
         db.execute("BEGIN IMMEDIATE")
 
-        now = datetime.now(
-            timezone.utc
-        ).isoformat()
+        now = datetime.now(timezone.utc).isoformat()
 
         row = db.execute("""
-            SELECT
-                active_market,
-                active_demo,
-                queued_market,
-                queued_demo
+            SELECT active_market, active_demo,
+                   queued_market, queued_demo
             FROM symbol_switch
             WHERE id = 1
         """).fetchone()
 
-        
-        # First initialization must never promote an
-        # unverified requested symbol into active state.
-
         if row is None:
-
-            if not valid_format:
-                raise RuntimeError(
-                    "INITIAL WEEX SYMBOL FORMAT INVALID"
-                )
-
-            
-            # No assumed active contract on first startup.
-            # Preserve the requested pair as pending.
-
-            initial_active_market = ""
-            initial_active_demo = ""
-
-            initial_queued_market = requested_market
-            initial_queued_demo = requested_demo or None
-
             db.execute("""
                 INSERT INTO symbol_switch (
-                    id,
-                    active_market,
-                    active_demo,
-                    queued_market,
-                    queued_demo,
-                    updated_at
+                    id, active_market, active_demo,
+                    queued_market, queued_demo, updated_at
                 )
-                VALUES (1, ?, ?, ?, ?, ?)
-            """, (
-                initial_active_market,
-                initial_active_demo,
-                initial_queued_market,
-                initial_queued_demo,
-                now
-            ))
-
-            row = (
-                initial_active_market,
-                initial_active_demo,
-                initial_queued_market,
-                initial_queued_demo
-            )
+                VALUES (1, '', '', NULL, NULL, ?)
+            """, (now,))
+            row = ("", "", None, None)
 
         active_market, active_demo, queued_market, queued_demo = row
 
-        requested_pair = (
-            requested_market,
-            requested_demo
-        )
+        active_pair = (active_market, active_demo)
+        queued_pair = (queued_market, queued_demo)
 
-        active_pair = (
-            active_market,
-            active_demo
-        )
-
-        queued_pair = (
-            queued_market,
-            queued_demo
-        )
-
-        
         occupied = True
 
         if (
             positions_verified is not True
             or not isinstance(positions, list)
         ):
-
             status = "POSITION_VERIFICATION_PENDING"
 
         else:
-
-            open_positions = []
+            occupied = False
 
             for position in positions:
-
                 if not isinstance(position, dict):
                     raise RuntimeError(
                         "INVALID DEMO POSITION RECORD"
-                    )
-
-                symbol = str(
-                    position.get("symbol") or ""
-                ).strip().upper()
-
-                if not symbol:
-                    raise RuntimeError(
-                        "DEMO POSITION SYMBOL MISSING"
                     )
 
                 size = unit_8_v6_decimal(
@@ -9326,30 +9232,10 @@ def unit_8_symbol_switch(
                 )
 
                 if size > 0:
-                    open_positions.append(position)
+                    occupied = True
 
-            occupied = bool(open_positions)
-
-            if not valid_format:
-
-                status = "UNSUPPORTED_DEMO_SYMBOL"
-
-                # Avoid repeating the same rejection
-                # on every scan: no event is emitted
-                # here until validation is integrated.
-
-            elif (
-    requested_pair == active_pair
-    and bool(active_market)
-    and bool(active_demo)
-    and (
-        contract_verified is True
-        or candidate_ready is True
-    )
-):
-
+            if requested_pair == active_pair:
                 if queued_market is not None:
-
                     db.execute("""
                         UPDATE symbol_switch
                         SET queued_market = NULL,
@@ -9358,18 +9244,89 @@ def unit_8_symbol_switch(
                         WHERE id = 1
                     """, (now,))
 
-                status = "SYMBOL_READY"
+                status = "SYMBOL_ACTIVE"
 
-            elif occupied:
+            elif contract_verified is not True:
+                # A constructed demo-symbol name is not
+                # sufficient evidence of compatibility.
+                # Candidate readiness alone is not used
+                # to authorize a symbol switch.
 
-                # Queue before contract validation.
-                # The old symbol remains active.
-                if queued_pair != requested_pair:
+                if queued_pair == requested_pair:
+                    # Recheck when the account becomes flat.
+                    compatible = (
+                        unit_8_candidate_compatible(
+                            requested_market,
+                            requested_demo
+                        )
+                        if not occupied
+                        else True
+                    )
+                else:
+                    compatible = unit_8_candidate_compatible(
+                        requested_market,
+                        requested_demo
+                    )
 
+                if not compatible:
                     db.execute("""
                         UPDATE symbol_switch
-                        SET queued_market = ?,
-                            queued_demo = ?,
+                        SET queued_market = NULL,
+                            queued_demo = NULL,
+                            updated_at = ?
+                        WHERE id = 1
+                    """, (now,))
+
+                    unit_8_symbol_event(
+                        db,
+                        "SYMBOL_REJECTED",
+                        (
+                            "WEEX symbol rejected: "
+                            + requested_market
+                            + " / "
+                            + requested_demo
+                            + ". Unsupported or incompatible. "
+                            + "Previous active symbol retained."
+                        )
+                    )
+
+                    status = "SYMBOL_REJECTED"
+
+                elif occupied:
+                    if queued_pair != requested_pair:
+                        db.execute("""
+                            UPDATE symbol_switch
+                            SET queued_market = ?,
+                                queued_demo = ?,
+                                updated_at = ?
+                            WHERE id = 1
+                        """, (
+                            requested_market,
+                            requested_demo,
+                            now
+                        ))
+
+                        unit_8_symbol_event(
+                            db,
+                            "SYMBOL_QUEUED",
+                            (
+                                "WEEX symbol queued: "
+                                + requested_market
+                                + " / "
+                                + requested_demo
+                                + ". Existing position retained."
+                            )
+                        )
+
+                    status = "SYMBOL_QUEUED"
+
+                else:
+                    db.execute("""
+                        UPDATE symbol_switch
+                        SET active_market = ?,
+                            active_demo = ?,
+                            queued_market = NULL,
+                            queued_demo = NULL,
                             updated_at = ?
                         WHERE id = 1
                     """, (
@@ -9380,33 +9337,56 @@ def unit_8_symbol_switch(
 
                     unit_8_symbol_event(
                         db,
-                        "SYMBOL_CHANGE_QUEUED",
+                        "SYMBOL_ACCEPTED",
                         (
-                            "WEEX symbol change queued: "
+                            "WEEX symbol accepted: "
                             + requested_market
                             + " / "
                             + requested_demo
-                            + ". Existing demo position "
-                            + "management continues."
                         )
                     )
 
-                status = "SYMBOL_CHANGE_QUEUED"
+                    status = "SYMBOL_ACCEPTED"
 
-            elif not requested_demo or not (
-                contract_verified is True
-                or candidate_ready is True
-        ):
+            else:
+                # Existing caller may supply a confirmed
+                # contract result. Position rules remain
+                # identical.
 
-                # Account is flat, but the requested
-                # contract is not yet verified.
-                # Preserve the request for later.
-                if queued_pair != requested_pair:
+                if occupied:
+                    if queued_pair != requested_pair:
+                        db.execute("""
+                            UPDATE symbol_switch
+                            SET queued_market = ?,
+                                queued_demo = ?,
+                                updated_at = ?
+                            WHERE id = 1
+                        """, (
+                            requested_market,
+                            requested_demo,
+                            now
+                        ))
 
+                        unit_8_symbol_event(
+                            db,
+                            "SYMBOL_QUEUED",
+                            (
+                                "WEEX symbol queued: "
+                                + requested_market
+                                + " / "
+                                + requested_demo
+                            )
+                        )
+
+                    status = "SYMBOL_QUEUED"
+
+                else:
                     db.execute("""
                         UPDATE symbol_switch
-                        SET queued_market = ?,
-                            queued_demo = ?,
+                        SET active_market = ?,
+                            active_demo = ?,
+                            queued_market = NULL,
+                            queued_demo = NULL,
                             updated_at = ?
                         WHERE id = 1
                     """, (
@@ -9415,65 +9395,25 @@ def unit_8_symbol_switch(
                         now
                     ))
 
-                status = "SYMBOL_VALIDATION_REQUIRED"
-
-            else:
-
-                # Account-wide flat status and exact
-                # contract verification are both required.
-                db.execute("""
-                    UPDATE symbol_switch
-                    SET active_market = ?,
-                        active_demo = ?,
-                        queued_market = NULL,
-                        queued_demo = NULL,
-                        updated_at = ?
-                    WHERE id = 1
-                """, (
-                    requested_market,
-                    requested_demo,
-                    now
-                ))
-
-                unit_8_symbol_event(
-                    db,
-                    "SYMBOL_CHANGED",
-                    (
-                        "WEEX demo symbol changed to "
-                        + requested_market
-                        + " / "
-                        + requested_demo
+                    unit_8_symbol_event(
+                        db,
+                        "SYMBOL_ACCEPTED",
+                        (
+                            "WEEX symbol accepted: "
+                            + requested_market
+                            + " / "
+                            + requested_demo
+                        )
                     )
-                )
 
-                unit_8_symbol_event(
-                    db,
-                    "SYMBOL_READY",
-                    (
-                        "WEEX demo symbol ready: "
-                        + requested_market
-                        + " / "
-                        + requested_demo
-                    )
-                )
+                    status = "SYMBOL_ACCEPTED"
 
-                status = "SYMBOL_CHANGED"
-
-        # Read back the actual final persisted state.
         final_row = db.execute("""
-            SELECT
-                active_market,
-                active_demo,
-                queued_market,
-                queued_demo
+            SELECT active_market, active_demo,
+                   queued_market, queued_demo
             FROM symbol_switch
             WHERE id = 1
         """).fetchone()
-
-        if final_row is None:
-            raise RuntimeError(
-                "SYMBOL SWITCH STATE MISSING"
-            )
 
         db.execute("COMMIT")
 
@@ -9487,19 +9427,14 @@ def unit_8_symbol_switch(
             "queued_demo_symbol": final_row[3],
             "position_flat_verified": (
                 positions_verified is True
-                and isinstance(positions, list)
                 and not occupied
             ),
-            "contract_verified": (
-                contract_verified is True
-            )
+            "contract_verified": contract_verified is True
         }
 
     except Exception:
-
         if db.in_transaction:
             db.execute("ROLLBACK")
-
         raise
 
     finally:
