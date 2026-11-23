@@ -18317,11 +18317,22 @@ def unit_14_stage_dispatch(
             orders[action]["complete"] is True
         )
 
+    
     def started(action):
-        return (
-            orders[action]["state"]
-            != "NOT_CLAIMED"
-        )
+        return orders[action]["state"] in {
+            "SUBMITTED",
+            "PENDING",
+            "PARTIAL",
+            "PARTIAL_TERMINAL",
+            "FILLED",
+        }
+
+    def unresolved(action):
+        return orders[action]["state"] in {
+            "ACK_UNKNOWN",
+            "ACK_OR_HISTORY_UNKNOWN",
+            "CLAIMED",
+        }
 
     def pair_complete(stage):
 
