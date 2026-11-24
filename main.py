@@ -19288,13 +19288,7 @@ def unit_14_atr_breakeven(
         "BREAKEVEN ATR"
     )
 
-    multiplier = D(
-        os.getenv(
-            "BREAKEVEN_ATR_MULTIPLIER",
-            "1.0"
-        ),
-        "BREAKEVEN ATR MULTIPLIER"
-    )
+    multiplier = Decimal("1.0")
 
     fee = D(
         strategy.get(
