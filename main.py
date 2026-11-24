@@ -16960,6 +16960,56 @@ def unit_14_stage_read(cycle_id):
 
 def unit_14_stage_reconcile_order(
     
+    def unit_14_stage_reconcile_order(
+    cycle_id,
+    action,
+    history=None,
+):
+    from decimal import Decimal
+
+    if action not in UNIT14_STAGE_ACTIONS:
+        raise RuntimeError(
+            "INVALID STAGE RECONCILIATION ACTION"
+        )
+
+    cycle = unit_14_stage_read(cycle_id)
+
+    if cycle is None:
+        raise RuntimeError(
+            "PERSISTED STAGE CYCLE MISSING"
+        )
+
+    record = cycle["orders"].get(action)
+
+    if record is None:
+        return {
+            "action": action,
+            "state": "NOT_CLAIMED",
+            "confirmed_filled": "0",
+            "complete": False,
+        }
+
+    client_id = record["client_id"]
+
+    expected = unit_14_v3_D(
+        record["quantity"],
+        "EXPECTED STAGE QUANTITY"
+    )
+
+    previous_filled = unit_14_v3_D(
+        record["confirmed_filled"],
+        "PREVIOUS CONFIRMED FILL",
+        True
+    )
+
+    if history is None:
+        history = unit_14_v3_history()
+
+    if not isinstance(history, list):
+        raise RuntimeError(
+            "INVALID STAGE ORDER HISTORY"
+        )
+
     # Match persisted claims using exchange identifiers.
     # Never match an order using quantity alone.
 
