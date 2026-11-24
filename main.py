@@ -17237,30 +17237,13 @@ def unit_14_stage_reconcile_order(
             "AMBIGUOUS STAGE HISTORY WITHOUT ORDER ID"
         )
 
-    order_ids = {
-        str(order["orderId"])
-        for order in matches
-        if order.get("orderId") is not None
-    }
-
-    if len(order_ids) > 1:
-        raise RuntimeError(
-            "DUPLICATE EXCHANGE ORDER IDS "
-            + client_id
-        )
-
-    exchange_order_id = next(
-        iter(order_ids),
-        None
-    )
-
     exchange_filled = max(
         (
             unit_14_v3_D(
-                order.get("executedQty", "0"),
-                "STAGE EXECUTED QUANTITY",
-                True
-            )
+                order.get(
+    "executedQty",
+    order.get("filledQty", "0")
+)
             for order in matches
         ),
         default=Decimal("0")
