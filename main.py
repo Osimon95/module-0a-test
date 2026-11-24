@@ -17287,13 +17287,16 @@ def unit_14_stage_reconcile_order(
             "AMBIGUOUS STAGE HISTORY WITHOUT ORDER ID"
         )
 
-    exchange_filled = max(
+        exchange_filled = max(
         (
             unit_14_v3_D(
                 order.get(
-    "executedQty",
-    order.get("filledQty", "0")
-)
+                    "executedQty",
+                    order.get("filledQty", "0")
+                ),
+                "EXCHANGE CONFIRMED FILL",
+                True
+            )
             for order in matches
         ),
         default=Decimal("0")
