@@ -19246,6 +19246,253 @@ def unit_14_v4_backup_handover(stage_result, cycle_id):
 # END UNIT 14 V4 PART 5 HELPER
 # ============================================================
 
+def unit_14_atr_breakeven(
+    symbol,
+    position,
+    mark,
+    strategy,
+):
+
+    import hashlib
+    from decimal import Decimal
+
+    D = unit_14_v3_D
+
+    side = str(
+        position.get("side", "")
+    ).upper()
+
+    if side not in ("LONG", "SHORT"):
+        raise RuntimeError(
+            "INVALID BREAKEVEN SIDE"
+        )
+
+    size = D(
+        position["size"],
+        "BREAKEVEN SIZE"
+    )
+
+    entry = (
+        D(
+            position["openValue"],
+            "BREAKEVEN OPEN VALUE"
+        ) / size
+    )
+
+    mark = D(mark, "BREAKEVEN MARK")
+
+    atr = D(
+        FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT[
+            "atr14"
+        ],
+        "BREAKEVEN ATR"
+    )
+
+    multiplier = D(
+        os.getenv(
+            "BREAKEVEN_ATR_MULTIPLIER",
+            "1.0"
+        ),
+        "BREAKEVEN ATR MULTIPLIER"
+    )
+
+    fee = D(
+        strategy.get(
+            "futures_taker_fee_percent",
+            "0.08"
+        ),
+        "BREAKEVEN FEE",
+        True
+    ) / Decimal("100")
+
+    if fee >= Decimal("1"):
+        raise RuntimeError(
+            "INVALID BREAKEVEN FEE"
+        )
+
+    identity = str(
+        position.get("id") or
+        position.get("createdTime") or ""
+    )
+
+    if not identity:
+        raise RuntimeError(
+            "BREAKEVEN POSITION IDENTITY MISSING"
+        )
+
+    key = hashlib.sha256(
+        (
+            symbol + ":" +
+            side + ":" +
+            identity
+        ).encode()
+    ).hexdigest()
+
+    if side == "LONG":
+
+        breakeven = (
+            entry * (1 + fee) / (1 - fee)
+        )
+
+    else:
+
+        breakeven = (
+            entry * (1 - fee) / (1 + fee)
+        )
+
+    db = unit_14_stage_db()
+
+    try:
+
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS
+            atr_breakeven (
+                trade_key TEXT PRIMARY KEY,
+                symbol TEXT NOT NULL,
+                side TEXT NOT NULL,
+                best_mark TEXT NOT NULL,
+                stop_price TEXT NOT NULL,
+                triggered INTEGER NOT NULL
+                    DEFAULT 0
+            )
+        """)
+
+        db.execute("BEGIN IMMEDIATE")
+
+        row = db.execute("""
+            SELECT best_mark,
+                   stop_price,
+                   triggered
+            FROM atr_breakeven
+            WHERE trade_key = ?
+        """, (key,)).fetchone()
+
+        best = mark
+        previous_stop = breakeven
+        previously_triggered = False
+
+        if row is not None:
+
+            best = D(
+                row[0],
+                "PERSISTED BEST MARK"
+            )
+
+            previous_stop = D(
+                row[1],
+                "PERSISTED STOP"
+            )
+
+            previously_triggered = bool(
+                row[2]
+            )
+
+        if side == "LONG":
+
+            best = max(best, mark)
+
+            stop = max(
+                previous_stop,
+                breakeven,
+                best - atr * multiplier
+            )
+
+            reached = mark <= stop
+
+        else:
+
+            best = min(best, mark)
+
+            stop = min(
+                previous_stop,
+                breakeven,
+                best + atr * multiplier
+            )
+
+            reached = mark >= stop
+
+        if stop <= 0:
+            raise RuntimeError(
+                "INVALID BREAKEVEN STOP"
+            )
+
+        reached = bool(
+            reached or previously_triggered
+        )
+
+        db.execute("""
+            INSERT INTO atr_breakeven (
+                trade_key,
+                symbol,
+                side,
+                best_mark,
+                stop_price,
+                triggered
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(trade_key)
+            DO UPDATE SET
+                best_mark = excluded.best_mark,
+                stop_price = excluded.stop_price,
+                triggered = excluded.triggered
+        """, (
+            key,
+            symbol,
+            side,
+            str(best),
+            str(stop),
+            int(reached)
+        ))
+
+        db.commit()
+
+    except Exception:
+
+        db.rollback()
+        raise
+
+    finally:
+
+        db.close()
+
+    print(
+        "UNIT 14 BREAKEVEN ENTRY =", entry,
+        flush=True
+    )
+
+    print(
+        "UNIT 14 FEE ADJUSTED BE =", breakeven,
+        flush=True
+    )
+
+    print(
+        "UNIT 14 BREAKEVEN ATR =", atr,
+        flush=True
+    )
+
+    print(
+        "UNIT 14 BREAKEVEN BEST MARK =", best,
+        flush=True
+    )
+
+    print(
+        "UNIT 14 BREAKEVEN STOP =", stop,
+        flush=True
+    )
+
+    print(
+        "UNIT 14 BREAKEVEN TRIGGERED =", reached,
+        flush=True
+    )
+
+    return {
+        "trade_key": key,
+        "breakeven_price": str(breakeven),
+        "best_mark": str(best),
+        "stop_price": str(stop),
+        "atr": str(atr),
+        "triggered": reached,
+    }
 def fresh_reconstruction_unit_14(
     config,
     unit_13_result,
