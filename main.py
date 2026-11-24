@@ -20158,7 +20158,7 @@ or str(
     # POST-TP BACKUP ACTIVATION LOCK
     # ========================================================
 
-    if tp_handover["tp1_completed"]:
+        if tp_handover["tp1_completed"]:
 
         result["backup_activation_authorized"] = False
 
@@ -20205,7 +20205,7 @@ or str(
                     "ATR_BREAKEVEN_TRIGGERED"
                 )
 
-        else:
+            else:
 
                 result["status"] = (
                     "ATR_BREAKEVEN_ARMED"
