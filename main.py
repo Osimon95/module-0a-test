@@ -19913,6 +19913,62 @@ or str(
     # Existing backup reconciliation remains unchanged.
     # ========================================================
 
+        # ========================================================
+    # POST-TP BACKUP ACTIVATION LOCK
+    # ========================================================
+
+    if tp_handover["tp1_completed"]:
+
+        result["backup_activation_authorized"] = False
+
+        if tp3_armed:
+
+            result["status"] = "TP3_TRAILING_MONITORING"
+
+            print(
+                "UNIT 14 TP3 BEST MARK =",
+                result.get("tp3_best_mark"),
+                flush=True
+            )
+
+            print(
+                "UNIT 14 TP3 STOP PRICE =",
+                result.get("tp3_stop_price"),
+                flush=True
+            )
+
+            print(
+                "UNIT 14 TP3 TRAILING PERCENT =",
+                result.get("tp3_trailing_percent"),
+                flush=True
+            )
+
+        elif tp_handover["tp2_completed"]:
+
+            result["status"] = "TP3_ARMING_PENDING"
+
+        else:
+
+            result["status"] = (
+                "POST_TP1_BREAKEVEN_REQUIRED"
+            )
+
+        result["skip_reason"] = (
+            "POST_TP_BACKUP_ACTIVATION_DISABLED"
+        )
+
+        print(
+            "UNIT 14 B1-B5 NEW ACTIVATION = DISABLED",
+            flush=True
+        )
+
+        print(
+            "UNIT 14 PROTECTION STATUS =",
+            result["status"],
+            flush=True
+        )
+
+        return result
     backup_enabled_raw = os.getenv(
         "BACKUP_EXECUTION_ENABLED",
         "true"
