@@ -20194,11 +20194,28 @@ or str(
 
             result["status"] = "TP3_ARMING_PENDING"
 
-        else:
+                else:
 
-            result["status"] = (
-                "POST_TP1_BREAKEVEN_REQUIRED"
+            protection = unit_14_atr_breakeven(
+                symbol=unit_13_14_active_symbols()[1],
+                position=p,
+                mark=mark,
+                strategy=strategy,
             )
+
+            result["breakeven"] = protection
+
+            if protection["triggered"]:
+
+                result["status"] = (
+                    "ATR_BREAKEVEN_TRIGGERED"
+                )
+
+            else:
+
+                result["status"] = (
+                    "ATR_BREAKEVEN_ARMED"
+                )
 
         result["skip_reason"] = (
             "POST_TP_BACKUP_ACTIVATION_DISABLED"
