@@ -17632,13 +17632,38 @@ def unit_14_stage_execute_pair(
             results[action] = previous["state"]
             continue
 
-        if not is_close and not open_funded:
-            results[action] = (
-                "WAITING_RELEASED_MARGIN"
-                if close_record["complete"]
-                else "WAITING_CLOSE_FILL"
-            )
-            continue
+                if not is_close:
+
+            available = unit_14_v3_balance()
+
+            if available < required_margin:
+
+                close_record = (
+                    unit_14_stage_reconcile_order(
+                        cycle_id,
+                        close_action,
+                        unit_14_v3_history()
+                    )
+                )
+
+                if not close_record["complete"]:
+
+                    results[action] = (
+                        "WAITING_CLOSE_FILL"
+                    )
+
+                    continue
+
+                available = unit_14_v3_balance()
+
+                if available < required_margin:
+
+                    results[action] = (
+                        "WAITING_RELEASED_MARGIN"
+                    )
+
+                    continue
+        
 
         # Verify current exchange exposure.
         position = unit_14_v3_position(
