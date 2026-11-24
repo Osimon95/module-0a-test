@@ -17297,7 +17297,7 @@ def unit_14_stage_reconcile_cycle(cycle_id):
         )
 
     # One exchange-history read per cycle scan.
-    history = unit_14_v3_history()
+    history = unit_14_v3_history(cycle["symbol"])
 
     results = {}
 
