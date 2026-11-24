@@ -18697,7 +18697,7 @@ def unit_14_stage_dispatch(
         db.execute("""
             UPDATE stage_cycles
             SET stage = 'RECOVERED',
-                state = 'COMPLETE'
+                state = 'ACTIVE'
             WHERE cycle_id = ?
               AND state = 'ACTIVE'
         """, (cycle_id,))
