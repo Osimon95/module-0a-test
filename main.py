@@ -17001,7 +17001,7 @@ def unit_14_stage_reconcile_order(
     )
 
     if history is None:
-        history = unit_14_v3_history()
+    history = unit_14_v3_history(cycle["symbol"])
 
     if not isinstance(history, list):
         raise RuntimeError(
