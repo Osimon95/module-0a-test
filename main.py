@@ -17279,7 +17279,7 @@ def unit_14_stage_reconcile_order(cycle_id, action, history=None):
             "AMBIGUOUS STAGE HISTORY WITHOUT ORDER ID"
         )
 
-            exchange_filled = max(
+    exchange_filled = max(
         (
             unit_14_v3_D(
                 order.get(
