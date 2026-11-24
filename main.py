@@ -19052,6 +19052,69 @@ def unit_14_v4_dispatch_once(
     # before deciding which stage to execute.
     # ========================================================
 
+        # ========================================================
+    # POST-TP PROTECTION DISPATCH PRIORITY
+    # ========================================================
+
+    if handover["tp1_completed"]:
+
+        outstanding = [
+            action
+            for action, record in
+            reconciliation.get("orders", {}).items()
+            if record.get("state") != "NOT_CLAIMED"
+            and record.get("complete") is not True
+            and record.get("state") != "TERMINAL_UNFILLED"
+        ]
+
+        if outstanding:
+            print(
+                "UNIT 14 OUTSTANDING STAGE ORDERS =",
+                outstanding,
+                flush=True
+            )
+
+            return {
+                "status": "POST_TP_RECONCILIATION_PENDING",
+                "handled": True,
+                "cycle_id": cycle_id,
+                "tp_handover": handover,
+                "stage_reconciliation": reconciliation,
+            }
+
+        if len(active_positions) > 1:
+            return {
+                "status": "POST_TP_HEDGE_PAIR_UNRESOLVED",
+                "handled": True,
+                "cycle_id": cycle_id,
+                "tp_handover": handover,
+                "stage_reconciliation": reconciliation,
+            }
+
+        protection_status = (
+            "POST_TP2_TRAILING_PRIORITY"
+            if handover["tp2_completed"]
+            else "POST_TP1_BREAKEVEN_PRIORITY"
+        )
+
+        print(
+            "UNIT 14 PROTECTION PRIORITY =",
+            protection_status,
+            flush=True
+        )
+
+        print(
+            "UNIT 14 NEW HEDGE ACTIVATION = DISABLED",
+            flush=True
+        )
+
+        return {
+            "status": protection_status,
+            "handled": False,
+            "cycle_id": cycle_id,
+            "tp_handover": handover,
+            "stage_reconciliation": reconciliation,
+        }
     outcome = unit_14_stage_dispatch(
         active_positions=active_positions,
         original_position=original_position,
