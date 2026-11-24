@@ -17199,6 +17199,44 @@ def unit_14_stage_reconcile_order(
             "complete": False,
         }
 
+    
+    order_ids = {
+        str(value).strip()
+        for order in matches
+        for value in (
+            order.get("orderId"),
+            order.get("order_id"),
+        )
+        if value is not None
+        and str(value).strip()
+    }
+
+    if (
+        saved_id
+        and order_ids
+        and order_ids != {saved_id}
+    ):
+        raise RuntimeError(
+            "STAGE PERSISTED ORDER ID CONFLICT"
+        )
+
+    if len(order_ids) > 1:
+        raise RuntimeError(
+            "DUPLICATE EXCHANGE ORDER IDS "
+            + client_id
+        )
+
+    exchange_order_id = (
+        next(iter(order_ids), None)
+        or saved_id
+        or None
+    )
+
+    if len(matches) > 1 and not order_ids:
+        raise RuntimeError(
+            "AMBIGUOUS STAGE HISTORY WITHOUT ORDER ID"
+        )
+
     order_ids = {
         str(order["orderId"])
         for order in matches
