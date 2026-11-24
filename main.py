@@ -20154,13 +20154,13 @@ or str(
     # Existing backup reconciliation remains unchanged.
     # ========================================================
 
-        # ========================================================
+    # ========================================================
     # POST-TP BACKUP ACTIVATION LOCK
     # ========================================================
 
         if tp_handover["tp1_completed"]:
 
-        result["backup_activation_authorized"] = False
+            result["backup_activation_authorized"] = False
 
         if tp3_armed:
 
