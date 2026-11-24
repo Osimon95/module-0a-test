@@ -16959,65 +16959,24 @@ def unit_14_stage_read(cycle_id):
 # ============================================================
 
 def unit_14_stage_reconcile_order(
-    cycle_id,
-    action,
-    history=None,
-):
-    from decimal import Decimal
-
-    if action not in UNIT14_STAGE_ACTIONS:
-        raise RuntimeError(
-            "INVALID STAGE RECONCILIATION ACTION"
-        )
-
-    cycle = unit_14_stage_read(cycle_id)
-
-    if cycle is None:
-        raise RuntimeError(
-            "PERSISTED STAGE CYCLE MISSING"
-        )
-
-    record = cycle["orders"].get(action)
-
-    if record is None:
-        return {
-            "action": action,
-            "state": "NOT_CLAIMED",
-            "confirmed_filled": "0",
-            "complete": False,
-        }
-
-    client_id = record["client_id"]
-
-    expected = unit_14_v3_D(
-        record["quantity"],
-        "EXPECTED STAGE QUANTITY"
-    )
-
-    previous_filled = unit_14_v3_D(
-        record["confirmed_filled"],
-        "PREVIOUS CONFIRMED FILL",
-        True
-    )
-
-    if history is None:
-    history = unit_14_v3_history(cycle["symbol"])
-
-    if not isinstance(history, list):
-        raise RuntimeError(
-            "INVALID STAGE ORDER HISTORY"
-        )
-
     
-    # Match the persisted H1/H2/R1/R2 claim against
-    # recognized exchange client-order ID fields.
-    # Never infer a fill from symbol or quantity alone.
+    # Match persisted claims using exchange identifiers.
+    # Never match an order using quantity alone.
 
     client_id_fields = (
         "clientOrderId",
         "newClientOrderId",
         "clientOid",
     )
+
+    order_id_fields = (
+        "orderId",
+        "order_id",
+    )
+
+    saved_id = str(
+        record.get("exchange_order_id") or ""
+    ).strip()
 
     matches = []
 
@@ -17026,25 +16985,65 @@ def unit_14_stage_reconcile_order(
         if not isinstance(order, dict):
             continue
 
-        returned_ids = {
-            str(order[field])
-            for field in client_id_fields
-            if order.get(field) is not None
-            and str(order[field]).strip()
+        if order.get("symbol"):
+            if (
+                str(order["symbol"]).upper()
+                != str(cycle["symbol"]).upper()
+            ):
+                continue
+
+        client_ids = {
+            str(order[k]).strip()
+            for k in client_id_fields
+            if order.get(k) is not None
+            and str(order[k]).strip()
         }
 
-        if client_id in returned_ids:
+        exchange_ids = {
+            str(order[k]).strip()
+            for k in order_id_fields
+            if order.get(k) is not None
+            and str(order[k]).strip()
+        }
+
+        client_match = client_id in client_ids
+
+        exchange_match = (
+            bool(saved_id)
+            and saved_id in exchange_ids
+        )
+
+        if (
+            client_match
+            and saved_id
+            and exchange_ids
+            and saved_id not in exchange_ids
+        ):
+            raise RuntimeError(
+                "STAGE CLIENT/EXCHANGE ID CONFLICT"
+            )
+
+        if (
+            exchange_match
+            and client_ids
+            and client_id not in client_ids
+        ):
+            raise RuntimeError(
+                "STAGE EXCHANGE/CLIENT ID CONFLICT"
+            )
+
+        if client_match or exchange_match:
             matches.append(order)
 
     if matches:
         print(
-            "UNIT 14 STAGE CLIENT ID MATCH =",
+            "UNIT 14 STAGE HISTORY MATCH =",
             action,
             "CLIENT ID =", client_id,
-            "MATCH COUNT =", len(matches),
+            "SAVED ORDER ID =", saved_id,
+            "COUNT =", len(matches),
             flush=True
         )
-
     
     if action in ("H1-C", "H1-H") and not matches:
 
