@@ -18202,7 +18202,7 @@ def unit_14_stage_dispatch(
     # ------------------------------------------------
 
     if (
-        persisted_state == "COMPLETE"
+        persisted_state in ("ACTIVE", "COMPLETE")
         and persisted_stage == "RECOVERED"
     ):
 
