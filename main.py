@@ -20188,7 +20188,7 @@ or str(
 
             result["status"] = "TP3_ARMING_PENDING"
 
-                else:
+        else:
 
             protection = unit_14_atr_breakeven(
                 symbol=unit_13_14_active_symbols()[1],
@@ -20205,7 +20205,7 @@ or str(
                     "ATR_BREAKEVEN_TRIGGERED"
                 )
 
-            else:
+        else:
 
                 result["status"] = (
                     "ATR_BREAKEVEN_ARMED"
