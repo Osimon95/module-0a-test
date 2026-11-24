@@ -16958,13 +16958,8 @@ def unit_14_stage_read(cycle_id):
 # NO ORDER SUBMISSION
 # ============================================================
 
-def unit_14_stage_reconcile_order(
-    
-    def unit_14_stage_reconcile_order(
-    cycle_id,
-    action,
-    history=None,
-):
+def unit_14_stage_reconcile_order(cycle_id, action, history=None):
+
     from decimal import Decimal
 
     if action not in UNIT14_STAGE_ACTIONS:
@@ -17009,10 +17004,7 @@ def unit_14_stage_reconcile_order(
         raise RuntimeError(
             "INVALID STAGE ORDER HISTORY"
         )
-
-    # Match persisted claims using exchange identifiers.
-    # Never match an order using quantity alone.
-
+        
     client_id_fields = (
         "clientOrderId",
         "newClientOrderId",
