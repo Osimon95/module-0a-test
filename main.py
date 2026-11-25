@@ -20370,7 +20370,7 @@ or str(
 
             if active_positions:
 
-            result["status"] = (
+                result["status"] = (
                 "ORIGINAL_POSITION_ABSENT"
             )
 
