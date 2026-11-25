@@ -20723,15 +20723,62 @@ or str(
 
             return result
 
-    # ========================================================
-    # EXISTING POSITION MANAGEMENT CONTINUES
+        # ========================================================
+    # CONTINUE EXISTING UNIT 14 POSITION MANAGEMENT
     # ========================================================
 
-            result["skip_reason"] = (
-                "STAGE_MANAGER_ACTIVE"
+    if p is None:
+
+        if active_positions:
+
+            result["status"] = (
+                "ORIGINAL_POSITION_ABSENT"
             )
 
-            return result
+            result["skip_reason"] = (
+                "OTHER_EXCHANGE_POSITION_EXISTS"
+            )
+
+        elif active_cycle_id is not None:
+
+            result["status"] = (
+                "FLAT_CYCLE_RECONCILIATION_PENDING"
+            )
+
+            result["skip_reason"] = (
+                "ACTIVE_SQLITE_CYCLE_EXISTS"
+            )
+
+        else:
+
+            result["status"] = (
+                "IDLE_NO_POSITION"
+            )
+
+            result["skip_reason"] = (
+                "NO_ACTIVE_DEMO_POSITION"
+            )
+
+        result["exchange_write"] = False
+
+        print(
+            "UNIT 14 STATUS =",
+            result["status"],
+            flush=True,
+        )
+
+        print(
+            "UNIT 14 REMAINING EXCHANGE SIDES =",
+            list(active_positions.keys()),
+            flush=True,
+        )
+
+        print(
+            "UNIT 14 EXCHANGE WRITE = NONE",
+            flush=True,
+        )
+
+        return result
 
     # ========================================================
     # CONTINUE EXISTING UNIT 14 POSITION MANAGEMENT
