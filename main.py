@@ -19278,6 +19278,64 @@ def unit_14_v4_backup_handover(stage_result, cycle_id):
 # END UNIT 14 V4 PART 5 HELPER
 # ============================================================
 
+def unit_14_ensure_e0_cycle(position):
+
+    import uuid
+
+    D = unit_14_v3_D
+
+    symbol = unit_13_14_active_symbols()[1]
+    side = str(position["side"]).upper()
+
+    saved_side, cycle_id = (
+        unit_14_active_original_side(symbol)
+    )
+
+    if cycle_id is not None:
+
+        if saved_side != side:
+            raise RuntimeError(
+                "E0 ORIGINAL SIDE MISMATCH"
+            )
+
+        return cycle_id
+
+    quantity = D(
+        position["size"],
+        "E0 QUANTITY",
+    )
+
+    entry = D(
+        position["openValue"],
+        "E0 OPEN VALUE",
+    ) / quantity
+
+    atr = D(
+        FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT[
+            "atr14"
+        ],
+        "E0 ATR",
+    )
+
+    cycle_id = "U14-" + uuid.uuid4().hex[:20]
+
+    unit_14_stage_create_cycle(
+        cycle_id,
+        symbol,
+        side,
+        quantity,
+        entry,
+        atr,
+    )
+
+    print(
+        "UNIT 14 NEW E0 CYCLE =",
+        cycle_id,
+        flush=True,
+    )
+
+    return cycle_id
+    
 def unit_14_execute_breakeven(
     cycle_id,
     position,
