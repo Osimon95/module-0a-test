@@ -20366,7 +20366,7 @@ or str(
     # CONTINUE EXISTING UNIT 14 POSITION MANAGEMENT
     # ========================================================
 
-     if p is None:
+        if p is None:
 
         if active_positions:
 
