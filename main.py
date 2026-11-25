@@ -20471,7 +20471,7 @@ or str(
                 strategy=strategy,
             )
 
-                result["breakeven"] = protection
+            result["breakeven"] = protection
 
             if protection["triggered"]:
 
