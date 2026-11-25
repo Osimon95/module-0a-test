@@ -19521,6 +19521,196 @@ def unit_14_execute_breakeven(
 
     return {"status": "BE_CLOSE_ACK_UNKNOWN"}
     
+def unit_14_tp3_persistent_state(
+    cycle_id,
+    side,
+    mark,
+    atr,
+    trail_ref,
+    trail_min,
+    trail_max,
+):
+
+    D = unit_14_v3_D
+
+    side = str(side).upper()
+
+    if side not in ("LONG", "SHORT"):
+        raise RuntimeError("TP3 INVALID SIDE")
+
+    mark = D(mark, "TP3 MARK")
+    atr = D(atr, "TP3 ATR")
+
+    trail_ref = D(trail_ref, "TP3 REFERENCE")
+    trail_min = D(trail_min, "TP3 MINIMUM")
+    trail_max = D(trail_max, "TP3 MAXIMUM")
+
+    if not (
+        0 < trail_min <= trail_ref <= trail_max
+    ):
+        raise RuntimeError(
+            "TP3 INVALID TRAILING RANGE"
+        )
+
+    atr_percent = (
+        atr / mark
+    ) * D(100)
+
+    callback = max(
+        trail_min,
+        min(
+            trail_max,
+            atr_percent
+        )
+    )
+
+    db = unit_14_stage_db()
+
+    try:
+
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS
+            tp3_trailing_state (
+                cycle_id TEXT PRIMARY KEY,
+                side TEXT NOT NULL,
+                best_mark TEXT NOT NULL,
+                stop_price TEXT NOT NULL,
+                callback_percent TEXT NOT NULL,
+                triggered INTEGER NOT NULL
+                    DEFAULT 0,
+                updated_at TEXT DEFAULT
+                    CURRENT_TIMESTAMP
+            )
+        """)
+
+        db.execute("BEGIN IMMEDIATE")
+
+        cycle = db.execute("""
+            SELECT original_side, state
+            FROM stage_cycles
+            WHERE cycle_id = ?
+        """, (cycle_id,)).fetchone()
+
+        if (
+            cycle is None
+            or cycle[0] != side
+            or cycle[1] != "ACTIVE"
+        ):
+            raise RuntimeError(
+                "TP3 INVALID ACTIVE CYCLE"
+            )
+
+        saved = db.execute("""
+            SELECT side, best_mark,
+                   stop_price, triggered
+            FROM tp3_trailing_state
+            WHERE cycle_id = ?
+        """, (cycle_id,)).fetchone()
+
+        best = mark
+        old_stop = None
+        triggered = False
+
+        if saved is not None:
+
+            if saved[0] != side:
+                raise RuntimeError(
+                    "TP3 SAVED SIDE MISMATCH"
+                )
+
+            best = D(
+                saved[1],
+                "TP3 SAVED BEST"
+            )
+
+            old_stop = D(
+                saved[2],
+                "TP3 SAVED STOP"
+            )
+
+            triggered = bool(saved[3])
+
+        if side == "LONG":
+
+            best = max(best, mark)
+
+            stop = best * (
+                D(1) - callback / D(100)
+            )
+
+            if old_stop is not None:
+                stop = max(stop, old_stop)
+
+            triggered = (
+                triggered or mark <= stop
+            )
+
+        else:
+
+            best = min(best, mark)
+
+            stop = best * (
+                D(1) + callback / D(100)
+            )
+
+            if old_stop is not None:
+                stop = min(stop, old_stop)
+
+            triggered = (
+                triggered or mark >= stop
+            )
+
+        db.execute("""
+            INSERT INTO tp3_trailing_state (
+                cycle_id,
+                side,
+                best_mark,
+                stop_price,
+                callback_percent,
+                triggered
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+
+            ON CONFLICT(cycle_id)
+            DO UPDATE SET
+                best_mark = excluded.best_mark,
+                stop_price = excluded.stop_price,
+                callback_percent =
+                    excluded.callback_percent,
+                triggered = excluded.triggered,
+                updated_at = CURRENT_TIMESTAMP
+        """, (
+            cycle_id,
+            side,
+            str(best),
+            str(stop),
+            str(callback),
+            int(triggered),
+        ))
+
+        db.execute("COMMIT")
+
+        return {
+            "cycle_id": cycle_id,
+            "tp3_best_mark": float(best),
+            "tp3_stop_price": float(stop),
+            "tp3_trailing_percent": float(
+                callback
+            ),
+            "tp3_trigger_reached": triggered,
+            "tp3_storage": "SQLITE",
+        }
+
+    except Exception:
+
+        if db.in_transaction:
+            db.execute("ROLLBACK")
+
+        raise
+
+    finally:
+
+        db.close()
 def unit_14_atr_breakeven(
     symbol,
     position,
