@@ -20509,7 +20509,7 @@ or str(
                     flush=True,
                 )
 
-            else:
+                else:
 
                 result["status"] = (
                     "ATR_BREAKEVEN_ARMED"
