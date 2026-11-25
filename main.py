@@ -20503,13 +20503,13 @@ or str(
                     )
                 )
 
-                print(
+            print(
                     "UNIT 14 BE EXECUTION =",
                     execution,
                     flush=True,
                 )
 
-                else:
+            else:
 
                 result["status"] = (
                     "ATR_BREAKEVEN_ARMED"
