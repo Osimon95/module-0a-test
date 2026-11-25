@@ -17359,6 +17359,42 @@ def unit_14_stage_reconcile_order(cycle_id, action, history=None):
 # ZERO INDENTATION
 # ============================================================
 
+# ============================================================
+# UNIT 14 - PERSISTENT STAGE CYCLE RECONCILIATION
+# ZERO INDENTATION
+# ============================================================
+
+def unit_14_stage_reconcile_cycle(cycle_id):
+
+    cycle = unit_14_stage_read(cycle_id)
+
+    if cycle is None:
+        raise RuntimeError(
+            "STAGE CYCLE NOT FOUND"
+        )
+
+    # One exchange-history read per cycle scan.
+    history = unit_14_v3_history(cycle["symbol"])
+
+    results = {}
+
+    for action in UNIT14_STAGE_ACTIONS:
+
+        results[action] = (
+            unit_14_stage_reconcile_order(
+                cycle_id=cycle_id,
+                action=action,
+                history=history,
+            )
+        )
+
+    return results
+
+
+# ============================================================
+# END PERSISTENT STAGE CYCLE RECONCILIATION
+# ============================================================
+
 def unit_14_finalize_flat_cycle(cycle_id):
 
     result = {
