@@ -19278,6 +19278,190 @@ def unit_14_v4_backup_handover(stage_result, cycle_id):
 # END UNIT 14 V4 PART 5 HELPER
 # ============================================================
 
+def unit_14_execute_breakeven(
+    cycle_id,
+    position,
+    quantity_step,
+    minimum_quantity,
+):
+
+    D = unit_14_v3_D
+
+    cycle = unit_14_stage_read(cycle_id)
+
+    side = str(position["side"]).upper()
+    symbol = unit_13_14_active_symbols()[1]
+
+    if cycle is None:
+        raise RuntimeError("BE CYCLE MISSING")
+
+    if cycle["state"] != "ACTIVE":
+        return {"status": "BE_CYCLE_INACTIVE"}
+
+    if (
+        cycle["symbol"] != symbol
+        or cycle["original_side"] != side
+    ):
+        raise RuntimeError("BE CYCLE MISMATCH")
+
+    history = unit_14_v3_history()
+
+    previous = unit_14_stage_reconcile_order(
+        cycle_id,
+        "BE-C",
+        history,
+    )
+
+    if previous["complete"]:
+        return {
+            "status": "BE_CLOSE_FILLED",
+            "confirmed": True,
+        }
+
+    if previous["state"] != "NOT_CLAIMED":
+        return {
+            "status": "BE_CLOSE_" + previous["state"],
+            "confirmed": False,
+        }
+
+    latest = unit_14_v3_position(side)
+
+    if latest is None:
+        return {"status": "BE_POSITION_FLAT"}
+
+    if (
+        unit_14_v3_trade_key(latest)
+        != unit_14_v3_trade_key(position)
+    ):
+        return {"status": "BE_POSITION_CHANGED"}
+
+    quantity = unit_14_v3_floor(
+        D(latest["size"], "BE SIZE"),
+        D(quantity_step, "BE STEP"),
+    )
+
+    minimum = D(
+        minimum_quantity,
+        "BE MINIMUM"
+    )
+
+    if quantity < minimum:
+        return {"status": "BE_BELOW_MINIMUM"}
+
+    claim = unit_14_stage_claim(
+        cycle_id,
+        "BE-C",
+        quantity,
+    )
+
+    if not claim["claimed"]:
+        return {"status": "BE_ALREADY_CLAIMED"}
+
+    client_id = claim["client_id"]
+
+    payload = {
+        "symbol": symbol,
+        "side": (
+            "SELL" if side == "LONG"
+            else "BUY"
+        ),
+        "positionSide": side,
+        "type": "MARKET",
+        "quantity": format(quantity, "f"),
+        "newClientOrderId": client_id,
+    }
+
+    try:
+
+        reply = unit_14_v3_signed_request(
+            "POST",
+            UNIT14_V3_ORDER,
+            payload=payload,
+        )
+
+    except Exception as exc:
+
+        unit_14_stage_update(
+            client_id,
+            "ACK_UNKNOWN",
+        )
+
+        print(
+            "UNIT 14 BE CLOSE ACK UNKNOWN =",
+            repr(exc),
+            flush=True,
+        )
+
+        return {"status": "BE_CLOSE_ACK_UNKNOWN"}
+
+    response = (
+        reply.get("data")
+        if isinstance(reply, dict)
+        else None
+    )
+
+    if not isinstance(response, dict):
+        response = (
+            reply if isinstance(reply, dict)
+            else {}
+        )
+
+    order_id = (
+        response.get("orderId")
+        or response.get("order_id")
+    )
+
+    returned_client = (
+        response.get("clientOrderId")
+        or response.get("newClientOrderId")
+        or response.get("clientOid")
+    )
+
+    failure = (
+        not isinstance(reply, dict)
+        or reply.get("success") is False
+        or bool(reply.get("errorCode"))
+        or bool(reply.get("errorMsg"))
+        or response.get("success") is False
+        or bool(response.get("errorCode"))
+        or bool(response.get("errorMsg"))
+    )
+
+    if (
+        order_id
+        and not failure
+        and (
+            returned_client is None
+            or str(returned_client) == client_id
+        )
+    ):
+
+        unit_14_stage_update(
+            client_id,
+            "SUBMITTED",
+            str(order_id),
+        )
+
+        print(
+            "UNIT 14 BE CLOSE SUBMITTED =",
+            order_id,
+            flush=True,
+        )
+
+        return {
+            "status": "BE_CLOSE_SUBMITTED",
+            "order_id": str(order_id),
+            "exchange_write": True,
+            "confirmed": False,
+        }
+
+    unit_14_stage_update(
+        client_id,
+        "ACK_UNKNOWN",
+    )
+
+    return {"status": "BE_CLOSE_ACK_UNKNOWN"}
+    
 def unit_14_atr_breakeven(
     symbol,
     position,
