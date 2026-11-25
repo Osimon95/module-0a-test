@@ -17354,31 +17354,270 @@ def unit_14_stage_reconcile_order(cycle_id, action, history=None):
     }
 
 
-def unit_14_stage_reconcile_cycle(cycle_id):
+# ============================================================
+# UNIT 14 - PERSISTENT E0 CYCLE TERMINATION
+# ZERO INDENTATION
+# ============================================================
+
+def unit_14_finalize_flat_cycle(cycle_id):
+
+    result = {
+        "status": "E0_TERMINATION_PENDING",
+        "cycle_id": cycle_id,
+        "terminated": False,
+        "exchange_write": False,
+        "unresolved_actions": [],
+    }
 
     cycle = unit_14_stage_read(cycle_id)
 
     if cycle is None:
-        raise RuntimeError(
-            "STAGE CYCLE NOT FOUND"
+
+        result["status"] = "E0_CYCLE_NOT_FOUND"
+
+        return result
+
+    if cycle["state"] != "ACTIVE":
+
+        result["status"] = "E0_CYCLE_INACTIVE"
+
+        return result
+
+    _, active_symbol = (
+        unit_13_14_active_symbols()
+    )
+
+    if cycle["symbol"] != active_symbol:
+
+        result["status"] = (
+            "E0_SYMBOL_MISMATCH"
         )
 
-    # One exchange-history read per cycle scan.
-    history = unit_14_v3_history(cycle["symbol"])
+        return result
 
-    results = {}
+    # ========================================================
+    # VERIFY ORIGINAL AND OPPOSITE POSITIONS ARE FLAT
+    # ========================================================
+
+    positions = unit_14_v3_positions()
+
+    if positions:
+
+        result["status"] = (
+            "E0_POSITIONS_STILL_ACTIVE"
+        )
+
+        return result
+
+    # ========================================================
+    # RECONCILE ALL PERSISTENT STAGE ORDERS
+    # INCLUDING BE-C AND TP3-C
+    # ========================================================
+
+    orders = unit_14_stage_reconcile_cycle(
+        cycle_id
+    )
+
+    terminal_states = {
+        "NOT_CLAIMED",
+        "FILLED",
+        "TERMINAL_UNFILLED",
+        "PARTIAL_TERMINAL",
+    }
+
+    unresolved = []
 
     for action in UNIT14_STAGE_ACTIONS:
 
-        results[action] = (
-            unit_14_stage_reconcile_order(
-                cycle_id=cycle_id,
-                action=action,
-                history=history,
-            )
+        record = orders.get(action)
+
+        if not isinstance(record, dict):
+
+            unresolved.append(action)
+
+            continue
+
+        state = str(
+            record.get("state", "")
+        ).upper()
+
+        print(
+            "UNIT 14 E0 FINAL RECONCILIATION",
+            action,
+            "STATE =",
+            state,
+            "CONFIRMED FILL =",
+            record.get(
+                "confirmed_filled", "0"
+            ),
+            flush=True,
         )
 
-    return results
+        if state not in terminal_states:
+
+            unresolved.append(action)
+
+    if unresolved:
+
+        result["status"] = (
+            "E0_UNRESOLVED_STAGE_ORDERS"
+        )
+
+        result["unresolved_actions"] = (
+            unresolved
+        )
+
+        print(
+            "UNIT 14 E0 UNRESOLVED ACTIONS =",
+            unresolved,
+            flush=True,
+        )
+
+        return result
+
+    # ========================================================
+    # IDENTIFY CONFIRMED CLOSING ACTION
+    # ========================================================
+
+    be_completed = (
+        orders.get("BE-C", {}).get(
+            "complete"
+        ) is True
+    )
+
+    tp3_completed = (
+        orders.get("TP3-C", {}).get(
+            "complete"
+        ) is True
+    )
+
+    if tp3_completed:
+
+        closing_reason = "TP3_CONFIRMED"
+
+    elif be_completed:
+
+        closing_reason = "BE_CONFIRMED"
+
+    else:
+
+        closing_reason = (
+            "EXCHANGE_FLAT_OTHER_EXIT"
+        )
+
+    # ========================================================
+    # FINAL EXCHANGE POSITION VERIFICATION
+    # ========================================================
+
+    if unit_14_v3_positions():
+
+        result["status"] = (
+            "E0_POSITION_REAPPEARED"
+        )
+
+        return result
+
+    # ========================================================
+    # ATOMIC SQLITE CYCLE TERMINATION
+    # PRESERVE ALL HISTORICAL RECORDS
+    # ========================================================
+
+    db = unit_14_stage_db()
+
+    try:
+
+        db.execute("BEGIN IMMEDIATE")
+
+        pending = db.execute("""
+            SELECT action, state
+            FROM stage_orders
+            WHERE cycle_id = ?
+              AND state NOT IN (
+                  'FILLED',
+                  'TERMINAL_UNFILLED',
+                  'PARTIAL_TERMINAL'
+              )
+        """, (cycle_id,)).fetchall()
+
+        if pending:
+
+            db.rollback()
+
+            result["status"] = (
+                "E0_SQLITE_ORDERS_UNRESOLVED"
+            )
+
+            result["unresolved_actions"] = [
+                row[0] for row in pending
+            ]
+
+            return result
+
+        updated = db.execute("""
+            UPDATE stage_cycles
+            SET state = 'CLOSED',
+                stage = ?
+            WHERE cycle_id = ?
+              AND state = 'ACTIVE'
+        """, (
+            closing_reason,
+            cycle_id,
+        ))
+
+        if updated.rowcount != 1:
+
+            db.rollback()
+
+            result["status"] = (
+                "E0_TERMINATION_NOT_APPLIED"
+            )
+
+            return result
+
+        db.commit()
+
+    except Exception:
+
+        db.rollback()
+
+        raise
+
+    finally:
+
+        db.close()
+
+    result.update({
+        "status": "E0_CYCLE_TERMINATED",
+        "terminated": True,
+        "closing_reason": closing_reason,
+        "be_completed": be_completed,
+        "tp3_completed": tp3_completed,
+    })
+
+    print(
+        "UNIT 14 E0 CYCLE TERMINATED =",
+        cycle_id,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 E0 CLOSING REASON =",
+        closing_reason,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 E0 HISTORICAL RECORDS PRESERVED = TRUE",
+        flush=True,
+    )
+
+    return result
+
+
+# ============================================================
+# END PERSISTENT E0 CYCLE TERMINATION
+# ============================================================
+
 
 
 # ============================================================
