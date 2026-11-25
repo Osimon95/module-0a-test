@@ -20721,6 +20721,190 @@ or str(
         )
 
         return result
+    # ========================================================
+    # SQLITE TP3 AND POST-TP PROTECTION
+    # ========================================================
+
+    attempts = globals().setdefault(
+        "_UNIT14_V3_ORDER_ATTEMPTS",
+        set()
+    )
+
+    if tp_handover["tp1_completed"]:
+
+        result["backup_activation_authorized"] = False
+
+        cycle_id = unit_14_ensure_e0_cycle(p)
+
+        if tp3_armed:
+
+            atr = D(
+                FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT[
+                    "atr14"
+                ],
+                "TP3 CURRENT ATR",
+            )
+
+            trailing = unit_14_tp3_persistent_state(
+                cycle_id=cycle_id,
+                side=side,
+                mark=mark,
+                atr=atr,
+                trail_ref=trail_ref,
+                trail_min=trail_min,
+                trail_max=trail_max,
+            )
+
+            result.update(trailing)
+
+            result["status"] = (
+                "TP3_TRAILING_MONITORING"
+            )
+
+            print(
+                "UNIT 14 TP3 STORAGE = SQLITE",
+                flush=True,
+            )
+
+            print(
+                "UNIT 14 TP3 BEST MARK =",
+                trailing["tp3_best_mark"],
+                flush=True,
+            )
+
+            print(
+                "UNIT 14 TP3 STOP PRICE =",
+                trailing["tp3_stop_price"],
+                flush=True,
+            )
+
+            print(
+                "UNIT 14 TP3 TRAILING PERCENT =",
+                trailing["tp3_trailing_percent"],
+                flush=True,
+            )
+
+            print(
+                "UNIT 14 TP3 TRIGGERED =",
+                trailing["tp3_trigger_reached"],
+                flush=True,
+            )
+
+            if trailing["tp3_trigger_reached"]:
+
+                execution = unit_14_execute_tp3(
+                    cycle_id=cycle_id,
+                    position=p,
+                    quantity_step=qstep,
+                    minimum_quantity=minimum,
+                )
+
+                result["tp3_execution"] = execution
+
+                result["status"] = execution["status"]
+
+                result["tp3_execution_attempted"] = (
+                    execution.get(
+                        "execution_attempted",
+                        False,
+                    )
+                )
+
+                result["tp3_execution_completed"] = (
+                    execution.get(
+                        "confirmed",
+                        False,
+                    )
+                )
+
+                result["tp3_order_id"] = (
+                    execution.get("order_id")
+                )
+
+                result["exchange_write"] = (
+                    execution.get(
+                        "exchange_write",
+                        False,
+                    )
+                )
+
+                print(
+                    "UNIT 14 TP3 EXECUTION =",
+                    execution,
+                    flush=True,
+                )
+
+        elif tp_handover["tp2_completed"]:
+
+            result["status"] = (
+                "TP3_ARMING_PENDING"
+            )
+
+        else:
+
+            protection = unit_14_atr_breakeven(
+                symbol=unit_13_14_active_symbols()[1],
+                position=p,
+                mark=mark,
+                strategy=strategy,
+            )
+
+            result["breakeven"] = protection
+
+            if protection["triggered"]:
+
+                execution = (
+                    unit_14_execute_breakeven(
+                        cycle_id=cycle_id,
+                        position=p,
+                        quantity_step=qstep,
+                        minimum_quantity=minimum,
+                    )
+                )
+
+                result["breakeven_execution"] = (
+                    execution
+                )
+
+                result["status"] = (
+                    execution["status"]
+                )
+
+                result["exchange_write"] = (
+                    execution.get(
+                        "exchange_write",
+                        False,
+                    )
+                )
+
+                print(
+                    "UNIT 14 BE EXECUTION =",
+                    execution,
+                    flush=True,
+                )
+
+            else:
+
+                result["status"] = (
+                    "ATR_BREAKEVEN_ARMED"
+                )
+
+        result["skip_reason"] = (
+            "POST_TP_BACKUP_ACTIVATION_DISABLED"
+        )
+
+        print(
+            "UNIT 14 B1-B5 NEW ACTIVATION = DISABLED",
+            flush=True,
+        )
+
+        print(
+            "UNIT 14 PROTECTION STATUS =",
+            result["status"],
+            flush=True,
+        )
+
+        return result
     backup_enabled_raw = os.getenv(
         "BACKUP_EXECUTION_ENABLED",
         "true"
