@@ -20157,7 +20157,7 @@ or str(
     # 8. FRESH EXCHANGE POSITION
     # ========================================================
 
-        active_positions = unit_14_v3_positions()
+    active_positions = unit_14_v3_positions()
 
     persisted_side, active_cycle_id = (
         unit_14_active_original_side()
