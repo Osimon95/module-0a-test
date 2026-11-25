@@ -20471,9 +20471,9 @@ or str(
                 strategy=strategy,
             )
 
-            result["breakeven"] = protection
+                        result["breakeven"] = protection
 
-        if protection["triggered"]:
+            if protection["triggered"]:
 
                 cycle_id = (
                     unit_14_ensure_e0_cycle(p)
@@ -20503,7 +20503,7 @@ or str(
                     )
                 )
 
-            print(
+                print(
                     "UNIT 14 BE EXECUTION =",
                     execution,
                     flush=True,
@@ -20514,7 +20514,6 @@ or str(
                 result["status"] = (
                     "ATR_BREAKEVEN_ARMED"
                 )
-
         result["skip_reason"] = (
             "POST_TP_BACKUP_ACTIVATION_DISABLED"
         )
