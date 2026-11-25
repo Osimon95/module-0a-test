@@ -20473,10 +20473,40 @@ or str(
 
             result["breakeven"] = protection
 
-            if protection["triggered"]:
+                        if protection["triggered"]:
+
+                cycle_id = (
+                    unit_14_ensure_e0_cycle(p)
+                )
+
+                execution = (
+                    unit_14_execute_breakeven(
+                        cycle_id=cycle_id,
+                        position=p,
+                        quantity_step=qstep,
+                        minimum_quantity=minimum,
+                    )
+                )
+
+                result["breakeven_execution"] = (
+                    execution
+                )
 
                 result["status"] = (
-                    "ATR_BREAKEVEN_TRIGGERED"
+                    execution["status"]
+                )
+
+                result["exchange_write"] = (
+                    execution.get(
+                        "exchange_write",
+                        False,
+                    )
+                )
+
+                print(
+                    "UNIT 14 BE EXECUTION =",
+                    execution,
+                    flush=True,
                 )
 
             else:
