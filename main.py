@@ -20473,7 +20473,7 @@ or str(
 
             result["breakeven"] = protection
 
-                        if protection["triggered"]:
+        if protection["triggered"]:
 
                 cycle_id = (
                     unit_14_ensure_e0_cycle(p)
