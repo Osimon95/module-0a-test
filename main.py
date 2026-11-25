@@ -16453,6 +16453,7 @@ UNIT14_STAGE_ACTIONS = (
     "H2-C", "H2-H",
     "R1-C", "R1-O",
     "R2-C", "R2-O",
+    "BE-C",
 )
 
 
