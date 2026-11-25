@@ -20368,7 +20368,7 @@ or str(
 
         if p is None:
 
-        if active_positions:
+            if active_positions:
 
             result["status"] = (
                 "ORIGINAL_POSITION_ABSENT"
