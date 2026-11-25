@@ -19711,6 +19711,377 @@ def unit_14_tp3_persistent_state(
     finally:
 
         db.close()
+# ============================================================
+# UNIT 14 - INDEPENDENT SQLITE TP3 CLOSING EXECUTOR
+# ZERO INDENTATION
+# ============================================================
+
+def unit_14_execute_tp3(
+    cycle_id,
+    position,
+    quantity_step,
+    minimum_quantity,
+):
+
+    D = unit_14_v3_D
+
+    result = {
+        "status": "TP3_CLOSE_PENDING",
+        "execution_attempted": False,
+        "confirmed": False,
+        "exchange_write": False,
+        "order_id": None,
+    }
+
+    # ========================================================
+    # VALIDATE PERSISTENT E0 CYCLE
+    # ========================================================
+
+    cycle = unit_14_stage_read(cycle_id)
+
+    if cycle is None:
+        raise RuntimeError(
+            "TP3 CYCLE MISSING"
+        )
+
+    side = str(
+        position["side"]
+    ).strip().upper()
+
+    symbol = unit_13_14_active_symbols()[1]
+
+    if side not in ("LONG", "SHORT"):
+        raise RuntimeError(
+            "TP3 INVALID POSITION SIDE"
+        )
+
+    if cycle["state"] != "ACTIVE":
+
+        result["status"] = (
+            "TP3_CYCLE_INACTIVE"
+        )
+
+        return result
+
+    if (
+        cycle["symbol"] != symbol
+        or cycle["original_side"] != side
+    ):
+        raise RuntimeError(
+            "TP3 CYCLE POSITION MISMATCH"
+        )
+
+    # ========================================================
+    # RECONCILE EXISTING TP3-C ORDER
+    # ========================================================
+
+    history = unit_14_v3_history()
+
+    previous = unit_14_stage_reconcile_order(
+        cycle_id,
+        "TP3-C",
+        history,
+    )
+
+    result["order_id"] = previous.get(
+        "exchange_order_id"
+    )
+
+    result["confirmed_filled"] = previous.get(
+        "confirmed_filled",
+        "0",
+    )
+
+    print(
+        "UNIT 14 TP3-C PERSISTED STATE =",
+        previous["state"],
+        flush=True,
+    )
+
+    if previous["complete"]:
+
+        result["status"] = (
+            "TP3_CLOSE_FILLED"
+        )
+
+        result["confirmed"] = True
+
+        print(
+            "UNIT 14 TP3 CLOSE CONFIRMED = TRUE",
+            flush=True,
+        )
+
+        return result
+
+    if previous["state"] != "NOT_CLAIMED":
+
+        result["status"] = (
+            "TP3_CLOSE_"
+            + previous["state"]
+        )
+
+        return result
+
+    # ========================================================
+    # PREVENT CONFLICT WITH EXISTING BE-C ORDER
+    # ========================================================
+
+    be_order = unit_14_stage_reconcile_order(
+        cycle_id,
+        "BE-C",
+        history,
+    )
+
+    print(
+        "UNIT 14 TP3 BE-C STATE =",
+        be_order["state"],
+        flush=True,
+    )
+
+    if be_order["state"] not in (
+        "NOT_CLAIMED",
+        "FILLED",
+        "TERMINAL_UNFILLED",
+    ):
+
+        result["status"] = (
+            "TP3_WAITING_BE_RECONCILIATION"
+        )
+
+        return result
+
+    # ========================================================
+    # REFRESH ACTUAL EXCHANGE POSITION
+    # ========================================================
+
+    latest = unit_14_v3_position(side)
+
+    if latest is None:
+
+        result["status"] = (
+            "TP3_POSITION_FLAT"
+        )
+
+        return result
+
+    if (
+        unit_14_v3_trade_key(latest)
+        != unit_14_v3_trade_key(position)
+    ):
+
+        result["status"] = (
+            "TP3_POSITION_CHANGED"
+        )
+
+        return result
+
+    quantity = unit_14_v3_floor(
+        D(
+            latest["size"],
+            "TP3 REMAINING SIZE",
+        ),
+        D(
+            quantity_step,
+            "TP3 QUANTITY STEP",
+        ),
+    )
+
+    minimum = D(
+        minimum_quantity,
+        "TP3 MINIMUM QUANTITY",
+    )
+
+    if quantity <= 0 or quantity < minimum:
+
+        result["status"] = (
+            "TP3_BELOW_MINIMUM"
+        )
+
+        return result
+
+    print(
+        "UNIT 14 TP3 CLOSING QUANTITY =",
+        quantity,
+        flush=True,
+    )
+
+    # ========================================================
+    # SQLITE CLAIM BEFORE EXCHANGE SUBMISSION
+    # ========================================================
+
+    claim = unit_14_stage_claim(
+        cycle_id,
+        "TP3-C",
+        quantity,
+    )
+
+    if not claim["claimed"]:
+
+        result["status"] = (
+            "TP3_ALREADY_CLAIMED"
+        )
+
+        return result
+
+    client_id = claim["client_id"]
+
+    result["client_id"] = client_id
+
+    print(
+        "UNIT 14 TP3-C SQLITE CLAIM =",
+        client_id,
+        flush=True,
+    )
+
+    # ========================================================
+    # INDEPENDENT MARKET CLOSING ORDER
+    # ========================================================
+
+    payload = {
+        "symbol": symbol,
+        "side": (
+            "SELL"
+            if side == "LONG"
+            else "BUY"
+        ),
+        "positionSide": side,
+        "type": "MARKET",
+        "quantity": format(quantity, "f"),
+        "newClientOrderId": client_id,
+    }
+
+    result["execution_attempted"] = True
+
+    try:
+
+        reply = unit_14_v3_signed_request(
+            "POST",
+            UNIT14_V3_ORDER,
+            payload=payload,
+        )
+
+    except Exception as exc:
+
+        unit_14_stage_update(
+            client_id,
+            "ACK_UNKNOWN",
+        )
+
+        result["status"] = (
+            "TP3_CLOSE_ACK_UNKNOWN"
+        )
+
+        print(
+            "UNIT 14 TP3 CLOSE ACK UNKNOWN =",
+            repr(exc),
+            flush=True,
+        )
+
+        return result
+
+    # ========================================================
+    # NORMALIZE WEEX ACKNOWLEDGEMENT
+    # ========================================================
+
+    response = (
+        reply.get("data")
+        if isinstance(reply, dict)
+        else None
+    )
+
+    if not isinstance(response, dict):
+
+        response = (
+            reply
+            if isinstance(reply, dict)
+            else {}
+        )
+
+    order_id = (
+        response.get("orderId")
+        or response.get("order_id")
+    )
+
+    returned_client = (
+        response.get("clientOrderId")
+        or response.get("newClientOrderId")
+        or response.get("clientOid")
+    )
+
+    failure = (
+        not isinstance(reply, dict)
+        or reply.get("success") is False
+        or bool(reply.get("errorCode"))
+        or bool(reply.get("errorMsg"))
+        or response.get("success") is False
+        or bool(response.get("errorCode"))
+        or bool(response.get("errorMsg"))
+    )
+
+    # ========================================================
+    # SAVE ACKNOWLEDGEMENT WITHOUT CLAIMING COMPLETION
+    # ========================================================
+
+    if (
+        order_id
+        and not failure
+        and (
+            returned_client is None
+            or str(returned_client) == client_id
+        )
+    ):
+
+        unit_14_stage_update(
+            client_id,
+            "SUBMITTED",
+            str(order_id),
+        )
+
+        result.update({
+            "status": "TP3_CLOSE_SUBMITTED",
+            "order_id": str(order_id),
+            "exchange_write": True,
+            "confirmed": False,
+        })
+
+        print(
+            "UNIT 14 TP3 CLOSE SUBMITTED =",
+            order_id,
+            flush=True,
+        )
+
+        print(
+            "UNIT 14 TP3 CLOSE CONFIRMED = FALSE",
+            flush=True,
+        )
+
+        return result
+
+    # ========================================================
+    # UNKNOWN ACK - NO AUTOMATIC DUPLICATE SUBMISSION
+    # ========================================================
+
+    unit_14_stage_update(
+        client_id,
+        "ACK_UNKNOWN",
+    )
+
+    result["status"] = (
+        "TP3_CLOSE_ACK_UNKNOWN"
+    )
+
+    print(
+        "UNIT 14 TP3 CLOSE ACK UNKNOWN",
+        flush=True,
+    )
+
+    return result
+
+
+# ============================================================
+# END INDEPENDENT SQLITE TP3 CLOSING EXECUTOR
+# ============================================================
+
 def unit_14_atr_breakeven(
     symbol,
     position,
