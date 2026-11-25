@@ -20157,28 +20157,73 @@ or str(
     # 8. FRESH EXCHANGE POSITION
     # ========================================================
 
-    
-    active_positions = unit_14_v3_positions()
+        active_positions = unit_14_v3_positions()
 
     persisted_side, active_cycle_id = (
         unit_14_active_original_side()
     )
 
+    print(
+        "UNIT 14 EXCHANGE ACTIVE SIDES =",
+        list(active_positions.keys()),
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 EXCHANGE POSITION SIZES =",
+        {
+            s: str(pos.get("size"))
+            for s, pos in active_positions.items()
+        },
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 SQLITE ORIGINAL SIDE =",
+        persisted_side,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 SQLITE ACTIVE CYCLE =",
+        active_cycle_id,
+        flush=True,
+    )
+
+    p = None
+
     if persisted_side is not None:
-        p = active_positions.get(persisted_side)
+
+        persisted_side = str(
+            persisted_side
+        ).strip().upper()
+
+        p = active_positions.get(
+            persisted_side
+        )
+
+        if p is None and active_positions:
+
+            print(
+                "UNIT 14 ORIGINAL SIDE ABSENT "
+                "BUT OTHER POSITION EXISTS",
+                flush=True,
+            )
 
     elif len(active_positions) == 1:
-        p = next(iter(active_positions.values()))
 
-    elif len(active_positions) == 0:
-        p = None
+        p = next(
+            iter(active_positions.values())
+        )
 
-    else:
+    elif len(active_positions) > 1:
+
         configured_side = os.getenv(
             "ORIGINAL_POSITION_SIDE", ""
         ).strip().upper()
 
         if configured_side not in active_positions:
+
             raise RuntimeError(
                 "ORIGINAL SIDE NOT IDENTIFIED "
                 "FOR EXISTING HEDGE PAIR"
@@ -20186,6 +20231,12 @@ or str(
 
         p = active_positions[configured_side]
 
+    print(
+        "UNIT 14 ORIGINAL POSITION FOUND =",
+        p is not None,
+        flush=True,
+    )
+    
     if active_cycle_id is not None:
 
         stage_state = unit_14_stage_read(
