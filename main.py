@@ -17632,7 +17632,7 @@ def unit_14_stage_execute_pair(
             results[action] = previous["state"]
             continue
 
-                        if not is_close:
+        if not is_close:
 
             available = unit_14_v3_balance()
 
