@@ -18200,7 +18200,99 @@ def unit_14_active_original_side(symbol=None):
     return rows[0][1], rows[0][0]
 
 
- 
+ # ============================================================
+# UNIT 14 - ORIGINAL SIDE RECONCILIATION
+# ============================================================
+
+def unit_14_original_side_reconciliation(
+    cycle_id,
+    active_positions,
+):
+
+    cycle = unit_14_stage_read(cycle_id)
+
+    if cycle is None:
+        raise RuntimeError(
+            "ORIGINAL SIDE CYCLE MISSING"
+        )
+
+    original_side = str(
+        cycle["original_side"]
+    ).upper()
+
+    opposite_side = (
+        "SHORT"
+        if original_side == "LONG"
+        else "LONG"
+    )
+
+    orders = unit_14_stage_reconcile_cycle(
+        cycle_id
+    )
+
+    print(
+        "UNIT 14 SIDE AUDIT CYCLE =",
+        cycle_id,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 SIDE AUDIT ORIGINAL =",
+        original_side,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 SIDE AUDIT OPPOSITE =",
+        opposite_side,
+        flush=True,
+    )
+
+    for action, record in orders.items():
+
+        print(
+            "UNIT 14 SIDE AUDIT ACTION =",
+            action,
+            "STATE =",
+            record.get("state"),
+            "EXPECTED =",
+            record.get("expected_quantity"),
+            "FILLED =",
+            record.get("confirmed_filled"),
+            "ORDER ID =",
+            record.get("exchange_order_id"),
+            flush=True,
+        )
+
+    for side, position in active_positions.items():
+
+        print(
+            "UNIT 14 SIDE AUDIT POSITION =",
+            side,
+            "SIZE =",
+            position.get("size"),
+            "OPEN VALUE =",
+            position.get("openValue"),
+            flush=True,
+        )
+
+    return {
+        "cycle_id": cycle_id,
+        "original_side": original_side,
+        "opposite_side": opposite_side,
+        "orders": orders,
+        "original_exists": (
+            original_side in active_positions
+        ),
+        "opposite_exists": (
+            opposite_side in active_positions
+        ),
+    }
+
+
+# ============================================================
+# END ORIGINAL SIDE RECONCILIATION
+# ============================================================
 def unit_14_stage_dispatch(
     active_positions,
     original_position,
