@@ -17594,6 +17594,10 @@ def unit_14_stage_reconcile_cycle(cycle_id):
 # END PERSISTENT STAGE CYCLE RECONCILIATION
 # ============================================================
 
+# ============================================================
+# UNIT 14 - INDEPENDENT E0 TERMINATION
+# ============================================================
+
 def unit_14_finalize_flat_cycle(cycle_id):
 
     result = {
@@ -17612,23 +17616,88 @@ def unit_14_finalize_flat_cycle(cycle_id):
 
         return result
 
-    if cycle["state"] != "ACTIVE":
+    positions = unit_14_v3_positions()
 
-        result["status"] = "E0_CYCLE_INACTIVE"
-
-        return result
-
-    _, active_symbol = (
-        unit_13_14_active_symbols()
-    )
-
-    if cycle["symbol"] != active_symbol:
+    if positions:
 
         result["status"] = (
-            "E0_SYMBOL_MISMATCH"
+            "E0_POSITIONS_STILL_ACTIVE"
         )
 
         return result
+
+    db = unit_14_stage_db()
+
+    try:
+
+        db.execute("BEGIN IMMEDIATE")
+
+        pending = db.execute("""
+            SELECT action
+            FROM stage_orders
+            WHERE cycle_id = ?
+              AND state NOT IN (
+                  'FILLED',
+                  'TERMINAL_UNFILLED',
+                  'PARTIAL_TERMINAL'
+              )
+        """, (cycle_id,)).fetchall()
+
+        closing_state = (
+            "CLOSED_PENDING_RECONCILIATION"
+            if pending
+            else "CLOSED"
+        )
+
+        db.execute("""
+            UPDATE stage_cycles
+            SET state = ?,
+                stage = 'EXCHANGE_FLAT'
+            WHERE cycle_id = ?
+        """, (
+            closing_state,
+            cycle_id,
+        ))
+
+        db.commit()
+
+        result.update({
+            "status": "E0_CYCLE_TERMINATED",
+            "terminated": True,
+            "closing_reason": "EXCHANGE_FLAT",
+            "unresolved_actions": [
+                row[0] for row in pending
+            ],
+        })
+
+        print(
+            "UNIT 14 E0 TERMINATED =",
+            cycle_id,
+            flush=True,
+        )
+
+        print(
+            "UNIT 14 E0 FINAL STATE =",
+            closing_state,
+            flush=True,
+        )
+
+        print(
+            "UNIT 14 E0 OWNERSHIP RELEASED = TRUE",
+            flush=True,
+        )
+
+        return result
+
+    except Exception:
+
+        db.rollback()
+
+        raise
+
+    finally:
+
+        db.close()
 
     # ========================================================
     # VERIFY ORIGINAL AND OPPOSITE POSITIONS ARE FLAT
