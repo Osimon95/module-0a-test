@@ -19814,7 +19814,7 @@ def unit_14_stage_dispatch(
     # claimed stage order has an unknown exchange outcome.
     # Continue exchange reconciliation on every scan.
 
-        unresolved_actions = [
+    unresolved_actions = [
         action
         for action in UNIT14_STAGE_ACTIONS
         if unresolved(action)
