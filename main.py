@@ -21862,11 +21862,52 @@ or str(
     # 8. FRESH EXCHANGE POSITION
     # ========================================================
 
-    active_positions = unit_14_v3_positions()
+        active_positions = unit_14_v3_positions()
+
+    # ONE-TIME OBSOLETE SHORT RESET
+
+    short_reset = unit_14_reset_obsolete_short(
+        active_positions
+    )
+
+    result["obsolete_short_reset"] = short_reset
+
+    # ESTABLISH FRESH E0 OWNERSHIP
 
     persisted_side, active_cycle_id = (
         unit_14_active_original_side()
     )
+
+    if (
+        active_cycle_id is None
+        and len(active_positions) == 1
+    ):
+
+        original_position = next(
+            iter(active_positions.values())
+        )
+
+        active_cycle_id = (
+            unit_14_ensure_e0_cycle(
+                original_position
+            )
+        )
+
+        persisted_side = str(
+            original_position["side"]
+        ).upper()
+
+        print(
+            "UNIT 14 FRESH E0 SIDE =",
+            persisted_side,
+            flush=True,
+        )
+
+        print(
+            "UNIT 14 FRESH E0 CYCLE =",
+            active_cycle_id,
+            flush=True,
+        )
 
     # ========================================================
     # INDEPENDENT TP3-C RECONCILIATION
