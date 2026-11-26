@@ -25034,7 +25034,509 @@ def unit_9_load_symbol_specifications(config, symbol):
 from decimal import Decimal, ROUND_CEILING
 import os
 
+# ============================================================
+# UNIT 8 - TP NET ROI ACCEPTANCE CONTROLLER
+# SINGLE RENDER INPUT
+# SQLITE PERSISTENCE + TELEGRAM EVENT DELIVERY
+# ============================================================
 
+def unit_8_tp_net_roi_control(
+    config,
+    account,
+    market,
+):
+
+    from decimal import (
+        Decimal,
+        ROUND_CEILING,
+        ROUND_FLOOR,
+    )
+
+    D = Decimal
+
+    strategy = config["strategy"]
+    precision = config["market_precision"]
+
+    symbol = str(
+        config["exchange"]["market_symbol"]
+    ).strip().upper()
+
+    raw = os.getenv(
+        "TP_NET_ROI_FLOOR_PERCENT",
+        "TP1:20,TP2:40"
+    ).strip()
+
+    result = {
+        "status": "PENDING",
+        "eligible": False,
+        "minimum_tp1": None,
+        "minimum_tp2": None,
+    }
+
+    def amount(value):
+
+        return format(
+            D(str(value)).normalize(),
+            "f"
+        )
+
+    # --------------------------------------------------------
+    # VERIFIED CONTRACT PRECISION
+    # --------------------------------------------------------
+
+    if precision.get(
+        "symbol_specifications_confirmed"
+    ) is not True:
+
+        result["status"] = (
+            "CONTRACT_SPECS_UNAVAILABLE"
+        )
+
+        return result
+
+    price = D(str(market["price"]))
+
+    tick = D(str(
+        precision["price_step"]
+    ))
+
+    long_leverage = D(str(
+        account["long_leverage"]
+    ))
+
+    short_leverage = D(str(
+        account["short_leverage"]
+    ))
+
+    fee = D(str(
+        strategy.get(
+            "futures_taker_fee_percent",
+            "0.08"
+        )
+    ))
+
+    if any(
+        not v.is_finite() or v <= 0
+        for v in (
+            price,
+            tick,
+            long_leverage,
+            short_leverage,
+        )
+    ):
+
+        result["status"] = (
+            "INVALID_CONTRACT_PARAMETERS"
+        )
+
+        return result
+
+    if not fee.is_finite() or fee < 0:
+
+        result["status"] = "INVALID_FEE"
+
+        return result
+
+    # --------------------------------------------------------
+    # MINIMUM POSITIVE EXECUTABLE NET ROI
+    # SAME ESTIMATED FEE MODEL AS UNIT 13
+    # --------------------------------------------------------
+
+    fee_move = (
+        D("2") * fee / D("100")
+    )
+
+    long_be = price * (
+        D("1") + fee_move
+    )
+
+    short_be = price * (
+        D("1") - fee_move
+    )
+
+    long_first = (
+        (
+            long_be / tick
+        ).to_integral_value(
+            rounding=ROUND_FLOOR
+        ) + D("1")
+    ) * tick
+
+    short_first = (
+        (
+            short_be / tick
+        ).to_integral_value(
+            rounding=ROUND_CEILING
+        ) - D("1")
+    ) * tick
+
+    if short_first <= 0:
+
+        result["status"] = (
+            "INVALID_SHORT_TARGET"
+        )
+
+        return result
+
+    long_min_roi = (
+        (
+            (long_first - price)
+            / price
+        ) * D("100") * long_leverage
+        - D("2") * fee * long_leverage
+    )
+
+    short_min_roi = (
+        (
+            (price - short_first)
+            / price
+        ) * D("100") * short_leverage
+        - D("2") * fee * short_leverage
+    )
+
+    minimum_tp1 = max(
+        D("0.01"),
+        long_min_roi,
+        short_min_roi,
+    ).quantize(
+        D("0.01"),
+        rounding=ROUND_CEILING,
+    )
+
+    roi_tick = max(
+        tick / price
+        * D("100")
+        * long_leverage,
+
+        tick / price
+        * D("100")
+        * short_leverage,
+    ).quantize(
+        D("0.01"),
+        rounding=ROUND_CEILING,
+    )
+
+    minimum_tp2 = (
+        minimum_tp1 + roi_tick
+    )
+
+    result["minimum_tp1"] = minimum_tp1
+    result["minimum_tp2"] = minimum_tp2
+
+    # --------------------------------------------------------
+    # SQLITE ACCEPTED CONFIGURATION
+    # --------------------------------------------------------
+
+    db = unit_8_symbol_switch_db()
+
+    try:
+
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS
+            tp_net_roi_state (
+                id INTEGER PRIMARY KEY
+                    CHECK (id = 1),
+                accepted_tp1 TEXT NOT NULL,
+                accepted_tp2 TEXT NOT NULL,
+                decision_key TEXT NOT NULL,
+                status TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
+
+        db.execute("BEGIN IMMEDIATE")
+
+        previous = db.execute("""
+            SELECT
+                accepted_tp1,
+                accepted_tp2,
+                decision_key,
+                status
+            FROM tp_net_roi_state
+            WHERE id = 1
+        """).fetchone()
+
+        accepted_tp1 = D(str(
+            strategy[
+                "tp1_net_roi_floor_percent"
+            ]
+        ))
+
+        accepted_tp2 = D(str(
+            strategy[
+                "tp2_net_roi_floor_percent"
+            ]
+        ))
+
+        if previous is not None:
+
+            accepted_tp1 = D(previous[0])
+            accepted_tp2 = D(previous[1])
+
+        # ----------------------------------------------------
+        # PARSE CONSOLIDATED RENDER INPUT
+        # ----------------------------------------------------
+
+        status = "ACCEPTED"
+        reason = ""
+        requested = {}
+
+        try:
+
+            for item in raw.split(","):
+
+                key, value = (
+                    item.strip().split(":", 1)
+                )
+
+                key = key.strip().upper()
+
+                if key in requested:
+                    raise ValueError(
+                        "Duplicate TP key"
+                    )
+
+                number = D(value.strip())
+
+                if (
+                    not number.is_finite()
+                    or number <= 0
+                ):
+                    raise ValueError(
+                        "ROI must be positive"
+                    )
+
+                requested[key] = number
+
+            if set(requested) != {
+                "TP1", "TP2"
+            }:
+                raise ValueError(
+                    "TP1 and TP2 required"
+                )
+
+            tp1 = requested["TP1"]
+            tp2 = requested["TP2"]
+
+            decision_key = (
+                symbol + "|"
+                + amount(tp1) + "|"
+                + amount(tp2)
+            )
+
+            if tp1 < minimum_tp1:
+
+                status = "REJECTED"
+
+                reason = (
+                    f"TP1 {amount(tp1)}% "
+                    f"below minimum of "
+                    f"{amount(minimum_tp1)}%."
+                )
+
+            elif tp2 <= tp1:
+
+                status = "REJECTED"
+
+                reason = (
+                    "TP2 must exceed TP1."
+                )
+
+            elif tp2 < minimum_tp2:
+
+                status = "REJECTED"
+
+                reason = (
+                    f"TP2 {amount(tp2)}% "
+                    f"below minimum of "
+                    f"{amount(minimum_tp2)}%."
+                )
+
+            else:
+
+                # Validate executable target prices
+                # using the existing Unit 13 engine.
+
+                for side, leverage in (
+                    ("LONG", long_leverage),
+                    ("SHORT", short_leverage),
+                ):
+
+                    unit_13_v4_targets(
+                        price,
+                        leverage,
+                        side,
+                        tick,
+                        tp1,
+                        tp2,
+                        fee,
+                    )
+
+        except Exception as exc:
+
+            status = "REJECTED"
+
+            reason = (
+                "Invalid TP net ROI configuration: "
+                + str(exc)
+            )
+
+            decision_key = (
+                symbol + "|" + raw
+            )
+
+        # ----------------------------------------------------
+        # ACCEPT OR RETAIN LAST ACCEPTED VALUES
+        # ----------------------------------------------------
+
+        if status == "ACCEPTED":
+
+            accepted_tp1 = requested["TP1"]
+            accepted_tp2 = requested["TP2"]
+
+            message = (
+                f"{symbol} TP1 accepted, "
+                f"{amount(accepted_tp1)}% "
+                "net ROI enabled.\n"
+
+                f"{symbol} TP2 accepted, "
+                f"{amount(accepted_tp2)}% "
+                "net ROI enabled."
+            )
+
+        else:
+
+            message = (
+                f"{symbol} TP net ROI rejected, "
+                + reason
+                + "\n"
+
+                f"Retained TP1:"
+                f"{amount(accepted_tp1)}%, "
+
+                f"TP2:"
+                f"{amount(accepted_tp2)}%."
+            )
+
+        changed = (
+            previous is None
+            or previous[2] != decision_key
+            or previous[3] != status
+        )
+
+        now = datetime.now(
+            timezone.utc
+        ).isoformat()
+
+        db.execute("""
+            INSERT INTO tp_net_roi_state (
+                id,
+                accepted_tp1,
+                accepted_tp2,
+                decision_key,
+                status,
+                updated_at
+            )
+            VALUES (1, ?, ?, ?, ?, ?)
+
+            ON CONFLICT(id) DO UPDATE SET
+
+                accepted_tp1 =
+                    excluded.accepted_tp1,
+
+                accepted_tp2 =
+                    excluded.accepted_tp2,
+
+                decision_key =
+                    excluded.decision_key,
+
+                status =
+                    excluded.status,
+
+                updated_at =
+                    excluded.updated_at
+        """, (
+            str(accepted_tp1),
+            str(accepted_tp2),
+            decision_key,
+            status,
+            now,
+        ))
+
+        if changed:
+
+            unit_8_symbol_event(
+                db,
+                "TP_NET_ROI_" + status,
+                message,
+            )
+
+        db.execute("COMMIT")
+
+        # ----------------------------------------------------
+        # PUBLISH ACCEPTED VALUES TO DOWNSTREAM UNITS
+        # ----------------------------------------------------
+
+        strategy[
+            "tp1_net_roi_floor_percent"
+        ] = float(accepted_tp1)
+
+        strategy[
+            "tp2_net_roi_floor_percent"
+        ] = float(accepted_tp2)
+
+        strategy[
+            "tp1_tp2_min_roi_separation_percent"
+        ] = float(
+            accepted_tp2 - accepted_tp1
+        )
+
+        result.update({
+            "status": status,
+            "eligible": status == "ACCEPTED",
+            "accepted_tp1": accepted_tp1,
+            "accepted_tp2": accepted_tp2,
+            "reason": reason,
+        })
+
+        print(
+            "UNIT 8 TP NET ROI STATUS =",
+            status,
+            flush=True,
+        )
+
+        print(
+            "UNIT 8 MINIMUM TP1 NET ROI =",
+            minimum_tp1,
+            flush=True,
+        )
+
+        print(
+            "UNIT 8 MINIMUM TP2 NET ROI =",
+            minimum_tp2,
+            flush=True,
+        )
+
+        print(
+            "UNIT 8 ACCEPTED TP1 NET ROI =",
+            accepted_tp1,
+            flush=True,
+        )
+
+        print(
+            "UNIT 8 ACCEPTED TP2 NET ROI =",
+            accepted_tp2,
+            flush=True,
+        )
+
+        return result
+
+    finally:
+
+        if db.in_transaction:
+            db.execute("ROLLBACK")
+
+        db.close()
 def unit_8_entry_margin_control(config, account, market):
 
     db = unit_8_symbol_switch_db()
