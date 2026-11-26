@@ -26304,6 +26304,30 @@ def scan_refresh_entry_pipeline():
         sizing,
         market,
     )
+        # ========================================================
+    # CONSOLIDATED TP NET ROI ACCEPTANCE
+    # INDEPENDENT OF ENTRY MARGIN AND BOT MODE
+    # ========================================================
+
+    tp_roi_decision = (
+        unit_8_tp_net_roi_control(
+            config,
+            account,
+            market,
+        )
+    )
+
+    print(
+        "SCAN TP NET ROI STATUS =",
+        tp_roi_decision["status"],
+        flush=True,
+    )
+
+    print(
+        "SCAN TP NET ROI ELIGIBLE =",
+        tp_roi_decision["eligible"],
+        flush=True,
+    )
 
     
     # ========================================================
