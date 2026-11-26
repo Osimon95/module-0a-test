@@ -18284,6 +18284,38 @@ def unit_14_stage_execute_pair(
         "complete": False,
     }
 
+    active_positions = unit_14_v3_positions()
+
+    # ========================================================
+    # INDEPENDENT HISTORICAL E0 RECONCILIATION
+    # ========================================================
+
+    unit_14_reconcile_historical_cycles()
+
+    # ========================================================
+    # VERIFIED E0 OWNERSHIP SEPARATION
+    # ========================================================
+
+    ownership_separated = (
+        unit_14_separate_e0_ownership(
+            active_positions,
+            unit_13_result,
+        )
+    )
+
+    result["e0_ownership_separated"] = (
+        ownership_separated
+    )
+
+    if ownership_separated:
+
+        active_positions = (
+            unit_14_v3_positions()
+        )
+
+    persisted_side, active_cycle_id = (
+        unit_14_active_original_side()
+    )
 # ============================================================
 # UNIT 14 - INDEPENDENT E0 CYCLE OWNERSHIP
 # PRESERVE HISTORICAL HEDGE RECONCILIATION
