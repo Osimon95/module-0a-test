@@ -16148,7 +16148,11 @@ def unit_14_v3_balance():
     )
 
 
-def unit_14_v3_history(demo_symbol=None):
+def unit_14_v3_history(
+    demo_symbol=None,
+    start_time=None,
+    end_time=None,
+):
 
     if demo_symbol is None:
         _, demo_symbol = unit_13_14_active_symbols()
@@ -16162,16 +16166,21 @@ def unit_14_v3_history(demo_symbol=None):
 
     orders = []
 
-    # Preserve working reference pagination.
-    # Do not accept partial history as complete.
-
     for page in range(20):
 
-        query = urllib.parse.urlencode({
+        params = {
             "symbol": demo_symbol,
             "limit": 1000,
             "page": page,
-        })
+        }
+
+        if start_time is not None:
+            params["startTime"] = int(start_time)
+
+        if end_time is not None:
+            params["endTime"] = int(end_time)
+
+        query = urllib.parse.urlencode(params)
 
         batch = unit_14_v3_signed_request(
             "GET",
@@ -16197,10 +16206,21 @@ def unit_14_v3_history(demo_symbol=None):
         if len(batch) < 1000:
 
             print(
-                "PASS: UNIT 14 ORDER HISTORY COMPLETE | "
-                "RECORDS =",
-                len(orders),
-                flush=True
+                "UNIT 14 HISTORY SYMBOL =",
+                demo_symbol,
+                flush=True,
+            )
+
+            print(
+                "UNIT 14 HISTORY START TIME =",
+                start_time,
+                flush=True,
+            )
+
+            print(
+                "PASS: UNIT 14 ORDER HISTORY COMPLETE",
+                "RECORDS =", len(orders),
+                flush=True,
             )
 
             return orders
@@ -16208,7 +16228,6 @@ def unit_14_v3_history(demo_symbol=None):
     raise RuntimeError(
         "UNIT 14 HISTORY PAGINATION INCOMPLETE"
     )
-
 
 def unit_14_v3_mark():
     market_symbol, _ = unit_13_14_active_symbols()
