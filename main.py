@@ -18020,7 +18020,7 @@ def unit_14_stage_execute_pair(
     opening_leverage,
     quantity_step,
     minimum_quantity,
-    margin_buffer_percent="0.3",
+    margin_buffer_percent="0",
 ):
     from decimal import Decimal
 
