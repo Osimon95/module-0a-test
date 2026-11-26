@@ -25560,9 +25560,11 @@ def unit_8_tp_net_roi_control(
                 status = "REJECTED"
 
                 reason = (
-                    f"TP1 {amount(tp1)}% "
-                    f"below minimum of "
-                    f"{amount(minimum_tp1)}%."
+                    f"TP1 {amount(tp1)}% below "
+                    f"calculated executable minimum "
+                    f"of {amount(minimum_tp1)}% "
+                    f"using exchange specifications "
+                    f"and estimated trading fees."
                 )
 
             elif tp2 <= tp1:
