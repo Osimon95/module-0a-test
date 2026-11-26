@@ -16607,6 +16607,28 @@ def unit_14_stage_db():
         )
     """)
 
+        # INDEPENDENT BREAK-EVEN AND TP3 ORDER TABLES
+
+    for table in (
+        "breakeven_orders",
+        "tp3_orders",
+    ):
+
+        db.execute(f"""
+            CREATE TABLE IF NOT EXISTS {table} (
+                client_id TEXT PRIMARY KEY,
+                cycle_id TEXT NOT NULL,
+                action TEXT NOT NULL,
+                quantity TEXT NOT NULL,
+                state TEXT NOT NULL DEFAULT 'CLAIMED',
+                exchange_order_id TEXT,
+                confirmed_filled TEXT NOT NULL DEFAULT '0',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(cycle_id, action)
+            )
+        """)
+        
     return db
 
 
