@@ -26461,6 +26461,22 @@ def scan_refresh_entry_pipeline():
     # RENDER ENTRY MARGIN VALIDATION
     # ========================================================
 
+        # ========================================================
+    # NEW ENTRY TP NET ROI VALIDATION
+    # EXISTING POSITION MANAGEMENT REMAINS INDEPENDENT
+    # ========================================================
+
+    if tp_roi_decision["eligible"] is not True:
+
+        return {
+            "status": "IDLE",
+            "skip_reason": (
+                "TP_NET_ROI_"
+                + tp_roi_decision["status"]
+            ),
+            "execution_authorized": False,
+            "exchange_write": False,
+        }
     margin_decision = unit_8_entry_margin_control(
         config,
         account,
