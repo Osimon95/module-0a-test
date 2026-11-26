@@ -21016,11 +21016,115 @@ or str(
     # 8. FRESH EXCHANGE POSITION
     # ========================================================
 
-    active_positions = unit_14_v3_positions()
+        active_positions = unit_14_v3_positions()
 
     persisted_side, active_cycle_id = (
         unit_14_active_original_side()
     )
+
+    # ========================================================
+    # INDEPENDENT TP3-C RECONCILIATION
+    # PRESERVE ALL HEDGE PROTECTION DISPATCH
+    # ========================================================
+
+    if active_cycle_id is not None:
+
+        tp3_cycle = unit_14_stage_read(
+            active_cycle_id
+        )
+
+        if tp3_cycle is not None:
+
+            tp3_record = tp3_cycle["orders"].get(
+                "TP3-C"
+            )
+
+            if tp3_record is not None:
+
+                try:
+
+                    tp3_order = (
+                        unit_14_stage_reconcile_order(
+                            cycle_id=active_cycle_id,
+                            action="TP3-C",
+                        )
+                    )
+
+                    tp3_state = str(
+                        tp3_order.get("state", "")
+                    ).upper()
+
+                    tp3_confirmed = (
+                        tp3_order.get("complete")
+                        is True
+                    )
+
+                    result["tp3_reconciliation"] = (
+                        tp3_order
+                    )
+
+                    result["tp3_execution_completed"] = (
+                        tp3_confirmed
+                    )
+
+                    result["tp3_order_id"] = (
+                        tp3_order.get(
+                            "exchange_order_id"
+                        )
+                    )
+
+                    print(
+                        "UNIT 14 TP3 INDEPENDENT "
+                        "RECONCILIATION = TRUE",
+                        flush=True,
+                    )
+
+                    print(
+                        "UNIT 14 TP3-C STATE =",
+                        tp3_state,
+                        flush=True,
+                    )
+
+                    print(
+                        "UNIT 14 TP3-C CONFIRMED FILL =",
+                        tp3_order.get(
+                            "confirmed_filled", "0"
+                        ),
+                        flush=True,
+                    )
+
+                    print(
+                        "UNIT 14 TP3 CLOSE CONFIRMED =",
+                        tp3_confirmed,
+                        flush=True,
+                    )
+
+                except Exception as exc:
+
+                    result["tp3_reconciliation_error"] = (
+                        str(exc)
+                    )
+
+                    print(
+                        "UNIT 14 TP3 RECONCILIATION ERROR =",
+                        str(exc),
+                        flush=True,
+                    )
+
+                active_positions = (
+                    unit_14_v3_positions()
+                )
+
+                print(
+                    "UNIT 14 TP3 RECONCILIATION "
+                    "HANDOVER TO EXISTING PROTECTION",
+                    flush=True,
+                )
+
+    # TP3 reconciliation must not return from
+    # Unit 14 or disable existing hedge dispatch.
+    # Continue existing E0 and protection lifecycle.
+    
     # ========================================================
     # E0 FLAT CYCLE TERMINATION
     # ========================================================
