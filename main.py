@@ -25334,86 +25334,125 @@ def unit_8_tp_net_roi_control(
     # SAME ESTIMATED FEE MODEL AS UNIT 13
     # --------------------------------------------------------
 
-    fee_move = (
-        D("2") * fee / D("100")
-    )
+        # --------------------------------------------------------
+    # DYNAMIC MINIMUM PROFITABLE TP1
+    # EXCHANGE PRICE PRECISION AND LEVERAGE
+    # --------------------------------------------------------
 
-    long_be = price * (
-        D("1") + fee_move
-    )
+    fee_move = D("2") * fee / D("100")
 
-    short_be = price * (
-        D("1") - fee_move
-    )
+    long_be = price * (D("1") + fee_move)
+    short_be = price * (D("1") - fee_move)
 
     long_first = (
-        (
-            long_be / tick
-        ).to_integral_value(
+        (long_be / tick).to_integral_value(
             rounding=ROUND_FLOOR
         ) + D("1")
     ) * tick
 
     short_first = (
-        (
-            short_be / tick
-        ).to_integral_value(
+        (short_be / tick).to_integral_value(
             rounding=ROUND_CEILING
         ) - D("1")
     ) * tick
 
     if short_first <= 0:
-
-        result["status"] = (
-            "INVALID_SHORT_TARGET"
-        )
-
+        result["status"] = "INVALID_SHORT_TARGET"
         return result
 
     long_min_roi = (
-        (
-            (long_first - price)
-            / price
-        ) * D("100") * long_leverage
+        (long_first - price)
+        / price
+        * D("100")
+        * long_leverage
         - D("2") * fee * long_leverage
     )
 
     short_min_roi = (
-        (
-            (price - short_first)
-            / price
-        ) * D("100") * short_leverage
+        (price - short_first)
+        / price
+        * D("100")
+        * short_leverage
         - D("2") * fee * short_leverage
     )
 
     minimum_tp1 = max(
-        D("0.01"),
         long_min_roi,
         short_min_roi,
     ).quantize(
-        D("0.01"),
+        D("0.000001"),
         rounding=ROUND_CEILING,
     )
 
     roi_tick = max(
-        tick / price
-        * D("100")
-        * long_leverage,
-
-        tick / price
-        * D("100")
-        * short_leverage,
+        tick / price * D("100") * long_leverage,
+        tick / price * D("100") * short_leverage,
     ).quantize(
         D("0.01"),
         rounding=ROUND_CEILING,
     )
 
     minimum_tp2 = (
-        minimum_tp1 + roi_tick
+        max(
+            D("0.01"),
+            long_min_roi,
+            short_min_roi,
+        ).quantize(
+            D("0.01"),
+            rounding=ROUND_CEILING,
+        ) + roi_tick
     )
 
     result["minimum_tp1"] = minimum_tp1
     result["minimum_tp2"] = minimum_tp2
+
+    result["minimum_tp1_source"] = (
+        "EXCHANGE_SPECS_ESTIMATED_FEES"
+    )
+
+    result["minimum_tp1_fill_verified"] = False
+
+    print(
+        "UNIT 8 TP1 REFERENCE PRICE =",
+        price,
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 TP1 PRICE STEP =",
+        tick,
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 TP1 FIRST PROFITABLE LONG PRICE =",
+        long_first,
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 TP1 FIRST PROFITABLE SHORT PRICE =",
+        short_first,
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 TP1 LONG MINIMUM NET ROI =",
+        long_min_roi,
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 TP1 SHORT MINIMUM NET ROI =",
+        short_min_roi,
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 TP1 MINIMUM NET ROI SOURCE =",
+        result["minimum_tp1_source"],
+        flush=True,
+    )
 
     # --------------------------------------------------------
     # SQLITE ACCEPTED CONFIGURATION
