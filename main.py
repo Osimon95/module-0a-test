@@ -20900,6 +20900,29 @@ or str(
     persisted_side, active_cycle_id = (
         unit_14_active_original_side()
     )
+    # ========================================================
+    # E0 FLAT CYCLE TERMINATION
+    # ========================================================
+
+    if not active_positions and active_cycle_id is not None:
+
+        termination = unit_14_finalize_flat_cycle(
+            active_cycle_id
+        )
+
+        result["e0_termination"] = termination
+
+        result["status"] = termination["status"]
+
+        result["exchange_write"] = False
+
+        print(
+            "UNIT 14 E0 TERMINATION STATUS =",
+            result["status"],
+            flush=True,
+        )
+
+        return result
 
     print(
         "UNIT 14 EXCHANGE ACTIVE SIDES =",
