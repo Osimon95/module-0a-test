@@ -18728,6 +18728,120 @@ def unit_14_separate_e0_ownership(
     )
 
     return True
+
+# ============================================================
+# UNIT 14 - HISTORICAL E0 RECONCILIATION
+# INDEPENDENT OF CURRENT ACTIVE CYCLE
+# ============================================================
+
+def unit_14_reconcile_historical_cycles():
+
+    terminal_states = {
+        "NOT_CLAIMED",
+        "FILLED",
+        "TERMINAL_UNFILLED",
+        "PARTIAL_TERMINAL",
+    }
+
+    db = unit_14_stage_db()
+
+    try:
+
+        rows = db.execute("""
+            SELECT cycle_id
+            FROM stage_cycles
+            WHERE state =
+                'CLOSED_PENDING_RECONCILIATION'
+        """).fetchall()
+
+    finally:
+        db.close()
+
+    for (cycle_id,) in rows:
+
+        try:
+
+            orders = unit_14_stage_reconcile_cycle(
+                cycle_id
+            )
+
+            unresolved = [
+                action
+                for action in UNIT14_STAGE_ACTIONS
+                if orders.get(action, {}).get("state")
+                not in terminal_states
+            ]
+
+            print(
+                "UNIT 14 HISTORICAL E0 =",
+                cycle_id,
+                "UNRESOLVED =",
+                unresolved,
+                flush=True,
+            )
+
+            if unresolved:
+                continue
+
+            db = unit_14_stage_db()
+
+            try:
+
+                db.execute("BEGIN IMMEDIATE")
+
+                pending = db.execute("""
+                    SELECT action
+                    FROM stage_orders
+                    WHERE cycle_id = ?
+                      AND state NOT IN (
+                          'FILLED',
+                          'TERMINAL_UNFILLED',
+                          'PARTIAL_TERMINAL'
+                      )
+                """, (cycle_id,)).fetchall()
+
+                if pending:
+
+                    db.rollback()
+
+                    continue
+
+                db.execute("""
+                    UPDATE stage_cycles
+                    SET state = 'CLOSED'
+                    WHERE cycle_id = ?
+                      AND state =
+                          'CLOSED_PENDING_RECONCILIATION'
+                """, (cycle_id,))
+
+                db.commit()
+
+            except Exception:
+
+                if db.in_transaction:
+                    db.rollback()
+
+                raise
+
+            finally:
+                db.close()
+
+            print(
+                "UNIT 14 HISTORICAL E0 "
+                "RECONCILIATION COMPLETE =",
+                cycle_id,
+                flush=True,
+            )
+
+        except Exception as exc:
+
+            print(
+                "UNIT 14 HISTORICAL E0 "
+                "RECONCILIATION ERROR =",
+                cycle_id,
+                str(exc),
+                flush=True,
+            )
 def unit_14_active_original_side(symbol=None):
     if symbol is None:
         _, symbol = unit_13_14_active_symbols()
