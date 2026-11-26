@@ -17392,8 +17392,9 @@ def unit_14_stage_reconcile_cycle(cycle_id):
             "STAGE CYCLE NOT FOUND"
         )
 
-    # One exchange-history read per cycle scan.
-    history = unit_14_v3_history(cycle["symbol"])
+    history = unit_14_v3_history(
+        cycle["symbol"]
+    )
 
     results = {}
 
@@ -17407,9 +17408,110 @@ def unit_14_stage_reconcile_cycle(cycle_id):
             )
         )
 
+    unresolved = [
+        action
+        for action, record in results.items()
+        if record.get("state") in (
+            "ACK_UNKNOWN",
+            "ACK_OR_HISTORY_UNKNOWN",
+            "CLAIMED",
+            "SUBMITTED",
+            "PENDING",
+            "PARTIAL",
+        )
+    ]
+
+    if not unresolved:
+        return results
+
+    db = unit_14_stage_db()
+
+    try:
+
+        rows = db.execute(
+            """
+            SELECT action, created_at
+            FROM stage_orders
+            WHERE cycle_id = ?
+            """,
+            (cycle_id,),
+        ).fetchall()
+
+    finally:
+        db.close()
+
+    claim_times = dict(rows)
+
+    for action in unresolved:
+
+        created_at = claim_times.get(action)
+
+        if created_at is None:
+            continue
+
+        try:
+
+            stamp = float(created_at)
+
+            if stamp < 100000000000:
+                stamp *= 1000
+
+            stamp = int(stamp)
+
+        except (TypeError, ValueError):
+
+            try:
+                stamp = int(
+                    datetime.fromisoformat(
+                        str(created_at).replace(
+                            "Z", "+00:00"
+                        )
+                    ).timestamp() * 1000
+                )
+
+            except (TypeError, ValueError):
+                continue
+
+        now = int(time.time() * 1000)
+
+        start_time = max(
+            0,
+            stamp - 86400000,
+        )
+
+        end_time = min(
+            now,
+            stamp + 86400000,
+        )
+
+        if end_time < start_time:
+            continue
+
+        historical = unit_14_v3_history(
+            cycle["symbol"],
+            start_time=start_time,
+            end_time=end_time,
+        )
+
+        results[action] = (
+            unit_14_stage_reconcile_order(
+                cycle_id=cycle_id,
+                action=action,
+                history=historical,
+            )
+        )
+
+        print(
+            "UNIT 14 TARGETED RECONCILIATION =",
+            action,
+            "STATE =",
+            results[action].get("state"),
+            flush=True,
+        )
+
     return results
-
-
+    
+ 
 # ============================================================
 # END PERSISTENT STAGE CYCLE RECONCILIATION
 # ============================================================
