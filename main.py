@@ -370,8 +370,86 @@ def fresh_reconstruction_unit_2():
             "UNIT 2 TP ALLOCATION REJECTED: " + str(exc)
         ) from exc
 
-    tp1_roi = setting("TP1_NET_ROI_FLOOR_PERCENT", "20")
-    tp2_roi = setting("TP2_NET_ROI_FLOOR_PERCENT", "40")
+        # ========================================================
+    # CONSOLIDATED TP NET ROI CONFIGURATION
+    # Restore last accepted values before validation
+    # ========================================================
+
+    import sqlite3
+
+    tp_roi_requested = os.getenv(
+        "TP_NET_ROI_FLOOR_PERCENT",
+        "TP1:20,TP2:40"
+    ).strip()
+
+    tp1_roi = Decimal("20")
+    tp2_roi = Decimal("40")
+
+    stage_path = os.getenv(
+        "UNIT14_STAGE_DB_PATH",
+        "/var/data/unit14_stages.sqlite3"
+    )
+
+    roi_db_path = os.path.join(
+        os.path.dirname(stage_path),
+        "weex_symbol_switch.sqlite3"
+    )
+
+    if os.path.isfile(roi_db_path):
+
+        roi_db = None
+
+        try:
+
+            roi_db = sqlite3.connect(
+                roi_db_path,
+                timeout=10
+            )
+
+            table_exists = roi_db.execute("""
+                SELECT name
+                FROM sqlite_master
+                WHERE type = 'table'
+                  AND name = 'tp_net_roi_state'
+            """).fetchone()
+
+            if table_exists:
+
+                saved = roi_db.execute("""
+                    SELECT accepted_tp1, accepted_tp2
+                    FROM tp_net_roi_state
+                    WHERE id = 1
+                """).fetchone()
+
+                if saved:
+
+                    saved_tp1 = Decimal(saved[0])
+                    saved_tp2 = Decimal(saved[1])
+
+                    if (
+                        saved_tp1.is_finite()
+                        and saved_tp2.is_finite()
+                        and 0 < saved_tp1 < saved_tp2
+                    ):
+                        tp1_roi = saved_tp1
+                        tp2_roi = saved_tp2
+
+        finally:
+
+            if roi_db is not None:
+                roi_db.close()
+
+    print(
+        "UNIT 2 TP NET ROI REQUESTED =",
+        tp_roi_requested,
+        flush=True,
+    )
+
+    print(
+        "UNIT 2 TP NET ROI RESTORED =",
+        tp1_roi, "/", tp2_roi,
+        flush=True,
+    )
 
     fee_mode = os.getenv(
         "SIGNAL_FEE_COVERAGE_ENABLED", "true"
