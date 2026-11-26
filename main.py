@@ -18284,6 +18284,450 @@ def unit_14_stage_execute_pair(
         "complete": False,
     }
 
+# ============================================================
+# UNIT 14 - INDEPENDENT E0 CYCLE OWNERSHIP
+# PRESERVE HISTORICAL HEDGE RECONCILIATION
+# ============================================================
+
+def unit_14_separate_e0_ownership(
+    active_positions,
+    unit_13_result,
+):
+
+    import hashlib
+
+    D = unit_14_v3_D
+
+    symbol = unit_13_14_active_symbols()[1]
+
+    old_side, old_id = (
+        unit_14_active_original_side(symbol)
+    )
+
+    if old_id is None:
+        return False
+
+    if old_side in active_positions:
+        return False
+
+    if len(active_positions) != 1:
+        return False
+
+    new_side, position = next(
+        iter(active_positions.items())
+    )
+
+    new_side = str(new_side).upper()
+
+    if new_side not in ("LONG", "SHORT"):
+        return False
+
+    if new_side == old_side:
+        return False
+
+    if (
+        unit_13_result.get("position_side")
+        != new_side
+    ):
+        return False
+
+    old_cycle = unit_14_stage_read(old_id)
+
+    if old_cycle is None:
+        return False
+
+    history = unit_14_v3_history(symbol)
+
+    def order_time(order):
+
+        return int(
+            order.get("updateTime")
+            or order.get("time")
+            or 0
+        )
+
+    def filled(order):
+
+        return (
+            str(order.get("symbol", "")).upper()
+            == symbol
+            and str(
+                order.get("status", "")
+            ).upper() == "FILLED"
+        )
+
+    # --------------------------------------------------------
+    # VERIFY PREVIOUS ORIGINAL POSITION CLOSURE
+    # --------------------------------------------------------
+
+    closing_orders = []
+
+    for action in ("BE-C", "TP3-C"):
+
+        record = old_cycle["orders"].get(action)
+
+        if record is None:
+            continue
+
+        confirmation = (
+            unit_14_stage_reconcile_order(
+                old_id,
+                action,
+                history,
+            )
+        )
+
+        if not confirmation.get("complete"):
+            continue
+
+        for order in history:
+
+            if not filled(order):
+                continue
+
+            if (
+                str(order.get("clientOrderId", ""))
+                != record["client_id"]
+            ):
+                continue
+
+            if (
+                str(order.get("positionSide", "")).upper()
+                != old_side
+            ):
+                continue
+
+            expected_close_side = (
+                "SELL"
+                if old_side == "LONG"
+                else "BUY"
+            )
+
+            if (
+                str(order.get("side", "")).upper()
+                != expected_close_side
+            ):
+                continue
+
+            if order_time(order) > 0:
+                closing_orders.append(order)
+
+    if not closing_orders:
+
+        print(
+            "UNIT 14 E0 SEPARATION = "
+            "PREVIOUS CLOSURE UNVERIFIED",
+            flush=True,
+        )
+
+        return False
+
+    closing_time = max(
+        order_time(order)
+        for order in closing_orders
+    )
+
+    # --------------------------------------------------------
+    # VERIFY INDEPENDENT NEW E0 ENTRY
+    # NEVER ADOPT AN H1/H2 HEDGE AS E0
+    # --------------------------------------------------------
+
+    entry_side = (
+        "BUY"
+        if new_side == "LONG"
+        else "SELL"
+    )
+
+    entries = []
+
+    for order in history:
+
+        if not filled(order):
+            continue
+
+        if order_time(order) <= closing_time:
+            continue
+
+        if not str(
+            order.get("clientOrderId", "")
+        ).startswith("FR11"):
+            continue
+
+        if (
+            str(order.get("positionSide", "")).upper()
+            != new_side
+        ):
+            continue
+
+        if (
+            str(order.get("side", "")).upper()
+            != entry_side
+        ):
+            continue
+
+        entries.append(order)
+
+    if len(entries) != 1:
+
+        print(
+            "UNIT 14 E0 SEPARATION = "
+            "NEW ENTRY IDENTITY UNVERIFIED",
+            flush=True,
+        )
+
+        return False
+
+    entry_order = entries[0]
+
+    entry_time = order_time(entry_order)
+
+    entry_order_id = str(
+        entry_order.get("orderId") or ""
+    )
+
+    if not entry_order_id:
+        return False
+
+    original_quantity = D(
+        entry_order["executedQty"],
+        "NEW E0 ORIGINAL QUANTITY",
+    )
+
+    original_entry = D(
+        entry_order["avgPrice"],
+        "NEW E0 ORIGINAL ENTRY",
+    )
+
+    current_quantity = D(
+        position["size"],
+        "NEW E0 REMAINING QUANTITY",
+    )
+
+    # --------------------------------------------------------
+    # VERIFY CURRENT POSITION QUANTITY AGAINST
+    # NEW ENTRY AND CONFIRMED TP FILLS
+    # --------------------------------------------------------
+
+    closed_quantity = Decimal("0")
+    seen_orders = set()
+
+    for order in history:
+
+        if not filled(order):
+            continue
+
+        if order_time(order) <= entry_time:
+            continue
+
+        if (
+            str(order.get("positionSide", "")).upper()
+            != new_side
+        ):
+            continue
+
+        client_id = str(
+            order.get("clientOrderId", "")
+        )
+
+        if not client_id.startswith(
+            ("FR13-TP1-", "FR13-TP2-")
+        ):
+            continue
+
+        if (
+            str(order.get("side", "")).upper()
+            == entry_side
+        ):
+            continue
+
+        order_id = str(
+            order.get("orderId") or ""
+        )
+
+        if not order_id:
+            return False
+
+        if order_id in seen_orders:
+            continue
+
+        seen_orders.add(order_id)
+
+        closed_quantity += D(
+            order["executedQty"],
+            "NEW E0 CONFIRMED TP QUANTITY",
+        )
+
+    if (
+        original_quantity - closed_quantity
+        != current_quantity
+    ):
+
+        print(
+            "UNIT 14 E0 SEPARATION = "
+            "POSITION QUANTITY UNVERIFIED",
+            flush=True,
+        )
+
+        return False
+
+    atr = D(
+        FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT[
+            "atr14"
+        ],
+        "NEW E0 ATR",
+    )
+
+    if min(
+        original_quantity,
+        original_entry,
+        current_quantity,
+        atr,
+    ) <= 0:
+        return False
+
+    new_id = "U14-" + hashlib.sha256(
+        (
+            symbol + "|" + new_side
+            + "|" + entry_order_id
+        ).encode()
+    ).hexdigest()[:20]
+
+    # --------------------------------------------------------
+    # REFRESH EXCHANGE POSITION BEFORE SQLITE TRANSFER
+    # --------------------------------------------------------
+
+    latest = unit_14_v3_positions()
+
+    if set(latest) != {new_side}:
+        return False
+
+    if D(
+        latest[new_side]["size"],
+        "REFRESHED E0 QUANTITY",
+    ) != current_quantity:
+        return False
+
+    if (
+        unit_14_v3_trade_key(latest[new_side])
+        != unit_14_v3_trade_key(position)
+    ):
+        return False
+
+    # --------------------------------------------------------
+    # ATOMIC OWNERSHIP TRANSFER
+    # NO HISTORICAL RECORD DELETION
+    # --------------------------------------------------------
+
+    db = unit_14_stage_db()
+
+    try:
+
+        db.execute("BEGIN IMMEDIATE")
+
+        owners = db.execute("""
+            SELECT cycle_id
+            FROM stage_cycles
+            WHERE symbol = ?
+              AND state = 'ACTIVE'
+        """, (symbol,)).fetchall()
+
+        if owners != [(old_id,)]:
+
+            db.rollback()
+
+            return False
+
+        existing = db.execute("""
+            SELECT cycle_id
+            FROM stage_cycles
+            WHERE cycle_id = ?
+        """, (new_id,)).fetchone()
+
+        if existing is not None:
+
+            db.rollback()
+
+            return False
+
+        updated = db.execute("""
+            UPDATE stage_cycles
+            SET state = 'CLOSED_PENDING_RECONCILIATION'
+            WHERE cycle_id = ?
+              AND state = 'ACTIVE'
+        """, (old_id,))
+
+        if updated.rowcount != 1:
+
+            db.rollback()
+
+            return False
+
+        db.execute("""
+            INSERT INTO stage_cycles (
+                cycle_id,
+                symbol,
+                original_side,
+                original_quantity,
+                original_entry,
+                frozen_atr,
+                stage,
+                state
+            )
+            VALUES (?, ?, ?, ?, ?, ?, 'READY', 'ACTIVE')
+        """, (
+            new_id,
+            symbol,
+            new_side,
+            str(original_quantity),
+            str(original_entry),
+            str(atr),
+        ))
+
+        db.commit()
+
+    except Exception:
+
+        if db.in_transaction:
+            db.rollback()
+
+        raise
+
+    finally:
+        db.close()
+
+    print(
+        "UNIT 14 E0 OWNERSHIP SEPARATION = PASS",
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 PREVIOUS CYCLE =",
+        old_id,
+        old_side,
+        "CLOSED_PENDING_RECONCILIATION",
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 NEW ACTIVE E0 =",
+        new_id,
+        new_side,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 NEW E0 ORIGINAL QUANTITY =",
+        original_quantity,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 NEW E0 REMAINING QUANTITY =",
+        current_quantity,
+        flush=True,
+    )
+
+    return True
 def unit_14_active_original_side(symbol=None):
     if symbol is None:
         _, symbol = unit_13_14_active_symbols()
