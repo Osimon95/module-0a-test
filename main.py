@@ -16629,6 +16629,52 @@ def unit_14_stage_db():
             )
         """)
         
+        # MIGRATE EXISTING BE AND TP3 ORDER RECORDS
+
+    db.execute("BEGIN IMMEDIATE")
+
+    try:
+
+        for table, action in (
+            ("breakeven_orders", "BE-C"),
+            ("tp3_orders", "TP3-C"),
+        ):
+
+            db.execute(f"""
+                INSERT OR IGNORE INTO {table} (
+                    client_id,
+                    cycle_id,
+                    action,
+                    quantity,
+                    state,
+                    exchange_order_id,
+                    confirmed_filled,
+                    created_at,
+                    updated_at
+                )
+                SELECT
+                    client_id,
+                    cycle_id,
+                    action,
+                    quantity,
+                    state,
+                    exchange_order_id,
+                    confirmed_filled,
+                    created_at,
+                    updated_at
+                FROM stage_orders
+                WHERE action = ?
+            """, (action,))
+
+        db.execute("COMMIT")
+
+    except Exception:
+
+        if db.in_transaction:
+            db.execute("ROLLBACK")
+
+        raise
+        
     return db
 
 
