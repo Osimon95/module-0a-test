@@ -21899,7 +21899,7 @@ or str(
     # 8. FRESH EXCHANGE POSITION
     # ========================================================
 
-        active_positions = unit_14_v3_positions()
+    active_positions = unit_14_v3_positions()
 
     # ONE-TIME OBSOLETE SHORT RESET
 
