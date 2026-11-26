@@ -19027,13 +19027,77 @@ def unit_14_stage_dispatch(
     
     from decimal import Decimal
 
-    D = unit_14_v3_D
+        D = unit_14_v3_D
 
     _, demo_symbol = unit_13_14_active_symbols()
 
     original_side, cycle_id = (
         unit_14_active_original_side()
     )
+
+    # ========================================================
+    # MANDATORY PRE-TP1 HEDGE ACTIVATION BOUNDARY
+    # ========================================================
+
+    tp1_completed = (
+        unit_13_result.get("tp1_completed")
+        is True
+    )
+
+    tp2_completed = (
+        unit_13_result.get("tp2_completed")
+        is True
+    )
+
+    if tp1_completed or tp2_completed:
+
+        reconciled_orders = {}
+
+        if cycle_id is not None:
+
+            reconciled_orders = (
+                unit_14_stage_reconcile_cycle(
+                    cycle_id
+                )
+            )
+
+        print(
+            "UNIT 14 PRE-TP1 HEDGE "
+            "ACTIVATION BOUNDARY = ENFORCED",
+            flush=True,
+        )
+
+        print(
+            "UNIT 14 NEW H1 ACTIVATION "
+            "AUTHORIZED = FALSE",
+            flush=True,
+        )
+
+        print(
+            "UNIT 14 EXISTING HEDGE "
+            "RECONCILIATION = PRESERVED",
+            flush=True,
+        )
+
+        return {
+            "status": (
+                "POST_TP2_TRAILING_PRIORITY"
+                if tp2_completed
+                else "POST_TP1_BREAKEVEN_PRIORITY"
+            ),
+            "handled": False,
+            "cycle_id": cycle_id,
+            "orders": reconciled_orders,
+            "new_hedge_activation_authorized": False,
+            "execution_attempted": False,
+        }
+
+    print(
+        "UNIT 14 PRE-TP1 HEDGE "
+        "ACTIVATION BOUNDARY = OPEN",
+        flush=True,
+    )
+    D = unit_14_v3_D
 
     
     # ------------------------------------------------
