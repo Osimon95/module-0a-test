@@ -18952,6 +18952,120 @@ def unit_14_reconcile_historical_cycles():
                 str(exc),
                 flush=True,
             )
+
+# ============================================================
+# UNIT 14 - ONE-TIME OBSOLETE SHORT CYCLE RESET
+# ============================================================
+
+def unit_14_reset_obsolete_short(active_positions):
+
+    symbol = unit_13_14_active_symbols()[1]
+
+    if symbol != "NEARSUSDT":
+        return False
+
+    if "SHORT" in active_positions:
+        return False
+
+    old_cycle_id = "U14-2e26e3f7128f88b816b0"
+
+    db = unit_14_stage_db()
+
+    try:
+
+        db.execute("BEGIN IMMEDIATE")
+
+        cycle = db.execute("""
+            SELECT cycle_id
+            FROM stage_cycles
+            WHERE cycle_id = ?
+              AND symbol = ?
+              AND original_side = 'SHORT'
+        """, (
+            old_cycle_id,
+            symbol,
+        )).fetchone()
+
+        if cycle is None:
+
+            db.commit()
+
+            return False
+
+        tables = {
+            row[0]
+            for row in db.execute("""
+                SELECT name
+                FROM sqlite_master
+                WHERE type = 'table'
+            """).fetchall()
+        }
+
+        removed_orders = db.execute("""
+            DELETE FROM stage_orders
+            WHERE cycle_id = ?
+        """, (old_cycle_id,)).rowcount
+
+        if "tp3_trailing_state" in tables:
+
+            db.execute("""
+                DELETE FROM tp3_trailing_state
+                WHERE cycle_id = ?
+            """, (old_cycle_id,))
+
+        if "atr_breakeven" in tables:
+
+            db.execute("""
+                DELETE FROM atr_breakeven
+                WHERE symbol = ?
+                  AND side = 'SHORT'
+            """, (symbol,))
+
+        db.execute("""
+            DELETE FROM stage_cycles
+            WHERE cycle_id = ?
+        """, (old_cycle_id,))
+
+        db.commit()
+
+        globals().pop(
+            "_UNIT14_V3_ORDER_ATTEMPTS",
+            None
+        )
+
+        print(
+            "UNIT 14 OBSOLETE SHORT RESET = PASS",
+            flush=True,
+        )
+
+        print(
+            "UNIT 14 DELETED SHORT CYCLE =",
+            old_cycle_id,
+            flush=True,
+        )
+
+        print(
+            "UNIT 14 DELETED STAGE ORDERS =",
+            removed_orders,
+            flush=True,
+        )
+
+        print(
+            "UNIT 14 OLD H1-H CLAIM REMOVED",
+            flush=True,
+        )
+
+        return True
+
+    except Exception:
+
+        db.rollback()
+
+        raise
+
+    finally:
+
+        db.close()
 def unit_14_active_original_side(symbol=None):
     if symbol is None:
         _, symbol = unit_13_14_active_symbols()
