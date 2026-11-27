@@ -13901,6 +13901,187 @@ print(
 # UNIT 13 V4 FOLLOWS
 # ============================================================
 
+# ============================================================
+# COMPLETE UNIT 13 V6
+# PART 1 - EXECUTION FOUNDATION
+# ZERO INDENTATION
+# ============================================================
+
+import os
+import json
+import time
+import hmac
+import base64
+import hashlib
+import sqlite3
+import urllib.request
+import urllib.parse
+import urllib.error
+
+from decimal import Decimal, ROUND_DOWN, ROUND_UP
+
+UNIT13_V4_BASE = "https://api-contract.weex.com"
+
+UNIT13_V4_POSITION = (
+    "/capi/v3/sim/position/allPosition"
+)
+
+UNIT13_V4_ORDER = "/capi/v3/sim/order"
+
+UNIT13_V4_HISTORY = "/capi/v3/sim/order/history"
+
+
+def unit_13_v4_D(
+    value,
+    name="NUMBER",
+    allow_zero=False
+):
+    number = Decimal(str(value))
+
+    if not number.is_finite():
+        raise ValueError(name)
+
+    if number < 0 or (
+        number == 0 and not allow_zero
+    ):
+        raise ValueError(name)
+
+    return number
+
+
+def unit_13_floor(quantity, step):
+
+    quantity = Decimal(str(quantity))
+    step = Decimal(str(step))
+
+    return (
+        quantity / step
+    ).to_integral_value(
+        rounding=ROUND_DOWN
+    ) * step
+
+
+def unit_13_14_active_symbols():
+
+    exchange = (
+        FRESH_RECONSTRUCTION_CONFIG["exchange"]
+    )
+
+    return (
+        exchange["market_symbol"],
+        exchange["demo_order_symbol"],
+    )
+
+
+def unit_13_v4_signed_request(
+    method,
+    path,
+    payload=None
+):
+
+    key = (
+        os.getenv("WEEX_API_KEY")
+        or os.getenv("API_KEY")
+    )
+
+    secret = (
+        os.getenv("WEEX_API_SECRET")
+        or os.getenv("API_SECRET")
+    )
+
+    phrase = (
+        os.getenv("WEEX_API_PASSPHRASE")
+        or os.getenv("API_PASSPHRASE")
+    )
+
+    query = (
+        urllib.parse.urlencode(payload)
+        if method == "GET" and payload
+        else ""
+    )
+
+    request_path = path + (
+        "?" + query if query else ""
+    )
+
+    body = (
+        json.dumps(
+            payload,
+            separators=(",", ":"),
+            ensure_ascii=False
+        )
+        if method == "POST"
+        else ""
+    )
+
+    timestamp = str(
+        int(time.time() * 1000)
+    )
+
+    message = (
+        timestamp
+        + method
+        + request_path
+        + body
+    )
+
+    signature = base64.b64encode(
+        hmac.new(
+            secret.encode("utf-8"),
+            message.encode("utf-8"),
+            hashlib.sha256
+        ).digest()
+    ).decode("utf-8")
+
+    request = urllib.request.Request(
+        UNIT13_V4_BASE + request_path,
+        method=method,
+        data=(
+            body.encode("utf-8")
+            if method == "POST"
+            else None
+        ),
+        headers={
+            "ACCESS-KEY": key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-TIMESTAMP": timestamp,
+            "ACCESS-PASSPHRASE": phrase,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+    )
+
+    try:
+
+        with urllib.request.urlopen(
+            request,
+            timeout=15
+        ) as response:
+
+            return json.loads(
+                response.read().decode("utf-8")
+            )
+
+    except urllib.error.HTTPError as exc:
+
+        detail = exc.read().decode(
+            "utf-8",
+            errors="replace"
+        )
+
+        raise RuntimeError(
+            "WEEX HTTP "
+            + str(exc.code)
+            + ": "
+            + detail
+        ) from exc
+
+
+# ============================================================
+# END UNIT 13 V6 - PART 1
+# ZERO INDENTATION
+# ============================================================
+
 
 # ============================================================
 # COMPLETE UNIT 13 V5 REPLACEMENT
