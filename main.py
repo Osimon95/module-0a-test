@@ -22856,3 +22856,1444 @@ def unit15_update_notification(
 # ZERO INDENTATION
 # NEXT: PERFORMANCE / EQUITY / TELEGRAM
 # ============================================================
+
+# ============================================================
+# COMPLETE UNIT 15 V6 REPLACEMENT
+# PART 2 OF 3
+# PERFORMANCE / EQUITY / TELEGRAM
+# ZERO INDENTATION
+# ============================================================
+
+
+# ============================================================
+# NORMALIZE EXCHANGE-CONFIRMED EXECUTED ORDERS
+# INCLUDE PARTIAL FILLS AND TERMINAL PARTIAL FILLS
+# ============================================================
+
+def unit15_parse_order(order):
+
+    D = _U15_D
+
+    status = str(
+        unit15_value(
+            order,
+            "status",
+            "state",
+            "orderStatus",
+        ) or ""
+    ).upper()
+
+    qty = unit15_num(
+        unit15_value(
+            order,
+            "executedQty",
+            "filledQty",
+            "filledSize",
+            "executedQuantity",
+            "dealSize",
+        )
+    )
+
+    if qty is None or qty <= 0:
+
+        return None, "NO_CONFIRMED_FILL"
+
+    price = unit15_num(
+        unit15_value(
+            order,
+            "avgPrice",
+            "averagePrice",
+            "fillPrice",
+            "priceAvg",
+            "executedPrice",
+        )
+    )
+
+    if price is None or price <= 0:
+
+        return None, "INVALID_PRICE"
+
+    ts = unit15_ms(
+        unit15_value(
+            order,
+            "lastFillTime",
+            "fillTime",
+            "updateTime",
+            "updatedAt",
+            "createdTime",
+            "createTime",
+            "cTime",
+            "ctime",
+            "createdAt",
+            "timestamp",
+            "time",
+        )
+    )
+
+    if ts is None:
+
+        return None, "INVALID_TIMESTAMP"
+
+    oid = unit15_value(
+        order,
+        "orderId",
+        "id",
+        "clientOrderId",
+        "newClientOrderId",
+    )
+
+    if oid is None:
+
+        return None, "MISSING_ORDER_ID"
+
+    symbol = str(
+        order.get("symbol")
+        or ""
+    ).strip().upper()
+
+    if not symbol:
+
+        return None, "MISSING_SYMBOL"
+
+    side = str(
+        unit15_value(
+            order,
+            "side",
+            "orderSide",
+        ) or ""
+    ).upper()
+
+    direction = str(
+        unit15_value(
+            order,
+            "positionSide",
+            "holdSide",
+            "posSide",
+        ) or ""
+    ).upper()
+
+    action = str(
+        unit15_value(
+            order,
+            "tradeSide",
+            "tradeType",
+            "offset",
+        ) or ""
+    ).upper()
+
+    if (
+        direction in ("LONG", "SHORT")
+        and action not in ("OPEN", "CLOSE")
+        and side in ("BUY", "SELL")
+    ):
+
+        action = (
+            "OPEN"
+            if (
+                (direction == "LONG")
+                == (side == "BUY")
+            )
+            else "CLOSE"
+        )
+
+    if (
+        direction not in ("LONG", "SHORT")
+        or action not in ("OPEN", "CLOSE")
+    ):
+
+        return None, "UNRESOLVED_DIRECTION"
+
+    fully_filled = status in (
+        "FILLED",
+        "FULLY_FILLED",
+        "FULL_FILLED",
+        "FULLFILL",
+    )
+
+    client_id = str(
+        unit15_value(
+            order,
+            "clientOrderId",
+            "newClientOrderId",
+            "clientOid",
+        ) or ""
+    )
+
+    return {
+        "id": str(oid),
+        "client_id": client_id,
+        "symbol": symbol,
+        "time": ts,
+        "qty": qty,
+        "price": price,
+        "direction": direction,
+        "action": action,
+        "status": status,
+        "fully_filled": fully_filled,
+        "partial_fill": not fully_filled,
+    }, None
+
+
+# ============================================================
+# CONTRACT MULTIPLIER
+# USE EXISTING CONFIGURATION WITHOUT MODIFYING UNIT 9
+# ============================================================
+
+def unit15_contract_multiplier(symbol):
+
+    config = FRESH_RECONSTRUCTION_CONFIG
+
+    exchange = config.get(
+        "exchange", {}
+    )
+
+    active = str(
+        exchange.get(
+            "demo_order_symbol", ""
+        )
+    ).upper()
+
+    if symbol == active:
+
+        precision = config.get(
+            "market_precision", {}
+        )
+
+        multiplier = unit15_num(
+            precision.get(
+                "contract_multiplier"
+            )
+        )
+
+        if (
+            multiplier is not None
+            and multiplier > 0
+        ):
+
+            unit15_state_set(
+                "MULTIPLIER:" + symbol,
+                str(multiplier),
+            )
+
+            return multiplier
+
+    saved = unit15_state_get(
+        "MULTIPLIER:" + symbol,
+        None,
+    )
+
+    multiplier = unit15_num(saved)
+
+    if (
+        multiplier is not None
+        and multiplier > 0
+    ):
+
+        return multiplier
+
+    raw = _u15_os.getenv(
+        "WEEX_SYMBOL_CONTRACT_SPECS",
+        "",
+    )
+
+    if raw:
+
+        try:
+
+            specifications = (
+                _u15_json.loads(raw)
+            )
+
+            market = (
+                symbol[:-5] + "USDT"
+                if symbol.endswith("SUSDT")
+                else symbol
+            )
+
+            record = (
+                specifications.get(symbol)
+                or specifications.get(market)
+                or {}
+            )
+
+            multiplier = unit15_num(
+                record.get(
+                    "contract_multiplier"
+                )
+            )
+
+            if (
+                multiplier is not None
+                and multiplier > 0
+            ):
+
+                unit15_state_set(
+                    "MULTIPLIER:" + symbol,
+                    str(multiplier),
+                )
+
+                return multiplier
+
+        except Exception:
+
+            pass
+
+    return None
+
+
+# ============================================================
+# PERFORMANCE CALCULATION
+# INDEPENDENT SYMBOL AND POSITION SIDE ACCOUNTING
+# ============================================================
+
+def unit15_analyze(
+    orders,
+    history_complete,
+    start_ms,
+    end_ms,
+):
+
+    D = _U15_D
+
+    reasons = _U15_Counter()
+
+    normalized = {}
+
+    for order in orders:
+
+        if not isinstance(order, dict):
+
+            reasons["INVALID_RECORD"] += 1
+
+            continue
+
+        fill, error = (
+            unit15_parse_order(order)
+        )
+
+        if fill is None:
+
+            reasons[error] += 1
+
+            continue
+
+        key = (
+            fill["symbol"],
+            fill["id"],
+        )
+
+        previous = normalized.get(key)
+
+        if (
+            previous is None
+            or (
+                fill["qty"],
+                fill["time"],
+            ) >= (
+                previous["qty"],
+                previous["time"],
+            )
+        ):
+
+            normalized[key] = fill
+
+    fills = sorted(
+        normalized.values(),
+        key=lambda x: (
+            x["time"],
+            x["id"],
+        ),
+    )
+
+    positions = {}
+
+    cycles = []
+
+    unmatched = 0
+
+    unknown_multiplier = set()
+
+    multipliers = {}
+
+    symbol_results = {}
+
+    realized_window = D(0)
+
+    window_fills = 0
+
+    window_full = 0
+
+    window_partial = 0
+
+    for fill in fills:
+
+        if fill["time"] >= end_ms:
+
+            continue
+
+        symbol = fill["symbol"]
+
+        direction = fill["direction"]
+
+        key = (
+            symbol,
+            direction,
+        )
+
+        qty = fill["qty"]
+
+        price = fill["price"]
+
+        inside_window = (
+            start_ms
+            <= fill["time"]
+            < end_ms
+        )
+
+        if inside_window:
+
+            window_fills += 1
+
+            if fill["fully_filled"]:
+
+                window_full += 1
+
+            else:
+
+                window_partial += 1
+
+        if symbol not in multipliers:
+
+            multipliers[symbol] = (
+                unit15_contract_multiplier(
+                    symbol
+                )
+            )
+
+        multiplier = multipliers[symbol]
+
+        if multiplier is None:
+
+            unknown_multiplier.add(symbol)
+
+        if key not in positions:
+
+            positions[key] = {
+                "qty": D(0),
+                "cost": D(0),
+                "pnl": D(0),
+                "unknown": False,
+            }
+
+        p = positions[key]
+
+        if fill["action"] == "OPEN":
+
+            p["qty"] += qty
+
+            p["cost"] += qty * price
+
+            continue
+
+        if (
+            p["qty"] <= 0
+            or qty > p["qty"]
+        ):
+
+            unmatched += 1
+
+            p["unknown"] = True
+
+            p["qty"] = D(0)
+
+            p["cost"] = D(0)
+
+            p["pnl"] = D(0)
+
+            continue
+
+        average = (
+            p["cost"] / p["qty"]
+        )
+
+        raw_pnl = (
+            (price - average) * qty
+            if direction == "LONG"
+            else (average - price) * qty
+        )
+
+        if multiplier is None:
+
+            pnl = None
+
+            p["unknown"] = True
+
+        else:
+
+            pnl = raw_pnl * multiplier
+
+            p["pnl"] += pnl
+
+            if (
+                inside_window
+                and not p["unknown"]
+            ):
+
+                realized_window += pnl
+
+        p["qty"] -= qty
+
+        p["cost"] -= average * qty
+
+        if p["qty"] == 0:
+
+            if (
+                inside_window
+                and not p["unknown"]
+            ):
+
+                cycles.append({
+                    "symbol": symbol,
+                    "direction": direction,
+                    "pnl": p["pnl"],
+                    "closed_at": fill["time"],
+                })
+
+            p.update({
+                "qty": D(0),
+                "cost": D(0),
+                "pnl": D(0),
+                "unknown": False,
+            })
+
+    # --------------------------------------------------------
+    # COMPLETED POSITION CYCLE SUMMARY
+    # --------------------------------------------------------
+
+    profit = sum(
+        (
+            item["pnl"]
+            for item in cycles
+            if item["pnl"] > 0
+        ),
+        D(0),
+    )
+
+    loss = sum(
+        (
+            -item["pnl"]
+            for item in cycles
+            if item["pnl"] < 0
+        ),
+        D(0),
+    )
+
+    for item in cycles:
+
+        symbol = item["symbol"]
+
+        if symbol not in symbol_results:
+
+            symbol_results[symbol] = {
+                "cycles": 0,
+                "wins": 0,
+                "losses": 0,
+                "breakeven": 0,
+                "gross_pnl": D(0),
+            }
+
+        summary = symbol_results[symbol]
+
+        summary["cycles"] += 1
+
+        summary["gross_pnl"] += (
+            item["pnl"]
+        )
+
+        if item["pnl"] > 0:
+
+            summary["wins"] += 1
+
+        elif item["pnl"] < 0:
+
+            summary["losses"] += 1
+
+        else:
+
+            summary["breakeven"] += 1
+
+    provisional = bool(
+        not history_complete
+        or unmatched > 0
+        or unknown_multiplier
+        or any(
+            count > 0
+            for name, count
+            in reasons.items()
+            if name != "NO_CONFIRMED_FILL"
+        )
+    )
+
+    return {
+        "orders": len(orders),
+
+        "executed_orders":
+            window_fills,
+
+        "fully_filled":
+            window_full,
+
+        "partially_filled":
+            window_partial,
+
+        "cycles":
+            len(cycles),
+
+        "wins":
+            sum(
+                item["pnl"] > 0
+                for item in cycles
+            ),
+
+        "losses":
+            sum(
+                item["pnl"] < 0
+                for item in cycles
+            ),
+
+        "breakeven":
+            sum(
+                item["pnl"] == 0
+                for item in cycles
+            ),
+
+        "gross_profit":
+            profit,
+
+        "gross_loss":
+            loss,
+
+        "gross_pnl":
+            profit - loss,
+
+        "realized_window_pnl":
+            realized_window,
+
+        "unmatched":
+            unmatched,
+
+        "history_complete":
+            bool(history_complete),
+
+        "provisional":
+            provisional,
+
+        "unknown_multiplier":
+            sorted(unknown_multiplier),
+
+        "symbol_results":
+            symbol_results,
+
+        "diagnostics":
+            dict(reasons),
+    }
+
+
+# ============================================================
+# EXCHANGE EQUITY SNAPSHOT
+# PERSIST IN SQLITE
+# ============================================================
+
+def unit15_equity_snapshot():
+
+    rows = unit15_get(
+        _UNIT15_BALANCE
+    )
+
+    if not isinstance(rows, list):
+
+        raise RuntimeError(
+            "UNIT 15 BALANCE RESPONSE INVALID"
+        )
+
+    for row in rows:
+
+        if not isinstance(row, dict):
+
+            continue
+
+        asset = str(
+            row.get("asset", "")
+        ).upper()
+
+        if asset != "SUSDT":
+
+            continue
+
+        for field in (
+            "equity",
+            "accountEquity",
+            "totalEquity",
+            "marginBalance",
+        ):
+
+            value = unit15_num(
+                row.get(field)
+            )
+
+            if (
+                value is not None
+                and value >= 0
+            ):
+
+                snapshot = (
+                    unit15_save_equity(
+                        value,
+                        field,
+                    )
+                )
+
+                return snapshot
+
+    raise RuntimeError(
+        "UNIT 15 EQUITY FIELD UNAVAILABLE"
+    )
+
+
+# ============================================================
+# PERSISTENT EQUITY COMPARISON
+# ============================================================
+
+def unit15_equity_change(
+    start_ms,
+    end_ms,
+):
+
+    a = unit15_equity_boundary(
+        start_ms
+    )
+
+    b = unit15_equity_boundary(
+        end_ms
+    )
+
+    if a is None or b is None:
+
+        return None
+
+    if a["field"] != b["field"]:
+
+        return None
+
+    if a["time_ms"] >= b["time_ms"]:
+
+        return None
+
+    change = (
+        b["equity"] - a["equity"]
+    )
+
+    roi = (
+        change * _U15_D(100)
+        / a["equity"]
+        if a["equity"] > 0
+        else None
+    )
+
+    return {
+        "starting":
+            a["equity"],
+
+        "ending":
+            b["equity"],
+
+        "change":
+            change,
+
+        "roi":
+            roi,
+
+        "starting_time_ms":
+            a["time_ms"],
+
+        "ending_time_ms":
+            b["time_ms"],
+
+        "field":
+            a["field"],
+    }
+
+
+# ============================================================
+# TELEGRAM API COMMUNICATION
+# EXISTING RENDER CREDENTIALS
+# ============================================================
+
+def unit15_telegram_api(
+    method,
+    values,
+):
+
+    token = _u15_os.getenv(
+        "TELEGRAM_BOT_TOKEN",
+        "",
+    ).strip()
+
+    if not token:
+
+        raise RuntimeError(
+            "UNIT 15 TELEGRAM TOKEN MISSING"
+        )
+
+    request = _u15_http.Request(
+        "https://api.telegram.org/bot"
+        + token
+        + "/"
+        + method,
+
+        data=_u15_url.urlencode(
+            values
+        ).encode("utf-8"),
+
+        method="POST",
+    )
+
+    try:
+
+        with _u15_http.urlopen(
+            request,
+            timeout=20,
+        ) as response:
+
+            reply = _u15_json.loads(
+                response.read().decode(
+                    "utf-8"
+                )
+            )
+
+    except _u15_error.HTTPError as exc:
+
+        raise RuntimeError(
+            "TELEGRAM HTTP "
+            + str(exc.code)
+        ) from None
+
+    except Exception as exc:
+
+        raise RuntimeError(
+            "TELEGRAM CONNECTION "
+            + type(exc).__name__
+        ) from None
+
+    if (
+        not isinstance(reply, dict)
+        or reply.get("ok") is not True
+    ):
+
+        raise RuntimeError(
+            "TELEGRAM ACKNOWLEDGEMENT FAILED"
+        )
+
+    return reply
+
+
+# ============================================================
+# TELEGRAM DELIVERY WITH ACTUAL ACKNOWLEDGEMENT
+# ============================================================
+
+def unit15_send_message(
+    message,
+    attempts=3,
+):
+
+    chat_id = _u15_os.getenv(
+        "TELEGRAM_CHAT_ID",
+        "",
+    ).strip()
+
+    if not chat_id:
+
+        return {
+            "delivered": False,
+            "message_id": None,
+            "error": "TELEGRAM_CHAT_ID_MISSING",
+        }
+
+    last_error = None
+
+    for attempt in range(
+        1,
+        attempts + 1,
+    ):
+
+        try:
+
+            reply = unit15_telegram_api(
+                "sendMessage",
+                {
+                    "chat_id": chat_id,
+                    "text": str(message),
+                },
+            )
+
+            message_id = (
+                reply.get("result", {})
+                .get("message_id")
+            )
+
+            if message_id is None:
+
+                raise RuntimeError(
+                    "TELEGRAM MESSAGE ID MISSING"
+                )
+
+            print(
+                "UNIT 15 TELEGRAM DELIVERY = PASS",
+                flush=True,
+            )
+
+            print(
+                "UNIT 15 TELEGRAM MESSAGE ID =",
+                message_id,
+                flush=True,
+            )
+
+            return {
+                "delivered": True,
+                "message_id": str(message_id),
+                "error": None,
+            }
+
+        except Exception as exc:
+
+            last_error = str(exc)[:150]
+
+            print(
+                "UNIT 15 TELEGRAM FAILURE =",
+                attempt,
+                last_error,
+                flush=True,
+            )
+
+            if attempt < attempts:
+
+                _u15_time.sleep(
+                    3 * attempt
+                )
+
+    return {
+        "delivered": False,
+        "message_id": None,
+        "error": last_error,
+    }
+
+
+# ============================================================
+# PRESERVE EXISTING TELEGRAM SENDER INTERFACE
+# USED BY EXISTING UNITS AND CONFIGURATION CONTROLLERS
+# ============================================================
+
+def unit15_telegram(message):
+
+    result = unit15_send_message(
+        message
+    )
+
+    return bool(
+        result["delivered"]
+    )
+
+
+# ============================================================
+# PERSISTENT NOTIFICATION QUEUE PROCESSOR
+# ACCEPTANCE / REJECTION / QUEUED NOTIFICATIONS
+# ============================================================
+
+def unit15_flush_notifications():
+
+    delivered_count = 0
+
+    pending = (
+        unit15_pending_notifications()
+    )
+
+    for record in pending[:20]:
+
+        notification_id = (
+            record["notification_id"]
+        )
+
+        result = unit15_send_message(
+            record["message"],
+            attempts=1,
+        )
+
+        unit15_update_notification(
+            notification_id,
+
+            result["delivered"],
+
+            result.get("message_id"),
+        )
+
+        if result["delivered"]:
+
+            delivered_count += 1
+
+        else:
+
+            print(
+                "UNIT 15 NOTIFICATION RETRY =",
+                notification_id,
+                flush=True,
+            )
+
+    return delivered_count
+
+
+# ============================================================
+# FORMAT PERFORMANCE REPORT
+# ============================================================
+
+def unit15_format_report(
+    hours,
+    notification,
+    start,
+    end,
+    summary,
+    equity,
+    symbols,
+):
+
+    count = summary["cycles"]
+
+    wins = summary["wins"]
+
+    winrate = (
+        f"{wins * 100 / count:.2f}%"
+        if count
+        else "N/A"
+    )
+
+    lines = [
+        "WEEX DEMO TRADING PERFORMANCE",
+        "================================",
+        f"Notification: {notification}",
+        f"Period: {hours}h",
+        (
+            f"Window: {start:%Y-%m-%d %H:%M}"
+            f" to {end:%Y-%m-%d %H:%M} WAT"
+        ),
+        (
+            "Symbols: "
+            + (
+                ", ".join(symbols)
+                if symbols
+                else "N/A"
+            )
+        ),
+        "",
+        "EXECUTION SUMMARY",
+        (
+            "History orders scanned: "
+            + str(summary["orders"])
+        ),
+        (
+            "Executed orders: "
+            + str(summary["executed_orders"])
+        ),
+        (
+            "Fully filled: "
+            + str(summary["fully_filled"])
+        ),
+        (
+            "Partially filled: "
+            + str(summary["partially_filled"])
+        ),
+        "",
+        "COMPLETED POSITION CYCLES",
+        f"Completed cycles: {count}",
+        f"Winning cycles: {wins}",
+        (
+            "Losing cycles: "
+            + str(summary["losses"])
+        ),
+        (
+            "Break-even: "
+            + str(summary["breakeven"])
+        ),
+        f"Gross win rate: {winrate}",
+        (
+            "Gross profit: "
+            f"{summary['gross_profit']:.4f} SUSDT"
+        ),
+        (
+            "Gross loss: "
+            f"{summary['gross_loss']:.4f} SUSDT"
+        ),
+        (
+            "Gross cycle P&L: "
+            f"{summary['gross_pnl']:+.4f} SUSDT"
+        ),
+        (
+            "Realized gross P&L in window: "
+            f"{summary['realized_window_pnl']:+.4f}"
+            " SUSDT"
+        ),
+        (
+            "Unmatched closes: "
+            + str(summary["unmatched"])
+        ),
+        (
+            "History complete: "
+            + str(summary["history_complete"])
+        ),
+        (
+            "Provisional: "
+            + str(summary["provisional"])
+        ),
+        "Fees/funding: Unverified",
+        "Net trading P&L: Unverified",
+    ]
+
+    if summary["unknown_multiplier"]:
+
+        lines.append(
+            "Missing contract multiplier: "
+            + ", ".join(
+                summary["unknown_multiplier"]
+            )
+        )
+
+    if summary["symbol_results"]:
+
+        lines.extend([
+            "",
+            "PER-SYMBOL PERFORMANCE",
+            "================================",
+        ])
+
+        for symbol, item in (
+            summary["symbol_results"].items()
+        ):
+
+            lines.append(
+                f"{symbol}: "
+                f"{item['cycles']} cycles | "
+                f"W:{item['wins']} "
+                f"L:{item['losses']} | "
+                f"{item['gross_pnl']:+.4f} SUSDT"
+            )
+
+    lines.extend([
+        "",
+        "EQUITY-BASED PERFORMANCE",
+        "================================",
+    ])
+
+    if equity is None:
+
+        lines.extend([
+            "Starting equity: N/A",
+            "Ending equity: N/A",
+            "Equity change: N/A",
+            "Equity ROI: N/A",
+            "Comparable snapshots unavailable",
+        ])
+
+    else:
+
+        roi = (
+            f"{equity['roi']:+.2f}%"
+            if equity["roi"] is not None
+            else "N/A"
+        )
+
+        lines.extend([
+            (
+                "Starting equity: "
+                f"{equity['starting']:.4f} SUSDT"
+            ),
+            (
+                "Ending equity: "
+                f"{equity['ending']:.4f} SUSDT"
+            ),
+            (
+                "Equity change: "
+                f"{equity['change']:+.4f} SUSDT"
+            ),
+            f"Equity ROI: {roi}",
+            "Deposits/withdrawals: Unverified",
+        ])
+
+    return "\n".join(lines)
+
+
+# ============================================================
+# PERFORMANCE REPORT EXECUTOR
+# PERSIST DELIVERY ONLY AFTER TELEGRAM ACK
+# ============================================================
+
+def unit15_report(
+    hours=8,
+    notification="ON_DEMAND",
+    end=None,
+    report_key=None,
+):
+
+    global _UNIT15_LAST_REPORT
+
+    if hours not in (1, 8, 24):
+
+        raise ValueError(
+            "UNIT 15 INVALID REPORT HOURS"
+        )
+
+    if not _UNIT15_LOCK.acquire(
+        blocking=False
+    ):
+
+        print(
+            "UNIT 15 REPORT ALREADY RUNNING",
+            flush=True,
+        )
+
+        return False
+
+    try:
+
+        end = end or unit15_now()
+
+        start = end - _U15_TD(
+            hours=hours
+        )
+
+        start_ms = int(
+            start.timestamp() * 1000
+        )
+
+        end_ms = int(
+            end.timestamp() * 1000
+        )
+
+        if report_key is None:
+
+            report_key = (
+                str(notification)
+                + ":"
+                + str(hours)
+                + ":"
+                + str(end_ms)
+            )
+
+        unit15_register_report(
+            report_key,
+            hours,
+            notification,
+            end_ms,
+        )
+
+        if unit15_report_delivered(
+            report_key
+        ):
+
+            return True
+
+        history = unit15_all_history()
+
+        summary = unit15_analyze(
+            history["orders"],
+            history["complete"],
+            start_ms,
+            end_ms,
+        )
+
+        equity = unit15_equity_change(
+            start_ms,
+            end_ms,
+        )
+
+        report = unit15_format_report(
+            hours,
+            notification,
+            start,
+            end,
+            summary,
+            equity,
+            history["symbols"],
+        )
+
+        if history["failures"]:
+
+            report += (
+                "\n\nUnavailable symbol history: "
+                + ", ".join(
+                    history["failures"]
+                )
+            )
+
+        print(
+            report,
+            flush=True,
+        )
+
+        # Telegram has a message length limit.
+        # Split long reports at line boundaries.
+
+        messages = []
+
+        current = ""
+
+        for line in report.splitlines():
+
+            if len(current) + len(line) + 1 > 3500:
+
+                if current:
+
+                    messages.append(current)
+
+                current = ""
+
+            current += (
+                ("\n" if current else "")
+                + line
+            )
+
+        if current:
+
+            messages.append(current)
+
+        delivery = {
+            "delivered": True,
+            "message_id": None,
+            "error": None,
+        }
+
+        for message in messages:
+
+            delivery = unit15_send_message(
+                message
+            )
+
+            if not delivery["delivered"]:
+
+                break
+
+        unit15_update_delivery(
+            report_key,
+
+            delivery["delivered"],
+
+            delivery.get("message_id"),
+
+            delivery.get("error"),
+        )
+
+        if delivery["delivered"]:
+
+            _UNIT15_LAST_REPORT = summary
+
+            unit15_state_set(
+                "LAST_REPORT",
+                summary,
+            )
+
+        print(
+            "UNIT 15 TELEGRAM SENT =",
+            delivery["delivered"],
+            flush=True,
+        )
+
+        return bool(
+            delivery["delivered"]
+        )
+
+    except Exception as exc:
+
+        print(
+            "UNIT 15 REPORT ERROR =",
+            type(exc).__name__,
+            str(exc)[:150],
+            flush=True,
+        )
+
+        if report_key is not None:
+
+            try:
+
+                unit15_update_delivery(
+                    report_key,
+                    False,
+                    error=str(exc)[:150],
+                )
+
+            except Exception:
+
+                pass
+
+        return False
+
+    finally:
+
+        _UNIT15_LOCK.release()
+
+
+# ============================================================
+# EQUITY POLLING
+# RESTART-PERSISTENT SNAPSHOTS
+# ============================================================
+
+def unit15_poll_equity():
+
+    global _UNIT15_LAST_EQUITY_POLL
+
+    now = _u15_time.time()
+
+    if (
+        now - _UNIT15_LAST_EQUITY_POLL
+        < _UNIT15_EQUITY_POLL_SECONDS
+    ):
+
+        return None
+
+    _UNIT15_LAST_EQUITY_POLL = now
+
+    try:
+
+        symbol = unit15_register_symbol()
+
+        if symbol:
+
+            unit15_contract_multiplier(
+                symbol
+            )
+
+        snapshot = (
+            unit15_equity_snapshot()
+        )
+
+        print(
+            "UNIT 15 EQUITY SNAPSHOT =",
+            snapshot["equity"],
+            flush=True,
+        )
+
+        return snapshot
+
+    except Exception as exc:
+
+        print(
+            "UNIT 15 EQUITY UNAVAILABLE =",
+            type(exc).__name__,
+            str(exc)[:150],
+            flush=True,
+        )
+
+        return None
+
+
+# ============================================================
+# END COMPLETE UNIT 15 V6 - PART 2 OF 3
+# ZERO INDENTATION
+# NEXT: COMMANDS / SCHEDULER / WORKER / ACTIVATION
+# ============================================================
