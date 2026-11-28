@@ -26511,3 +26511,1911 @@ def scan_result_has_error(result):
 # NEXT:
 # CONSOLIDATED TP ROI AND INITIAL_USDT CONTROLLERS
 # ============================================================
+
+# ============================================================
+# COMPLETE CONTINUOUS SCAN CONTROLLER V3
+# PART 2 OF 3
+# TP NET ROI / INITIAL_USDT ACCEPTANCE
+# ZERO INDENTATION
+# ============================================================
+
+from datetime import datetime, timezone
+from decimal import ROUND_FLOOR
+
+
+# ============================================================
+# CONFIGURATION VALUE FORMATTING
+# ============================================================
+
+def scan_config_amount(value):
+
+    return format(
+        scan_decimal(value).normalize(),
+        "f",
+    )
+
+
+def scan_config_timestamp():
+
+    return datetime.now(
+        timezone.utc
+    ).isoformat()
+
+
+# ============================================================
+# CONSOLIDATED CONFIGURATION DATABASE
+# PRESERVE EXISTING SQLITE TABLES AND HISTORY
+# ============================================================
+
+def scan_configuration_db():
+
+    db = unit_8_symbol_switch_db()
+
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS
+        scan_configuration_v3 (
+            setting TEXT PRIMARY KEY,
+            decision_key TEXT NOT NULL,
+            status TEXT NOT NULL,
+            requested TEXT,
+            accepted TEXT,
+            minimum TEXT,
+            reason TEXT,
+            updated_at TEXT NOT NULL
+        )
+    """)
+
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS
+        scan_configuration_history_v3 (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            setting TEXT NOT NULL,
+            decision_key TEXT NOT NULL,
+            status TEXT NOT NULL,
+            requested TEXT,
+            accepted TEXT,
+            minimum TEXT,
+            reason TEXT,
+            created_at TEXT NOT NULL
+        )
+    """)
+
+    return db
+
+
+# ============================================================
+# READ PERSISTED CONFIGURATION DECISION
+# ============================================================
+
+def scan_configuration_read(setting):
+
+    db = scan_configuration_db()
+
+    try:
+
+        row = db.execute("""
+            SELECT
+                decision_key,
+                status,
+                requested,
+                accepted,
+                minimum,
+                reason
+            FROM scan_configuration_v3
+            WHERE setting = ?
+        """, (
+            setting,
+        )).fetchone()
+
+        if row is None:
+
+            return None
+
+        return {
+            "decision_key": row[0],
+            "status": row[1],
+
+            "requested":
+                json.loads(row[2])
+                if row[2] is not None
+                else None,
+
+            "accepted":
+                json.loads(row[3])
+                if row[3] is not None
+                else None,
+
+            "minimum":
+                json.loads(row[4])
+                if row[4] is not None
+                else None,
+
+            "reason": row[5],
+        }
+
+    finally:
+
+        db.close()
+
+
+# ============================================================
+# PERSIST DECISION AND TELEGRAM EVENT TOGETHER
+# NOTIFICATION ONLY AFTER SUCCESSFUL COMMIT
+# ============================================================
+
+def scan_configuration_commit(
+    setting,
+    decision_key,
+    status,
+    requested,
+    accepted,
+    minimum,
+    reason,
+    message=None,
+):
+
+    db = scan_configuration_db()
+
+    try:
+
+        db.execute("BEGIN IMMEDIATE")
+
+        previous = db.execute("""
+            SELECT
+                decision_key,
+                status
+            FROM scan_configuration_v3
+            WHERE setting = ?
+        """, (
+            setting,
+        )).fetchone()
+
+        changed = (
+            previous is None
+
+            or previous[0] != decision_key
+
+            or previous[1] != status
+        )
+
+        now = scan_config_timestamp()
+
+        values = (
+            setting,
+            decision_key,
+            status,
+
+            json.dumps(
+                requested,
+                default=str,
+            ),
+
+            json.dumps(
+                accepted,
+                default=str,
+            ),
+
+            json.dumps(
+                minimum,
+                default=str,
+            ),
+
+            reason,
+            now,
+        )
+
+        db.execute("""
+            INSERT INTO scan_configuration_v3 (
+                setting,
+                decision_key,
+                status,
+                requested,
+                accepted,
+                minimum,
+                reason,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+
+            ON CONFLICT(setting)
+            DO UPDATE SET
+                decision_key =
+                    excluded.decision_key,
+
+                status =
+                    excluded.status,
+
+                requested =
+                    excluded.requested,
+
+                accepted =
+                    excluded.accepted,
+
+                minimum =
+                    excluded.minimum,
+
+                reason =
+                    excluded.reason,
+
+                updated_at =
+                    excluded.updated_at
+        """, values)
+
+        if changed:
+
+            db.execute("""
+                INSERT INTO
+                scan_configuration_history_v3 (
+                    setting,
+                    decision_key,
+                    status,
+                    requested,
+                    accepted,
+                    minimum,
+                    reason,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, values)
+
+            if message:
+
+                unit_8_symbol_event(
+                    db,
+
+                    setting + "_" + status,
+
+                    message,
+                )
+
+        db.execute("COMMIT")
+
+        return changed
+
+    except Exception:
+
+        if db.in_transaction:
+
+            db.execute("ROLLBACK")
+
+        raise
+
+    finally:
+
+        db.close()
+
+
+# ============================================================
+# READ PREVIOUSLY ACCEPTED TP VALUES
+# SUPPORT EXISTING LEGACY SQLITE RECORD
+# ============================================================
+
+def scan_previous_tp_values(config):
+
+    previous = scan_configuration_read(
+        "TP_NET_ROI"
+    )
+
+    if previous:
+
+        accepted = previous.get(
+            "accepted"
+        )
+
+        if isinstance(accepted, dict):
+
+            if (
+                accepted.get("TP1") is not None
+                and accepted.get("TP2") is not None
+            ):
+
+                return {
+                    "TP1":
+                        scan_decimal(
+                            accepted["TP1"]
+                        ),
+
+                    "TP2":
+                        scan_decimal(
+                            accepted["TP2"]
+                        ),
+                }
+
+    db = scan_configuration_db()
+
+    try:
+
+        exists = db.execute("""
+            SELECT name
+            FROM sqlite_master
+            WHERE type = 'table'
+            AND name = 'tp_net_roi_state'
+        """).fetchone()
+
+        if exists:
+
+            row = db.execute("""
+                SELECT
+                    accepted_tp1,
+                    accepted_tp2
+                FROM tp_net_roi_state
+                WHERE id = 1
+            """).fetchone()
+
+            if row:
+
+                return {
+                    "TP1":
+                        scan_decimal(row[0]),
+
+                    "TP2":
+                        scan_decimal(row[1]),
+                }
+
+    finally:
+
+        db.close()
+
+    # No previously persisted acceptance.
+    # Do not treat the current Render request
+    # as an already accepted configuration.
+
+    return None
+
+
+# ============================================================
+# PUBLISH ACCEPTED TP CONFIGURATION
+# ============================================================
+
+def scan_publish_tp_values(
+    config,
+    accepted,
+):
+
+    if accepted is None:
+
+        return False
+
+    strategy = config["strategy"]
+
+    tp1 = scan_decimal(
+        accepted["TP1"]
+    )
+
+    tp2 = scan_decimal(
+        accepted["TP2"]
+    )
+
+    strategy[
+        "tp1_net_roi_floor_percent"
+    ] = float(tp1)
+
+    strategy[
+        "tp2_net_roi_floor_percent"
+    ] = float(tp2)
+
+    strategy[
+        "tp1_tp2_min_roi_separation_percent"
+    ] = float(tp2 - tp1)
+
+    return True
+
+
+# ============================================================
+# PARSE CONSOLIDATED RENDER TP INPUT
+# TP_NET_ROI_FLOOR_PERCENT=TP1:20,TP2:40
+# ============================================================
+
+def scan_parse_tp_roi(raw):
+
+    requested = {}
+
+    for item in str(raw).split(","):
+
+        key, value = (
+            item.strip().split(":", 1)
+        )
+
+        key = key.strip().upper()
+
+        if key in requested:
+
+            raise ValueError(
+                "DUPLICATE_TP_KEY"
+            )
+
+        requested[key] = (
+            scan_positive_decimal(
+                value.strip(),
+                key,
+            )
+        )
+
+    if set(requested) != {
+        "TP1", "TP2"
+    }:
+
+        raise ValueError(
+            "TP1_AND_TP2_REQUIRED"
+        )
+
+    return requested
+
+
+# ============================================================
+# EXCHANGE PRICE PRECISION AND NET ROI MINIMUM
+# MATCH UNIT 13 ESTIMATED FEE MODEL
+# ============================================================
+
+def scan_tp_minimums(
+    config,
+    account,
+    market,
+):
+
+    contract = scan_contract_details(
+        config
+    )
+
+    if not contract["confirmed"]:
+
+        raise RuntimeError(
+            "CONTRACT_SPECS_UNAVAILABLE"
+        )
+
+    price = scan_positive_decimal(
+        market["price"],
+        "MARKET_PRICE",
+    )
+
+    tick = contract["price_step"]
+
+    long_leverage = (
+        scan_positive_decimal(
+            account["long_leverage"],
+            "LONG_LEVERAGE",
+        )
+    )
+
+    short_leverage = (
+        scan_positive_decimal(
+            account["short_leverage"],
+            "SHORT_LEVERAGE",
+        )
+    )
+
+    fee = scan_decimal(
+        config["strategy"].get(
+            "futures_taker_fee_percent",
+            "0.08",
+        )
+    )
+
+    if fee < 0 or fee >= 50:
+
+        raise ValueError(
+            "INVALID_TRADING_FEE"
+        )
+
+    fee_move = (
+        Decimal("2")
+        * fee
+        / Decimal("100")
+    )
+
+    long_be = price * (
+        Decimal("1") + fee_move
+    )
+
+    short_be = price * (
+        Decimal("1") - fee_move
+    )
+
+    # First price increment strictly beyond
+    # the estimated fee-adjusted break-even.
+
+    long_first = (
+        (
+            long_be / tick
+        ).to_integral_value(
+            rounding=ROUND_FLOOR
+        )
+        + Decimal("1")
+    ) * tick
+
+    short_first = (
+        (
+            short_be / tick
+        ).to_integral_value(
+            rounding=ROUND_CEILING
+        )
+        - Decimal("1")
+    ) * tick
+
+    short_second = short_first - tick
+
+    if short_second <= 0:
+
+        raise RuntimeError(
+            "SHORT_TP_PRICE_UNAVAILABLE"
+        )
+
+    long_min_roi = (
+        (long_first - price)
+        / price
+        * Decimal("100")
+        * long_leverage
+
+        - Decimal("2")
+        * fee
+        * long_leverage
+    )
+
+    short_min_roi = (
+        (price - short_first)
+        / price
+        * Decimal("100")
+        * short_leverage
+
+        - Decimal("2")
+        * fee
+        * short_leverage
+    )
+
+    long_roi_tick = (
+        tick / price
+        * Decimal("100")
+        * long_leverage
+    )
+
+    short_roi_tick = (
+        tick / price
+        * Decimal("100")
+        * short_leverage
+    )
+
+    minimum_tp1 = max(
+        long_min_roi,
+        short_min_roi,
+    ).quantize(
+        Decimal("0.000001"),
+        rounding=ROUND_CEILING,
+    )
+
+    minimum_tp2 = max(
+        long_min_roi + long_roi_tick,
+
+        short_min_roi + short_roi_tick,
+    ).quantize(
+        Decimal("0.000001"),
+        rounding=ROUND_CEILING,
+    )
+
+    return {
+        "price": price,
+
+        "price_step": tick,
+
+        "fee": fee,
+
+        "long_leverage":
+            long_leverage,
+
+        "short_leverage":
+            short_leverage,
+
+        "long_first":
+            long_first,
+
+        "short_first":
+            short_first,
+
+        "long_minimum_roi":
+            long_min_roi,
+
+        "short_minimum_roi":
+            short_min_roi,
+
+        "minimum_tp1":
+            minimum_tp1,
+
+        "minimum_tp2":
+            minimum_tp2,
+
+        "source":
+            "EXCHANGE_SPECS_ESTIMATED_FEES",
+
+        "fill_verified":
+            False,
+    }
+
+
+# ============================================================
+# VALIDATE TARGET PRICES USING UNIT 13
+# ============================================================
+
+def scan_validate_tp_targets(
+    requested,
+    minimums,
+):
+
+    tp1 = requested["TP1"]
+
+    tp2 = requested["TP2"]
+
+    if tp1 < minimums["minimum_tp1"]:
+
+        raise ValueError(
+            "TP1 "
+            + scan_config_amount(tp1)
+            + "% below calculated executable minimum "
+            + scan_config_amount(
+                minimums["minimum_tp1"]
+            )
+            + "%."
+        )
+
+    if tp2 <= tp1:
+
+        raise ValueError(
+            "TP2 must exceed TP1."
+        )
+
+    if tp2 < minimums["minimum_tp2"]:
+
+        raise ValueError(
+            "TP2 "
+            + scan_config_amount(tp2)
+            + "% below calculated minimum "
+            + scan_config_amount(
+                minimums["minimum_tp2"]
+            )
+            + "%."
+        )
+
+    targets = {}
+
+    for side, leverage in (
+        (
+            "LONG",
+            minimums["long_leverage"],
+        ),
+
+        (
+            "SHORT",
+            minimums["short_leverage"],
+        ),
+    ):
+
+        t1, t2 = unit_13_v4_targets(
+            minimums["price"],
+
+            leverage,
+
+            side,
+
+            minimums["price_step"],
+
+            tp1,
+
+            tp2,
+
+            minimums["fee"],
+        )
+
+        t1 = scan_decimal(t1)
+
+        t2 = scan_decimal(t2)
+
+        if side == "LONG":
+
+            valid = (
+                t2 > t1
+                > minimums["price"]
+            )
+
+        else:
+
+            valid = (
+                Decimal("0") < t2
+                < t1
+                < minimums["price"]
+            )
+
+        if not valid:
+
+            raise ValueError(
+                side
+                + "_TP_TARGETS_NOT_EXECUTABLE"
+            )
+
+        targets[side] = {
+            "TP1": str(t1),
+            "TP2": str(t2),
+        }
+
+    return targets
+
+
+# ============================================================
+# UNIT 8 TP NET ROI ACCEPTANCE CONTROLLER V3
+# ============================================================
+
+def unit_8_tp_net_roi_control(
+    config,
+    account,
+    market,
+):
+
+    symbol = str(
+        config["exchange"]["market_symbol"]
+    ).strip().upper()
+
+    raw = _scan_os.getenv(
+        "TP_NET_ROI_FLOOR_PERCENT",
+        "TP1:20,TP2:40",
+    ).strip()
+
+    accepted = scan_previous_tp_values(
+        config
+    )
+
+    # Restore accepted configuration before
+    # evaluating any new Render request.
+
+    scan_publish_tp_values(
+        config,
+        accepted,
+    )
+
+    result = {
+        "status": "PENDING",
+
+        "eligible": False,
+
+        "minimum_tp1": None,
+
+        "minimum_tp2": None,
+
+        "accepted_tp1":
+            accepted["TP1"]
+            if accepted else None,
+
+        "accepted_tp2":
+            accepted["TP2"]
+            if accepted else None,
+
+        "minimum_tp1_fill_verified":
+            False,
+    }
+
+    print(
+        "UNIT 8 TP ROI RENDER INPUT =",
+        raw,
+        flush=True,
+    )
+
+    # ========================================================
+    # CHECK CURRENT EXCHANGE DETAILS
+    # ========================================================
+
+    try:
+
+        minimums = scan_tp_minimums(
+            config,
+            account,
+            market,
+        )
+
+    except Exception as exc:
+
+        result.update({
+            "status":
+                "CONTRACT_PARAMETERS_PENDING",
+
+            "reason":
+                str(exc),
+        })
+
+        print(
+            "UNIT 8 TP ROI PENDING =",
+            str(exc),
+            flush=True,
+        )
+
+        return result
+
+    result.update({
+        "minimum_tp1":
+            minimums["minimum_tp1"],
+
+        "minimum_tp2":
+            minimums["minimum_tp2"],
+
+        "minimum_tp1_source":
+            minimums["source"],
+    })
+
+    # ========================================================
+    # ACCEPT OR REJECT REQUEST
+    # ========================================================
+
+    requested = None
+
+    targets = {}
+
+    reason = ""
+
+    decision_key = (
+        symbol + "|" + raw
+    )
+
+    try:
+
+        requested = scan_parse_tp_roi(
+            raw
+        )
+
+        decision_key = (
+            symbol
+
+            + "|"
+
+            + scan_config_amount(
+                requested["TP1"]
+            )
+
+            + "|"
+
+            + scan_config_amount(
+                requested["TP2"]
+            )
+        )
+
+        targets = scan_validate_tp_targets(
+            requested,
+            minimums,
+        )
+
+        status = "ACCEPTED"
+
+        accepted = dict(requested)
+
+        message = (
+            f"{symbol} TP1 accepted, "
+
+            f"{scan_config_amount(accepted['TP1'])}% "
+
+            "net ROI floor enabled.\n"
+
+            f"{symbol} TP2 accepted, "
+
+            f"{scan_config_amount(accepted['TP2'])}% "
+
+            "net ROI floor enabled."
+        )
+
+    except Exception as exc:
+
+        status = "REJECTED"
+
+        reason = str(exc)
+
+        message = (
+            f"{symbol} TP net ROI rejected.\n"
+
+            + reason
+
+            + "\nCalculated TP1 minimum: "
+
+            + scan_config_amount(
+                minimums["minimum_tp1"]
+            )
+
+            + "%.\nCalculated TP2 minimum: "
+
+            + scan_config_amount(
+                minimums["minimum_tp2"]
+            )
+
+            + "%.\nBased on exchange price "
+
+            "precision and estimated fees."
+        )
+
+        if accepted:
+
+            message += (
+                "\nRetained TP1: "
+
+                + scan_config_amount(
+                    accepted["TP1"]
+                )
+
+                + "%, TP2: "
+
+                + scan_config_amount(
+                    accepted["TP2"]
+                )
+
+                + "%."
+            )
+
+        else:
+
+            message += (
+                "\nNo previously accepted "
+                "TP configuration available."
+            )
+
+    # ========================================================
+    # PERSIST DECISION BEFORE NOTIFICATION
+    # ========================================================
+
+    scan_configuration_commit(
+        setting="TP_NET_ROI",
+
+        decision_key=decision_key,
+
+        status=status,
+
+        requested=(
+            requested
+            if requested is not None
+            else raw
+        ),
+
+        accepted=accepted,
+
+        minimum={
+            "TP1":
+                minimums["minimum_tp1"],
+
+            "TP2":
+                minimums["minimum_tp2"],
+        },
+
+        reason=reason,
+
+        message=message,
+    )
+
+    scan_publish_tp_values(
+        config,
+        accepted,
+    )
+
+    # ========================================================
+    # REVALIDATE RETAINED CONFIGURATION
+    # REJECTION DOES NOT AUTOMATICALLY INVALIDATE
+    # A PREVIOUSLY ACCEPTED EXECUTABLE VALUE
+    # ========================================================
+
+    retained_eligible = False
+
+    if accepted:
+
+        try:
+
+            scan_validate_tp_targets(
+                accepted,
+                minimums,
+            )
+
+            retained_eligible = True
+
+        except Exception:
+
+            retained_eligible = False
+
+    result.update({
+        "status": status,
+
+        "eligible":
+            retained_eligible,
+
+        "accepted_tp1":
+            accepted["TP1"]
+            if accepted else None,
+
+        "accepted_tp2":
+            accepted["TP2"]
+            if accepted else None,
+
+        "retained_configuration":
+            status == "REJECTED"
+            and accepted is not None,
+
+        "targets":
+            targets,
+
+        "reason":
+            reason,
+    })
+
+    print(
+        "UNIT 8 TP NET ROI STATUS =",
+        status,
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 MINIMUM TP1 NET ROI =",
+        result["minimum_tp1"],
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 MINIMUM TP2 NET ROI =",
+        result["minimum_tp2"],
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 ACCEPTED TP1 NET ROI =",
+        result["accepted_tp1"],
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 ACCEPTED TP2 NET ROI =",
+        result["accepted_tp2"],
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 TP CONFIGURATION ELIGIBLE =",
+        result["eligible"],
+        flush=True,
+    )
+
+    return result
+
+
+# ============================================================
+# INITIAL_USDT SINGLE RENDER INPUT
+# NO DUPLICATE ENTRY MARGIN VARIABLES
+# ============================================================
+
+def scan_requested_initial_usdt(config):
+
+    raw = _scan_os.getenv(
+        "INITIAL_USDT"
+    )
+
+    if raw is None or not raw.strip():
+
+        raw = str(
+            config["strategy"][
+                "initial_fixed_usdt"
+            ]
+        )
+
+        source = "EXISTING_CONFIGURATION"
+
+    else:
+
+        source = "INITIAL_USDT"
+
+    return (
+        raw.strip(),
+        source,
+    )
+
+
+# ============================================================
+# READ PREVIOUSLY ACCEPTED ENTRY CAPITAL
+# ============================================================
+
+def scan_previous_initial_usdt():
+
+    previous = scan_configuration_read(
+        "ENTRY_MARGIN"
+    )
+
+    if previous:
+
+        accepted = previous.get(
+            "accepted"
+        )
+
+        if isinstance(accepted, dict):
+
+            value = accepted.get(
+                "INITIAL_USDT"
+            )
+
+            if value is not None:
+
+                return scan_positive_decimal(
+                    value,
+                    "ACCEPTED_INITIAL_USDT",
+                )
+
+    return None
+
+
+# ============================================================
+# PUBLISH ACCEPTED ENTRY CAPITAL
+# EXISTING STRATEGY CONFIGURATION
+# ============================================================
+
+def scan_publish_initial_usdt(
+    config,
+    margin,
+):
+
+    if margin is None:
+
+        return False
+
+    margin = scan_positive_decimal(
+        margin,
+        "INITIAL_USDT",
+    )
+
+    config["strategy"][
+        "initial_fixed_usdt"
+    ] = float(margin)
+
+    return True
+
+
+# ============================================================
+# VERIFIED EXCHANGE POSITION STATE
+# ============================================================
+
+def scan_entry_position_state(account):
+
+    positions = account.get(
+        "positions"
+    )
+
+    verified = (
+        account.get(
+            "demo_positions_verified"
+        ) is True
+    )
+
+    if (
+        not verified
+
+        or not isinstance(
+            positions,
+            list,
+        )
+    ):
+
+        return {
+            "verified": False,
+
+            "flat": None,
+
+            "count": None,
+
+            "status":
+                "POSITION_UNVERIFIED",
+        }
+
+    active = []
+
+    for position in positions:
+
+        if not isinstance(
+            position,
+            dict,
+        ):
+
+            raise ValueError(
+                "INVALID_POSITION_RECORD"
+            )
+
+        size = scan_decimal(
+            position.get(
+                "size",
+                "0",
+            )
+        )
+
+        if size < 0:
+
+            raise ValueError(
+                "INVALID_POSITION_SIZE"
+            )
+
+        if size > 0:
+
+            active.append(position)
+
+    flat = not bool(active)
+
+    reported_flat = account.get(
+        "position_flat_verified"
+    )
+
+    if (
+        isinstance(reported_flat, bool)
+
+        and reported_flat != flat
+    ):
+
+        return {
+            "verified": False,
+
+            "flat": None,
+
+            "count": len(active),
+
+            "status":
+                "POSITION_STATE_INCONSISTENT",
+        }
+
+    return {
+        "verified": True,
+
+        "flat": flat,
+
+        "count": len(active),
+
+        "status":
+            "FLAT"
+            if flat
+            else "OCCUPIED",
+    }
+
+
+# ============================================================
+# CALCULATE MINIMUM INITIAL_USDT
+# BASED ON EXECUTABLE TP ALLOCATIONS
+# ============================================================
+
+def scan_minimum_initial_usdt(
+    config,
+    account,
+    market,
+):
+
+    contract = scan_contract_details(
+        config
+    )
+
+    if not contract["confirmed"]:
+
+        raise RuntimeError(
+            "CONTRACT_SPECS_UNAVAILABLE"
+        )
+
+    price = scan_positive_decimal(
+        market["price"],
+        "MARKET_PRICE",
+    )
+
+    step = contract["quantity_step"]
+
+    minimum = contract["minimum_quantity"]
+
+    multiplier = contract[
+        "contract_multiplier"
+    ]
+
+    leverage = min(
+        scan_positive_decimal(
+            account["long_leverage"],
+            "LONG_LEVERAGE",
+        ),
+
+        scan_positive_decimal(
+            account["short_leverage"],
+            "SHORT_LEVERAGE",
+        ),
+    )
+
+    strategy = config["strategy"]
+
+    allocations = [
+        scan_positive_decimal(
+            strategy[key],
+            key,
+        )
+
+        for key in (
+            "tp1_allocation_percent",
+            "tp2_allocation_percent",
+            "tp3_allocation_percent",
+        )
+    ]
+
+    if sum(allocations) != Decimal("100"):
+
+        raise ValueError(
+            "TP_ALLOCATIONS_MUST_TOTAL_100"
+        )
+
+    executable_minimum = scan_ceil(
+        minimum,
+        step,
+    )
+
+    # Calculate a starting quantity sufficient
+    # for all three configured TP allocations.
+
+    required_quantity = max(
+        executable_minimum
+
+        * Decimal("100")
+
+        / allocation
+
+        for allocation in allocations
+    )
+
+    entry_quantity = scan_ceil(
+        required_quantity,
+        step,
+    )
+
+    # Confirm against actual Unit 13 allocation
+    # logic rather than relying only on percentages.
+
+    q1, q2, q3 = (
+        unit_13_v4_allocation(
+            entry_quantity,
+
+            step,
+
+            allocations[0],
+
+            allocations[1],
+        )
+    )
+
+    q1 = scan_decimal(q1)
+
+    q2 = scan_decimal(q2)
+
+    q3 = scan_decimal(q3)
+
+    if min(q1, q2, q3) < executable_minimum:
+
+        raise RuntimeError(
+            "TP_ALLOCATION_SIZING_INCONSISTENT"
+        )
+
+    minimum_margin = (
+        entry_quantity
+
+        * price
+
+        * multiplier
+
+        / leverage
+    )
+
+    minimum_margin = minimum_margin.quantize(
+        Decimal("0.01"),
+        rounding=ROUND_CEILING,
+    )
+
+    return {
+        "minimum_margin":
+            minimum_margin,
+
+        "minimum_order_quantity":
+            executable_minimum,
+
+        "required_entry_quantity":
+            entry_quantity,
+
+        "quantity_step":
+            step,
+
+        "price":
+            price,
+
+        "leverage":
+            leverage,
+
+        "contract_multiplier":
+            multiplier,
+
+        "tp1_quantity":
+            q1,
+
+        "tp2_quantity":
+            q2,
+
+        "tp3_quantity":
+            q3,
+    }
+
+
+# ============================================================
+# UNIT 8 INITIAL_USDT ACCEPTANCE CONTROLLER V3
+# SINGLE IMPLEMENTATION
+# ============================================================
+
+def unit_8_entry_margin_control(
+    config,
+    account,
+    market,
+):
+
+    symbol = str(
+        config["exchange"]["market_symbol"]
+    ).strip().upper()
+
+    coin = (
+        symbol[:-4]
+        if symbol.endswith("USDT")
+        else symbol
+    )
+
+    raw, source = (
+        scan_requested_initial_usdt(
+            config
+        )
+    )
+
+    accepted = (
+        scan_previous_initial_usdt()
+    )
+
+    scan_publish_initial_usdt(
+        config,
+        accepted,
+    )
+
+    print(
+        "UNIT 8 INITIAL_USDT RECEIVED =",
+        raw,
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 INITIAL_USDT SOURCE =",
+        source,
+        flush=True,
+    )
+
+    result = {
+        "eligible": False,
+
+        "status": "PENDING",
+
+        "accepted_margin": accepted,
+
+        "minimum_margin": None,
+
+        "source": source,
+    }
+
+    decision_key = (
+        symbol + "|" + raw
+    )
+
+    requested = None
+
+    minimum_margin = None
+
+    reason = ""
+
+    message = None
+
+    status = "PENDING"
+
+    # ========================================================
+    # PARSE RENDER REQUEST
+    # ========================================================
+
+    try:
+
+        requested = (
+            scan_positive_decimal(
+                raw,
+                "INITIAL_USDT",
+            )
+        )
+
+        decision_key = (
+            symbol
+
+            + "|"
+
+            + scan_config_amount(
+                requested
+            )
+        )
+
+    except Exception as exc:
+
+        status = "REJECTED"
+
+        reason = str(exc)
+
+        message = (
+            f"{coin} entry rejected, "
+
+            f"invalid INITIAL_USDT value: {raw}."
+        )
+
+    # ========================================================
+    # CHECK EXCHANGE POSITION STATE
+    # ========================================================
+
+    if status != "REJECTED":
+
+        try:
+
+            position_state = (
+                scan_entry_position_state(
+                    account
+                )
+            )
+
+        except Exception as exc:
+
+            result.update({
+                "status":
+                    "POSITION_STATE_INCONSISTENT",
+
+                "reason":
+                    str(exc),
+            })
+
+            return result
+
+        print(
+            "ENTRY POSITION COUNT =",
+            position_state["count"],
+            flush=True,
+        )
+
+        print(
+            "ENTRY POSITION FLAT =",
+            position_state["flat"],
+            flush=True,
+        )
+
+        if not position_state["verified"]:
+
+            result["status"] = (
+                position_state["status"]
+            )
+
+            return result
+
+        # ====================================================
+        # CHECK EXCHANGE EXECUTABLE MINIMUM
+        # ====================================================
+
+        try:
+
+            sizing = (
+                scan_minimum_initial_usdt(
+                    config,
+                    account,
+                    market,
+                )
+            )
+
+            minimum_margin = sizing[
+                "minimum_margin"
+            ]
+
+            result.update(sizing)
+
+        except Exception as exc:
+
+            result.update({
+                "status":
+                    "ENTRY_SIZING_PENDING",
+
+                "reason":
+                    str(exc),
+            })
+
+            print(
+                "UNIT 8 ENTRY SIZING PENDING =",
+                str(exc),
+                flush=True,
+            )
+
+            return result
+
+        # ====================================================
+        # REJECT INSUFFICIENT ENTRY CAPITAL
+        # ====================================================
+
+        if requested < minimum_margin:
+
+            status = "REJECTED"
+
+            reason = (
+                "BELOW_EXECUTABLE_MINIMUM"
+            )
+
+            message = (
+                f"{coin} entry rejected, "
+
+                f"${scan_config_amount(requested)} "
+
+                "below min of "
+
+                f"${scan_config_amount(minimum_margin)}."
+            )
+
+        # ====================================================
+        # QUEUE VALID CONFIGURATION IF POSITION EXISTS
+        # ====================================================
+
+        elif not position_state["flat"]:
+
+            status = "QUEUED"
+
+            reason = "POSITION_EXISTS"
+
+            message = (
+                f"${scan_config_amount(requested)} "
+
+                f"{coin} queued, position exists."
+            )
+
+        # ====================================================
+        # ACCEPT EXECUTABLE CONFIGURATION
+        # ====================================================
+
+        else:
+
+            status = "ACCEPTED"
+
+            accepted = requested
+
+            message = (
+                f"{coin} entry accepted, "
+
+                f"${scan_config_amount(accepted)} "
+
+                "entry enabled."
+            )
+
+    # ========================================================
+    # PERSIST BEFORE TELEGRAM DELIVERY
+    # ========================================================
+
+    scan_configuration_commit(
+        setting="ENTRY_MARGIN",
+
+        decision_key=decision_key,
+
+        status=status,
+
+        requested=(
+            str(requested)
+            if requested is not None
+            else raw
+        ),
+
+        accepted=(
+            {
+                "INITIAL_USDT":
+                    str(accepted),
+            }
+
+            if accepted is not None
+
+            else None
+        ),
+
+        minimum=(
+            str(minimum_margin)
+
+            if minimum_margin is not None
+
+            else None
+        ),
+
+        reason=reason,
+
+        message=message,
+    )
+
+    scan_publish_initial_usdt(
+        config,
+        accepted,
+    )
+
+    # A queued or rejected request must not
+    # silently become the new entry capital.
+
+    eligible = (
+        status == "ACCEPTED"
+    )
+
+    result.update({
+        "eligible":
+            eligible,
+
+        "status":
+            status,
+
+        "requested_margin":
+            requested,
+
+        "accepted_margin":
+            accepted,
+
+        "minimum_margin":
+            minimum_margin,
+
+        "margin":
+            str(accepted)
+            if accepted is not None
+            else None,
+
+        "minimum":
+            str(minimum_margin)
+            if minimum_margin is not None
+            else None,
+
+        "reason":
+            reason,
+
+        "retained_configuration":
+            status != "ACCEPTED"
+            and accepted is not None,
+    })
+
+    print(
+        "UNIT 8 ENTRY MARGIN STATUS =",
+        status,
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 REQUESTED INITIAL_USDT =",
+        requested,
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 ACCEPTED INITIAL_USDT =",
+        accepted,
+        flush=True,
+    )
+
+    print(
+        "UNIT 8 MINIMUM REQUIRED MARGIN =",
+        minimum_margin,
+        flush=True,
+    )
+
+    print(
+        "UNIT 12 ENTRY ELIGIBLE =",
+        eligible,
+        flush=True,
+    )
+
+    return result
+
+
+# ============================================================
+# LEGACY ENTRY MARGIN INTERFACE
+# BOTH FUNCTION NAMES USE THE SAME CONTROLLER
+# NO SECOND SQLITE SCHEMA
+# ============================================================
+
+def unit_8_render_entry_margin(
+    config,
+    account,
+    market,
+):
+
+    return unit_8_entry_margin_control(
+        config,
+        account,
+        market,
+    )
+
+
+# ============================================================
+# RESTORE ACCEPTED CONFIGURATION
+# AVAILABLE TO CONTINUOUS SCAN STARTUP
+# ============================================================
+
+def scan_restore_accepted_configuration(
+    config,
+):
+
+    tp_values = (
+        scan_previous_tp_values(
+            config
+        )
+    )
+
+    margin = (
+        scan_previous_initial_usdt()
+    )
+
+    tp_restored = (
+        scan_publish_tp_values(
+            config,
+            tp_values,
+        )
+    )
+
+    margin_restored = (
+        scan_publish_initial_usdt(
+            config,
+            margin,
+        )
+    )
+
+    print(
+        "SCAN ACCEPTED TP CONFIG RESTORED =",
+        tp_restored,
+        flush=True,
+    )
+
+    print(
+        "SCAN ACCEPTED INITIAL_USDT RESTORED =",
+        margin_restored,
+        flush=True,
+    )
+
+    return {
+        "tp_restored":
+            tp_restored,
+
+        "margin_restored":
+            margin_restored,
+
+        "accepted_tp":
+            tp_values,
+
+        "accepted_initial_usdt":
+            margin,
+    }
+
+
+# ============================================================
+# CONFIGURATION NOTIFICATION DELIVERY
+# REUSE EXISTING UNIT 8 EVENT QUEUE
+# ============================================================
+
+def scan_flush_configuration_notifications():
+
+    try:
+
+        delivered = (
+            unit_8_symbol_telegram_flush()
+        )
+
+        print(
+            "SCAN SYMBOL TELEGRAM DELIVERED =",
+            delivered,
+            flush=True,
+        )
+
+        return delivered
+
+    except Exception as exc:
+
+        print(
+            "SCAN CONFIGURATION TELEGRAM ERROR =",
+            repr(exc),
+            flush=True,
+        )
+
+        return None
+
+
+# ============================================================
+# END COMPLETE CONTINUOUS SCAN CONTROLLER V3
+# END PART 2 OF 3
+# ZERO INDENTATION
+#
+# NEXT:
+# COMPLETE CONTINUOUS EXECUTION PIPELINE
+# UNITS 3-15 HANDOVER
+# SCAN SUPERVISOR
+# ============================================================
