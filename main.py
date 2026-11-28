@@ -13966,68 +13966,61 @@ def unit_13_v4_allocation(
     total,
     step,
     pct1=10,
-    pct2=20
+    pct2=20,
 ):
 
     total = Decimal(str(total))
     step = Decimal(str(step))
 
+    pct1 = Decimal(str(pct1))
+    pct2 = Decimal(str(pct2))
+    pct3 = Decimal("100") - pct1 - pct2
+
+    if not all(
+        value.is_finite()
+        for value in (
+            total,
+            step,
+            pct1,
+            pct2,
+            pct3,
+        )
+    ):
+        raise ValueError(
+            "INVALID TP ALLOCATION NUMBER"
+        )
+
+    if step <= 0 or total < 0:
+        raise ValueError(
+            "INVALID TP QUANTITY OR STEP"
+        )
+
+    if min(pct1, pct2, pct3) <= 0:
+        raise ValueError(
+            "INVALID TP ALLOCATION PERCENT"
+        )
+
     n = int(total / step)
 
-    if n <= 0:
+    s1 = int(
+        Decimal(n)
+        * pct1
+        / Decimal("100")
+    )
 
-        return (
-            Decimal(0),
-            Decimal(0),
-            Decimal(0),
-        )
+    s2 = int(
+        Decimal(n)
+        * pct2
+        / Decimal("100")
+    )
 
-    if n == 1:
-
-        s1, s2, s3 = 0, 0, 1
-
-    elif n == 2:
-
-        s1, s2, s3 = 1, 0, 1
-
-    else:
-
-        s1 = max(
-            1,
-            int(
-                Decimal(n)
-                * Decimal(str(pct1))
-                / Decimal(100)
-            )
-        )
-
-        s2 = max(
-            1,
-            int(
-                Decimal(n)
-                * Decimal(str(pct2))
-                / Decimal(100)
-            )
-        )
-
-        while s1 + s2 >= n:
-
-            if s2 > 1:
-
-                s2 -= 1
-
-            else:
-
-                s1 -= 1
-
-        s3 = n - s1 - s2
+    s3 = n - s1 - s2
 
     return (
         Decimal(s1) * step,
         Decimal(s2) * step,
         Decimal(s3) * step,
     )
-
 
 # ============================================================
 # NET ROI TARGET CALCULATION
