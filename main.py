@@ -15179,3 +15179,1180 @@ def unit_13_execute_tp(
 # ZERO INDENTATION
 # NEXT: MAIN EXECUTOR AND UNIT 14 HANDOVER
 # ============================================================
+
+# ============================================================
+# COMPLETE UNIT 13 V6
+# PART 3 OF 3
+# MAIN TP EXECUTOR AND UNIT 14 HANDOVER
+# ZERO INDENTATION
+# ============================================================
+
+
+# ============================================================
+# MIGRATE EXISTING TP TRANSACTIONS
+# PRESERVE PREVIOUS EXCHANGE-CONFIRMED FILLS
+# ============================================================
+
+def unit_13_import_legacy(
+    position,
+    symbol,
+    side,
+    cycle_id,
+    entry,
+    cum_open,
+):
+
+    from pathlib import Path
+
+    root = Path(
+        os.getenv(
+            "UNIT13_STATE_DIR",
+            "/var/data/unit13_tp"
+        )
+    )
+
+    old_cycle = str(
+        position.get("id")
+        or (
+            str(
+                position.get("createdTime")
+                or position.get("openTime")
+                or ""
+            )
+            + ":"
+            + str(entry)
+            + ":"
+            + str(cum_open)
+        )
+    )
+
+    key = hashlib.sha256(
+        (
+            symbol
+            + ":"
+            + side
+            + ":"
+            + old_cycle
+        ).encode()
+    ).hexdigest()
+
+    path = root / (key + ".json")
+
+    if not path.exists():
+
+        return
+
+    with path.open("r") as handle:
+
+        state = json.load(handle)
+
+    db = unit_13_db()
+
+    try:
+
+        for stage, order in state.get(
+            "orders", {}
+        ).items():
+
+            if stage not in ("TP1", "TP2"):
+
+                continue
+
+            client_id = order.get("client_id")
+
+            if not client_id:
+
+                continue
+
+            now = int(time.time() * 1000)
+
+            db.execute("""
+                INSERT OR IGNORE INTO unit13_tp_orders (
+                    client_id,
+                    symbol,
+                    position_side,
+                    cycle_id,
+                    stage,
+                    quantity,
+                    filled_quantity,
+                    exchange_order_id,
+                    status,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                client_id,
+                symbol,
+                side,
+                cycle_id,
+                stage,
+                str(order["quantity"]),
+                "0",
+                order.get("order_id"),
+                "ACK_UNKNOWN",
+                int(
+                    order.get("created_at_ms")
+                    or now
+                ),
+                now,
+            ))
+
+        db.commit()
+
+    finally:
+
+        db.close()
+
+
+# ============================================================
+# MANAGE ONE ACTIVE POSITION
+# ============================================================
+
+def unit_13_manage_position(
+    config,
+    unit_12_result,
+    position,
+    mark,
+    history,
+):
+
+    D = unit_13_v4_D
+
+    strategy = config.get(
+        "strategy", {}
+    )
+
+    precision = config.get(
+        "market_precision", {}
+    )
+
+    _, symbol = unit_13_14_active_symbols()
+
+    side = str(
+        position["side"]
+    ).upper()
+
+    size = D(position["size"])
+
+    leverage = D(
+        position["leverage"]
+    )
+
+    entry = (
+        D(position["openValue"])
+        / size
+    )
+
+    cum_open = max(
+        size,
+        D(
+            position.get("cumOpenSize")
+            or size
+        )
+    )
+
+    cum_close = D(
+        position.get("cumCloseSize")
+        or 0
+    )
+
+    step = D(
+        precision["quantity_step"]
+    )
+
+    minimum = D(
+        precision["minimum_quantity"]
+    )
+
+    price_step = D(
+        precision["price_step"]
+    )
+
+    tp1_floor = D(
+        strategy.get(
+            "tp1_net_roi_floor_percent",
+            20
+        )
+    )
+
+    tp2_floor = D(
+        strategy.get(
+            "tp2_net_roi_floor_percent",
+            40
+        )
+    )
+
+    fee = D(
+        strategy.get(
+            "futures_taker_fee_percent",
+            "0.08"
+        )
+    )
+
+    pct1 = strategy.get(
+        "tp1_allocation_percent",
+        10
+    )
+
+    pct2 = strategy.get(
+        "tp2_allocation_percent",
+        20
+    )
+
+    pct3 = strategy.get(
+        "tp3_allocation_percent",
+        70
+    )
+
+    trail_ref = D(
+        strategy.get(
+            "tp3_trailing_reference_percent",
+            "0.20"
+        )
+    )
+
+    trail_min = D(
+        strategy.get(
+            "tp3_trailing_min_percent",
+            "0.10"
+        )
+    )
+
+    trail_max = D(
+        strategy.get(
+            "tp3_trailing_max_percent",
+            "0.40"
+        )
+    )
+
+
+    # ========================================================
+    # TP QUANTITY AND TARGET CALCULATION
+    # ========================================================
+
+    q1, q2, q3 = unit_13_v4_allocation(
+        cum_open,
+        step,
+        pct1,
+        pct2,
+    )
+
+    t1, t2 = unit_13_v4_targets(
+        entry,
+        leverage,
+        side,
+        price_step,
+        tp1_floor,
+        tp2_floor,
+        fee,
+    )
+
+    cycle_id = unit_13_cycle_id(
+        position
+    )
+
+
+    # ========================================================
+    # IMPORT EXISTING TRANSACTIONS
+    # NO DELETION OF PREVIOUS RECORDS
+    # ========================================================
+
+    unit_13_import_legacy(
+        position,
+        symbol,
+        side,
+        cycle_id,
+        entry,
+        cum_open,
+    )
+
+
+    # ========================================================
+    # RECONCILE EXCHANGE-CONFIRMED FILLS
+    # ========================================================
+
+    reconciliation = unit_13_reconcile_cycle(
+        symbol,
+        side,
+        cycle_id,
+        history,
+    )
+
+    filled = reconciliation["filled"]
+
+    pending = reconciliation["pending"]
+
+    tp1_filled = filled["TP1"]
+
+    tp2_filled = filled["TP2"]
+
+    done1 = (
+        q1 == 0
+        or tp1_filled >= q1
+    )
+
+    done2 = (
+        q2 == 0
+        or tp2_filled >= q2
+    )
+
+
+    # ========================================================
+    # CURRENT MARKET TARGET CONDITIONS
+    # PRICE CROSSING DOES NOT CONSUME STAGE
+    # ========================================================
+
+    reached1 = (
+        mark >= t1
+        if side == "LONG"
+        else mark <= t1
+    )
+
+    reached2 = (
+        mark >= t2
+        if side == "LONG"
+        else mark <= t2
+    )
+
+    action = "NONE"
+
+    close_qty = Decimal(0)
+
+
+    # ========================================================
+    # TP1 EXECUTION SELECTION
+    # ========================================================
+
+    if (
+        not done1
+        and reached1
+        and not pending["TP1"]
+    ):
+
+        action = "TP1"
+
+        close_qty = unit_13_remaining_quantity(
+            q1,
+            tp1_filled,
+            size,
+            step,
+        )
+
+
+    # ========================================================
+    # TP2 EXECUTION SELECTION
+    # ========================================================
+
+    elif (
+        done1
+        and not done2
+        and reached2
+        and not pending["TP2"]
+    ):
+
+        action = "TP2"
+
+        close_qty = unit_13_remaining_quantity(
+            q2,
+            tp2_filled,
+            size,
+            step,
+        )
+
+
+    # ========================================================
+    # EXECUTE SELECTED TP
+    # ========================================================
+
+    execution = None
+
+    status = "MONITORING"
+
+    reason = "DYNAMIC_TP_TARGET_NOT_REACHED"
+
+    if action != "NONE":
+
+        if close_qty >= minimum:
+
+            execution = unit_13_execute_tp(
+                symbol,
+                side,
+                cycle_id,
+                action,
+                close_qty,
+            )
+
+            confirmed = D(
+                execution.get(
+                    "filled_quantity",
+                    "0"
+                )
+            )
+
+            if action == "TP1":
+
+                tp1_filled += confirmed
+
+                done1 = (
+                    tp1_filled >= q1
+                )
+
+            elif action == "TP2":
+
+                tp2_filled += confirmed
+
+                done2 = (
+                    tp2_filled >= q2
+                )
+
+            pending[action] = (
+                not unit_13_terminal_status(
+                    execution["status"]
+                )
+            )
+
+            size = max(
+                Decimal(0),
+                size - confirmed
+            )
+
+            if execution["status"] == "FILLED":
+
+                status = action + "_FILLED"
+
+                reason = "EXCHANGE_CONFIRMED_FILL"
+
+            elif execution["status"] == "REJECTED":
+
+                status = action + "_REJECTED"
+
+                reason = "EXCHANGE_REJECTED_RETRY_ALLOWED"
+
+            elif execution["status"] in (
+                "CANCELED",
+                "CANCELLED",
+                "EXPIRED",
+            ):
+
+                status = action + "_RETRY_AVAILABLE"
+
+                reason = "OUTSTANDING_QUANTITY_REMAINS"
+
+            elif execution["status"] == "ACK_UNKNOWN":
+
+                status = "TP_SUBMISSION_UNCERTAIN"
+
+                reason = "AWAITING_ORDER_RECONCILIATION"
+
+            else:
+
+                status = "TP_ORDER_ACKNOWLEDGED"
+
+                reason = "AWAITING_EXCHANGE_CONFIRMED_FILL"
+
+        else:
+
+            reason = (
+                "TP_QUANTITY_BELOW_EXCHANGE_MINIMUM"
+            )
+
+    elif (
+        pending["TP1"]
+        or pending["TP2"]
+    ):
+
+        reason = "AWAITING_TP_ORDER_RECONCILIATION"
+
+
+    # ========================================================
+    # TP3 ARMING
+    # NO LEGACY CLOSURE BLOCKER
+    # ========================================================
+
+    armed = bool(
+        done1
+        and done2
+        and size > 0
+        and q3 > 0
+        and not pending["TP1"]
+        and not pending["TP2"]
+    )
+
+    if armed:
+
+        status = "TP3_ARMED"
+
+        reason = "DYNAMIC_TP3_RUNTIME_REQUIRED"
+
+
+    # ========================================================
+    # POSITION PNL
+    # ========================================================
+
+    direction = (
+        Decimal(1)
+        if side == "LONG"
+        else Decimal(-1)
+    )
+
+    unrealized_pnl = (
+        (mark - entry)
+        * size
+        * direction
+    )
+
+    margin = (
+        entry * size / leverage
+    )
+
+    roi = (
+        unrealized_pnl
+        / margin
+        * Decimal(100)
+        if margin > 0
+        else Decimal(0)
+    )
+
+
+    # ========================================================
+    # EXISTING UNIT 14 RESULT INTERFACE
+    # ========================================================
+
+    result = unit_13_v4_base_result(
+        unit_12_result,
+        status,
+        reason,
+    )
+
+    result.update({
+
+        "symbol": symbol,
+
+        "cycle_id": cycle_id,
+
+        "active_position_exists":
+            size > 0,
+
+        "position_exists":
+            size > 0,
+
+        "tp_management_required":
+            size > 0,
+
+        "position_side":
+            side,
+
+        "position_size":
+            float(size),
+
+        "average_entry_price":
+            float(entry),
+
+        "mark_price":
+            float(mark),
+
+        "position_entry_price":
+            float(entry),
+
+        "position_mark_price":
+            float(mark),
+
+        "position_leverage":
+            float(leverage),
+
+        "position_unrealized_pnl":
+            float(unrealized_pnl),
+
+        "position_unrealized_roi_percent":
+            float(roi),
+
+        "cumulative_open_quantity":
+            str(cum_open),
+
+        "cumulative_close_quantity":
+            str(cum_close),
+
+        "tp_target_allocation":
+            "{}/{}/{}".format(
+                pct1,
+                pct2,
+                pct3,
+            ),
+
+        "tp1_verified_filled_quantity":
+            str(tp1_filled),
+
+        "tp2_verified_filled_quantity":
+            str(tp2_filled),
+
+        "tp_history_unresolved":
+            bool(
+                pending["TP1"]
+                or pending["TP2"]
+            ),
+
+        "tp1_pending":
+            pending["TP1"],
+
+        "tp2_pending":
+            pending["TP2"],
+
+        "tp_legacy_closures_unattributed":
+            False,
+
+        "tp1_target":
+            float(t1),
+
+        "tp2_target":
+            float(t2),
+
+        "tp1_target_price":
+            str(t1),
+
+        "tp2_target_price":
+            str(t2),
+
+        "tp1_quantity":
+            float(q1),
+
+        "tp2_quantity":
+            float(q2),
+
+        "tp3_quantity":
+            float(q3),
+
+        "tp1_completed":
+            done1,
+
+        "tp2_completed":
+            done2,
+
+        "tp3_armed":
+            armed,
+
+        "tp1_target_reached":
+            reached1,
+
+        "tp2_target_reached":
+            reached2,
+
+        "tp3_trailing_percent":
+            float(trail_ref),
+
+        "tp3_trailing_reference_percent":
+            float(trail_ref),
+
+        "tp3_trailing_min_percent":
+            float(trail_min),
+
+        "tp3_trailing_max_percent":
+            float(trail_max),
+
+        "tp3_trailing_dynamic":
+            True,
+
+        "tp1_net_roi_floor_percent":
+            float(tp1_floor),
+
+        "tp2_net_roi_floor_percent":
+            float(tp2_floor),
+
+        "tp_action":
+            action,
+
+        "tp_execution_attempted":
+            bool(execution),
+
+        "tp_execution_completed":
+            bool(
+                execution
+                and (
+                    (
+                        action == "TP1"
+                        and done1
+                    )
+                    or (
+                        action == "TP2"
+                        and done2
+                    )
+                )
+            ),
+
+        "exchange_write":
+            bool(
+                execution
+                and execution.get(
+                    "exchange_write"
+                )
+            ),
+
+        "demo_order_executed":
+            bool(
+                execution
+                and D(
+                    execution.get(
+                        "filled_quantity",
+                        "0"
+                    )
+                ) > 0
+            ),
+
+        "position_management_independent_of_bot_mode":
+            True,
+
+        "real_submission_attempted":
+            False,
+
+    })
+
+    if execution:
+
+        result.update({
+
+            "tp_order_id":
+                execution.get("order_id"),
+
+            "tp_client_order_id":
+                execution.get("client_id"),
+
+            "tp_close_quantity":
+                str(close_qty),
+
+            "tp_execution_status":
+                execution["status"],
+
+            "tp_execution_filled_quantity":
+                execution.get(
+                    "filled_quantity",
+                    "0"
+                ),
+
+        })
+
+
+    # ========================================================
+    # CONCISE EXECUTION REPORT
+    # ========================================================
+
+    print(
+        "UNIT 13 SYMBOL =",
+        symbol,
+        flush=True
+    )
+
+    print(
+        "UNIT 13 POSITION SIDE =",
+        side,
+        flush=True
+    )
+
+    print(
+        "UNIT 13 POSITION SIZE =",
+        size,
+        flush=True
+    )
+
+    print(
+        "UNIT 13 ENTRY PRICE =",
+        entry,
+        flush=True
+    )
+
+    print(
+        "UNIT 13 MARK PRICE =",
+        mark,
+        flush=True
+    )
+
+    print(
+        "UNIT 13 LEVERAGE =",
+        leverage,
+        flush=True
+    )
+
+    print(
+        "UNIT 13 TP1 TARGET =",
+        t1,
+        flush=True
+    )
+
+    print(
+        "UNIT 13 TP2 TARGET =",
+        t2,
+        flush=True
+    )
+
+    print(
+        "UNIT 13 TP1 QUANTITY =",
+        q1,
+        flush=True
+    )
+
+    print(
+        "UNIT 13 TP2 QUANTITY =",
+        q2,
+        flush=True
+    )
+
+    print(
+        "UNIT 13 TP1 VERIFIED FILLED =",
+        tp1_filled,
+        flush=True
+    )
+
+    print(
+        "UNIT 13 TP2 VERIFIED FILLED =",
+        tp2_filled,
+        flush=True
+    )
+
+    print(
+        "UNIT 13 TP1 COMPLETED =",
+        done1,
+        flush=True
+    )
+
+    print(
+        "UNIT 13 TP2 COMPLETED =",
+        done2,
+        flush=True
+    )
+
+    print(
+        "UNIT 13 TP3 ARMED =",
+        armed,
+        flush=True
+    )
+
+    print(
+        "UNIT 13 TP ACTION =",
+        action,
+        flush=True
+    )
+
+    print(
+        "UNIT 13 STATUS =",
+        status,
+        flush=True
+    )
+
+    print(
+        "UNIT 13 REASON =",
+        reason,
+        flush=True
+    )
+
+    print(
+        "UNIT 13 EXCHANGE WRITE =",
+        result["exchange_write"],
+        flush=True
+    )
+
+    return result
+
+
+# ============================================================
+# MAIN UNIT 13
+# INDEPENDENT ACTIVE POSITION MANAGEMENT
+# ============================================================
+
+def fresh_reconstruction_unit_13(
+    config,
+    unit_12_result,
+):
+
+    print("=" * 80, flush=True)
+
+    print(
+        "UNIT 13 V6 EXECUTION START",
+        flush=True
+    )
+
+    positions = unit_13_v4_positions()
+
+    if not positions:
+
+        return unit_13_v4_base_result(
+            unit_12_result,
+            "IDLE_NO_POSITION",
+            "NO_ACTIVE_DEMO_POSITION",
+        )
+
+    _, symbol = unit_13_14_active_symbols()
+
+    mark = unit_13_v4_mark_price()
+
+    history = unit_13_v4_history(
+        symbol
+    )
+
+    results = []
+
+    for position in positions:
+
+        try:
+
+            result = unit_13_manage_position(
+                config,
+                unit_12_result,
+                position,
+                mark,
+                history,
+            )
+
+        except Exception as exc:
+
+            result = unit_13_v4_base_result(
+                unit_12_result,
+                "ERROR",
+                str(exc),
+            )
+
+            result.update({
+
+                "symbol":
+                    symbol,
+
+                "position_side":
+                    str(
+                        position.get("side")
+                        or ""
+                    ).upper(),
+
+                "position_size":
+                    float(
+                        position.get("size")
+                        or 0
+                    ),
+
+                "active_position_exists":
+                    True,
+
+                "position_exists":
+                    True,
+
+                "execution_error":
+                    str(exc),
+
+            })
+
+            print(
+                "UNIT 13 POSITION EXECUTION ERROR =",
+                str(exc),
+                flush=True
+            )
+
+        results.append(result)
+
+
+    # ========================================================
+    # PRESERVE SINGLE-RESULT UNIT 14 INTERFACE
+    # ADD INDEPENDENT POSITION RESULTS
+    # ========================================================
+
+    primary = next(
+        (
+            result
+            for result in results
+            if result.get(
+                "active_position_exists"
+            )
+            and result.get("status") != "ERROR"
+        ),
+        results[0],
+    )
+
+    output = dict(primary)
+
+    output["position_results"] = results
+
+    output["active_position_count"] = sum(
+        1
+        for result in results
+        if result.get(
+            "active_position_exists"
+        )
+    )
+
+    output["active_position_exists"] = bool(
+        output["active_position_count"]
+    )
+
+    output["position_exists"] = (
+        output["active_position_exists"]
+    )
+
+    output["exchange_write"] = any(
+        result.get("exchange_write", False)
+        for result in results
+    )
+
+    output["tp_execution_attempted"] = any(
+        result.get(
+            "tp_execution_attempted",
+            False
+        )
+        for result in results
+    )
+
+    print(
+        "UNIT 13 ACTIVE POSITION COUNT =",
+        output["active_position_count"],
+        flush=True
+    )
+
+    print(
+        "UNIT 13 POSITION MANAGEMENT COMPLETE",
+        flush=True
+    )
+
+    print("=" * 80, flush=True)
+
+    return output
+
+
+# ============================================================
+# ORIGINAL HYBRID ADAPTER INTERFACE
+# ============================================================
+
+def fresh_unit_13_hybrid_adapter(
+    config,
+    unit_12_result,
+):
+
+    try:
+
+        return fresh_reconstruction_unit_13(
+            config,
+            unit_12_result,
+        )
+
+    except Exception as exc:
+
+        print(
+            "UNIT 13 EXECUTION ERROR =",
+            str(exc),
+            flush=True
+        )
+
+        result = unit_13_v4_base_result(
+            unit_12_result,
+            "ERROR",
+            str(exc),
+        )
+
+        result["execution_error"] = str(exc)
+
+        return result
+
+
+# ============================================================
+# RETAIN EXISTING VALIDATION FUNCTION INTERFACE
+# NONBLOCKING LOCAL CHECKS
+# ============================================================
+
+def unit_13_validation_v5():
+
+    checks = {}
+
+    try:
+
+        db = unit_13_db()
+
+        db.close()
+
+        checks["SQLITE"] = "PASS"
+
+    except Exception as exc:
+
+        checks["SQLITE"] = (
+            "FAIL: " + str(exc)
+        )
+
+    try:
+
+        allocation = unit_13_v4_allocation(
+            Decimal("10"),
+            Decimal("1"),
+            10,
+            20,
+        )
+
+        assert sum(allocation) == Decimal("10")
+
+        checks["TP_ALLOCATION"] = "PASS"
+
+    except Exception as exc:
+
+        checks["TP_ALLOCATION"] = (
+            "FAIL: " + str(exc)
+        )
+
+    try:
+
+        t1, t2 = unit_13_v4_targets(
+            Decimal("100"),
+            Decimal("10"),
+            "LONG",
+            Decimal("0.01"),
+            Decimal("20"),
+            Decimal("40"),
+            Decimal("0.08"),
+        )
+
+        assert t2 > t1 > Decimal("100")
+
+        checks["TP_TARGETS"] = "PASS"
+
+    except Exception as exc:
+
+        checks["TP_TARGETS"] = (
+            "FAIL: " + str(exc)
+        )
+
+    passed = all(
+        value == "PASS"
+        for value in checks.values()
+    )
+
+    for name, value in checks.items():
+
+        print(
+            "UNIT 13",
+            name,
+            "=",
+            value,
+            flush=True
+        )
+
+    return {
+        "unit": 13,
+        "version": "V6",
+        "passed": passed,
+        "checks": checks,
+    }
+
+
+# ============================================================
+# ORIGINAL INITIALIZATION AND HANDOVER VARIABLES
+# ============================================================
+
+FRESH_UNIT_13_VALIDATION_READY = (
+    unit_13_validation_v5()
+)
+
+FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
+    fresh_unit_13_hybrid_adapter(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_12_RESULT,
+    )
+)
+
+
+# ============================================================
+# END COMPLETE UNIT 13 V6 REPLACEMENT
+# END PART 3 OF 3
+# NEXT SECTION: UNIT 14
+# ZERO INDENTATION
+# ============================================================
