@@ -25762,3 +25762,752 @@ print(
 # - MANUAL DEMO POSITION CONTROLLER
 #
 # ============================================================
+
+
+# ============================================================
+# COMPLETE CONTINUOUS SCAN CONTROLLER V3
+# PART 1 OF 3
+# CONFIGURATION / CONTRACT SPECIFICATIONS
+# ZERO INDENTATION
+# ============================================================
+
+import os
+import json
+import sqlite3
+
+import os as _scan_os
+import time as _scan_time
+import threading as _scan_thread
+import traceback as _scan_traceback
+
+import urllib.request as _scan_http
+import urllib.parse as _scan_url
+
+from datetime import datetime as _SCAN_DT
+from zoneinfo import ZoneInfo as _SCAN_Zone
+
+from decimal import (
+    Decimal,
+    InvalidOperation,
+    ROUND_CEILING,
+    ROUND_DOWN,
+    ROUND_UP,
+)
+
+
+# ============================================================
+# SCAN CONFIGURATION
+# ============================================================
+
+SCAN_INTERVAL_SECONDS = int(
+    _scan_os.getenv(
+        "SCAN_INTERVAL_SECONDS",
+        "30",
+    )
+)
+
+if not 30 <= SCAN_INTERVAL_SECONDS <= 60:
+
+    raise RuntimeError(
+        "SCAN INTERVAL MUST BE 30-60 SECONDS"
+    )
+
+
+SCAN_TZ = _SCAN_Zone("Africa/Lagos")
+
+SCAN_LOCK = _scan_thread.Lock()
+
+SCAN_NUMBER = 0
+
+SCAN_LAST_MARKET_SUCCESS = None
+
+SCAN_LAST_MANAGEMENT_SUCCESS = None
+
+SCAN_LAST_STATUS = "NOT_STARTED"
+
+SCAN_LAST_ATR_SYMBOL = None
+
+SCAN_LAST_ATR_TIME = None
+
+
+# ============================================================
+# COMMON DECIMAL HELPERS
+# ============================================================
+
+def scan_decimal(value):
+
+    number = Decimal(str(value))
+
+    if not number.is_finite():
+
+        raise ValueError(
+            "NONFINITE_DECIMAL"
+        )
+
+    return number
+
+
+def scan_positive_decimal(
+    value,
+    name,
+):
+
+    number = scan_decimal(value)
+
+    if number <= 0:
+
+        raise ValueError(
+            "INVALID_" + name
+        )
+
+    return number
+
+
+def scan_floor(
+    value,
+    step,
+):
+
+    value = scan_decimal(value)
+
+    step = scan_positive_decimal(
+        step,
+        "STEP",
+    )
+
+    return (
+        value / step
+    ).to_integral_value(
+        rounding=ROUND_DOWN
+    ) * step
+
+
+def scan_ceil(
+    value,
+    step,
+):
+
+    value = scan_decimal(value)
+
+    step = scan_positive_decimal(
+        step,
+        "STEP",
+    )
+
+    return (
+        value / step
+    ).to_integral_value(
+        rounding=ROUND_CEILING
+    ) * step
+
+
+# ============================================================
+# IDLE UNIT 12 HANDOVER
+# POSITION MANAGEMENT REMAINS AVAILABLE
+# ============================================================
+
+def scan_idle_unit12_result(reason):
+
+    return {
+        "unit": 12,
+
+        "status": "IDLE",
+
+        "skip_reason": str(reason),
+
+        "active_mode": "NONE",
+
+        "direction": "NONE",
+
+        "signal_qualified": False,
+
+        "execution_intent": False,
+
+        "execution_authorized": False,
+
+        "position_exists": False,
+
+        "demo_submission_attempted": False,
+
+        "demo_submission_completed": False,
+
+        "real_submission_attempted": False,
+
+        "exchange_write": False,
+
+        "management_path_permitted": True,
+    }
+
+
+# ============================================================
+# ERROR HANDOVER
+# DISTINCT FROM NORMAL IDLE
+# ============================================================
+
+def scan_error_unit12_result(reason):
+
+    result = scan_idle_unit12_result(
+        reason
+    )
+
+    result["status"] = "ERROR"
+
+    result["execution_error"] = str(
+        reason
+    )
+
+    return result
+
+
+# ============================================================
+# PRECISION INDEX CONVERSION
+# SUPPORT POSITIVE, ZERO AND NEGATIVE INDEX
+# ============================================================
+
+def scan_precision_step(
+    value,
+    name,
+):
+
+    if value is None or isinstance(
+        value,
+        bool,
+    ):
+
+        raise ValueError(
+            "INVALID_" + name
+        )
+
+    number = scan_decimal(value)
+
+    if (
+        number != number.to_integral_value()
+        or number < -18
+        or number > 18
+    ):
+
+        raise ValueError(
+            "INVALID_" + name
+        )
+
+    return Decimal("1").scaleb(
+        -int(number)
+    )
+
+
+# ============================================================
+# PUBLIC WEEX CONTRACT INFORMATION
+# ============================================================
+
+def scan_public_contract_information(
+    config,
+    symbol,
+):
+
+    symbol = str(
+        symbol
+    ).strip().upper()
+
+    if (
+        not symbol
+        or not symbol.endswith("USDT")
+    ):
+
+        raise ValueError(
+            "INVALID_MARKET_SYMBOL"
+        )
+
+    exchange = config.get(
+        "exchange",
+        {},
+    )
+
+    base_url = str(
+        exchange.get(
+            "contract_base_url",
+            "https://api-contract.weex.com",
+        )
+    ).rstrip("/")
+
+    if (
+        base_url
+        != "https://api-contract.weex.com"
+    ):
+
+        raise ValueError(
+            "UNEXPECTED_MARKET_API_HOST"
+        )
+
+    query = _scan_url.urlencode({
+        "symbol": symbol,
+    })
+
+    url = (
+        base_url
+        + "/capi/v3/market/exchangeInfo?"
+        + query
+    )
+
+    request = _scan_http.Request(
+        url,
+
+        method="GET",
+
+        headers={
+            "Accept": "application/json",
+
+            "User-Agent":
+                "WEEX-Contract-Specs-V3",
+        },
+    )
+
+    with _scan_http.urlopen(
+        request,
+        timeout=15,
+    ) as response:
+
+        if response.status != 200:
+
+            raise RuntimeError(
+                "CONTRACT_INFO_HTTP_"
+                + str(response.status)
+            )
+
+        payload = json.loads(
+            response.read().decode(
+                "utf-8"
+            )
+        )
+
+    if not isinstance(
+        payload,
+        dict,
+    ):
+
+        raise ValueError(
+            "INVALID_CONTRACT_INFO_RESPONSE"
+        )
+
+    rows = payload.get("symbols")
+
+    if not isinstance(
+        rows,
+        list,
+    ):
+
+        raise ValueError(
+            "CONTRACT_SYMBOL_LIST_MISSING"
+        )
+
+    selected = next(
+        (
+            row
+            for row in rows
+
+            if isinstance(row, dict)
+
+            and str(
+                row.get("symbol", "")
+            ).upper() == symbol
+        ),
+
+        None,
+    )
+
+    if selected is None:
+
+        raise ValueError(
+            "SYMBOL_NOT_IN_EXCHANGE_INFO"
+        )
+
+    return selected
+
+
+# ============================================================
+# NORMALIZE EXCHANGE CONTRACT SPECIFICATIONS
+# ============================================================
+
+def scan_normalize_contract(
+    symbol,
+    selected,
+):
+
+    if str(
+        selected.get(
+            "quoteAsset",
+            "",
+        )
+    ).upper() != "USDT":
+
+        raise ValueError(
+            "NOT_USDT_QUOTED"
+        )
+
+    if selected.get(
+        "size_increment"
+    ) is not None:
+
+        quantity_step = (
+            scan_positive_decimal(
+                selected["size_increment"],
+                "QUANTITY_STEP",
+            )
+        )
+
+    else:
+
+        quantity_step = (
+            scan_precision_step(
+                selected["quantityPrecision"],
+                "QUANTITY_PRECISION",
+            )
+        )
+
+    if selected.get(
+        "tick_size"
+    ) is not None:
+
+        price_step = (
+            scan_positive_decimal(
+                selected["tick_size"],
+                "PRICE_STEP",
+            )
+        )
+
+    else:
+
+        price_step = (
+            scan_precision_step(
+                selected["pricePrecision"],
+                "PRICE_PRECISION",
+            )
+        )
+
+    minimum_quantity = (
+        scan_positive_decimal(
+            selected["minOrderSize"],
+            "MINIMUM_ORDER_SIZE",
+        )
+    )
+
+    contract_value = (
+        scan_positive_decimal(
+            selected["contractVal"],
+            "CONTRACT_VALUE",
+        )
+    )
+
+    # Preserve the existing base-asset
+    # quantity calculation used by Units 8-9.
+    #
+    # Do not multiply base-asset quantity
+    # by contractVal a second time.
+
+    return {
+        "quantity_step":
+            float(quantity_step),
+
+        "minimum_quantity":
+            float(minimum_quantity),
+
+        "price_step":
+            float(price_step),
+
+        "contract_multiplier":
+            1.0,
+
+        "contract_value":
+            float(contract_value),
+
+        "specifications_symbol":
+            symbol,
+
+        "symbol_specifications_confirmed":
+            True,
+    }
+
+
+# ============================================================
+# UNIT 9 UNIVERSAL CONTRACT SPECIFICATION LOADER
+# PRESERVE ORIGINAL CALLABLE INTERFACE
+# ============================================================
+
+def unit_9_load_symbol_specifications(
+    config,
+    symbol,
+):
+
+    symbol = str(
+        symbol
+    ).strip().upper()
+
+    precision = config.setdefault(
+        "market_precision",
+        {},
+    )
+
+    precision[
+        "symbol_specifications_confirmed"
+    ] = False
+
+    previous_symbol = str(
+        precision.get(
+            "specifications_symbol",
+            "",
+        )
+    ).upper()
+
+    # Never carry another symbol's quantity
+    # or price precision into a new symbol.
+
+    if previous_symbol != symbol:
+
+        for key in (
+            "quantity_step",
+            "minimum_quantity",
+            "price_step",
+            "contract_multiplier",
+            "contract_value",
+            "specifications_symbol",
+        ):
+
+            precision.pop(
+                key,
+                None,
+            )
+
+    try:
+
+        selected = (
+            scan_public_contract_information(
+                config,
+                symbol,
+            )
+        )
+
+        print(
+            "UNIT 9 EXCHANGE PRECISION FIELDS =",
+            {
+                key: selected.get(key)
+
+                for key in (
+                    "quantityPrecision",
+                    "size_increment",
+                    "pricePrecision",
+                    "tick_size",
+                    "minOrderSize",
+                    "contractVal",
+                )
+            },
+            flush=True,
+        )
+
+        values = (
+            scan_normalize_contract(
+                symbol,
+                selected,
+            )
+        )
+
+        precision.update(values)
+
+        print(
+            "UNIT 9 CONTRACT SPECIFICATIONS = LOADED",
+            flush=True,
+        )
+
+        print(
+            "UNIT 9 CONTRACT SYMBOL =",
+            symbol,
+            flush=True,
+        )
+
+        print(
+            "UNIT 9 QUANTITY STEP =",
+            precision["quantity_step"],
+            flush=True,
+        )
+
+        print(
+            "UNIT 9 MINIMUM QUANTITY =",
+            precision["minimum_quantity"],
+            flush=True,
+        )
+
+        print(
+            "UNIT 9 PRICE STEP =",
+            precision["price_step"],
+            flush=True,
+        )
+
+        print(
+            "UNIT 9 CONTRACT VALUE =",
+            precision["contract_value"],
+            flush=True,
+        )
+
+        print(
+            "UNIT 9 CONTRACT MULTIPLIER =",
+            precision["contract_multiplier"],
+            flush=True,
+        )
+
+        print(
+            "UNIT 9 QUANTITY BASIS = BASE_ASSET",
+            flush=True,
+        )
+
+        return True
+
+    except Exception as exc:
+
+        precision[
+            "symbol_specifications_confirmed"
+        ] = False
+
+        print(
+            "UNIT 9 CONTRACT SPECIFICATIONS = UNAVAILABLE",
+            flush=True,
+        )
+
+        print(
+            "UNIT 9 CONTRACT SYMBOL =",
+            symbol,
+            flush=True,
+        )
+
+        print(
+            "UNIT 9 CONTRACT REASON =",
+            str(exc),
+            flush=True,
+        )
+
+        return False
+
+
+# ============================================================
+# CURRENT SYMBOL CONTRACT DETAILS
+# SHARED BY CONFIGURATION CONTROLLERS
+# ============================================================
+
+def scan_contract_details(config):
+
+    precision = config.get(
+        "market_precision",
+        {},
+    )
+
+    symbol = str(
+        config["exchange"]["market_symbol"]
+    ).upper()
+
+    if str(
+        precision.get(
+            "specifications_symbol",
+            "",
+        )
+    ).upper() != symbol:
+
+        raise RuntimeError(
+            "CONTRACT_SYMBOL_MISMATCH"
+        )
+
+    return {
+        "symbol": symbol,
+
+        "quantity_step":
+            scan_positive_decimal(
+                precision["quantity_step"],
+                "QUANTITY_STEP",
+            ),
+
+        "minimum_quantity":
+            scan_positive_decimal(
+                precision["minimum_quantity"],
+                "MINIMUM_QUANTITY",
+            ),
+
+        "price_step":
+            scan_positive_decimal(
+                precision["price_step"],
+                "PRICE_STEP",
+            ),
+
+        "contract_multiplier":
+            scan_positive_decimal(
+                precision.get(
+                    "contract_multiplier",
+                    1,
+                ),
+                "CONTRACT_MULTIPLIER",
+            ),
+
+        "confirmed":
+            bool(
+                precision.get(
+                    "symbol_specifications_confirmed"
+                )
+            ),
+    }
+
+
+# ============================================================
+# RESULT ERROR DETECTION
+# DIAGNOSTIC ONLY
+# ============================================================
+
+def scan_result_has_error(result):
+
+    if not isinstance(
+        result,
+        dict,
+    ):
+
+        return True
+
+    status = str(
+        result.get(
+            "status",
+            "",
+        )
+    ).upper()
+
+    if (
+        "ERROR" in status
+
+        or status in (
+            "FAIL",
+            "FAILED",
+        )
+
+        or result.get(
+            "execution_error"
+        )
+    ):
+
+        return True
+
+    for item in result.get(
+        "position_results",
+        [],
+    ) or []:
+
+        if isinstance(item, dict):
+
+            if scan_result_has_error(
+                item
+            ):
+
+                return True
+
+    return False
+
+
+# ============================================================
+# END COMPLETE CONTINUOUS SCAN CONTROLLER V3
+# END PART 1 OF 3
+# ZERO INDENTATION
+#
+# NEXT:
+# CONSOLIDATED TP ROI AND INITIAL_USDT CONTROLLERS
+# ============================================================
