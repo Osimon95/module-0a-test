@@ -16356,3 +16356,1494 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
 # NEXT SECTION: UNIT 14
 # ZERO INDENTATION
 # ============================================================
+
+
+# ============================================================
+# COMPLETE UNIT 14 V4 REPLACEMENT
+# PART 2 OF 4
+# SQLITE TRANSACTIONS AND EXCHANGE RECONCILIATION
+# ZERO INDENTATION
+# ============================================================
+
+UNIT14_DB_PATH = os.getenv(
+    "UNIT14_STAGE_DB_PATH",
+    "/var/data/unit14_stages.sqlite3"
+)
+
+UNIT14_ORDER_TABLES = (
+    "hedge_orders_v4",
+    "backup_orders_v4",
+    "breakeven_orders_v4",
+    "tp3_orders_v4",
+)
+
+
+# ============================================================
+# SELECT INDEPENDENT TRANSACTION TABLE
+# ============================================================
+
+def unit_14_order_table(action):
+
+    action = str(action).upper()
+
+    if action == "BE-C":
+
+        return "breakeven_orders_v4"
+
+    if action == "TP3-C":
+
+        return "tp3_orders_v4"
+
+    if action in (
+        "B1", "B2", "B3", "B4", "B5"
+    ):
+
+        return "backup_orders_v4"
+
+    return "hedge_orders_v4"
+
+
+# ============================================================
+# PERSISTENT SQLITE REGISTRY
+# EXISTING TABLES AND HISTORY REMAIN INTACT
+# ============================================================
+
+def unit_14_stage_db():
+
+    directory = os.path.dirname(
+        UNIT14_DB_PATH
+    )
+
+    if directory:
+
+        os.makedirs(
+            directory,
+            exist_ok=True
+        )
+
+    db = sqlite3.connect(
+        UNIT14_DB_PATH,
+        timeout=30,
+        isolation_level=None,
+    )
+
+    db.execute(
+        "PRAGMA busy_timeout=30000"
+    )
+
+    db.execute(
+        "PRAGMA journal_mode=WAL"
+    )
+
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS stage_cycles (
+            cycle_id TEXT PRIMARY KEY,
+            symbol TEXT NOT NULL,
+            original_side TEXT NOT NULL,
+            original_quantity TEXT NOT NULL,
+            original_entry TEXT NOT NULL,
+            frozen_atr TEXT NOT NULL,
+            stage TEXT NOT NULL DEFAULT 'READY',
+            state TEXT NOT NULL DEFAULT 'ACTIVE',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    for table in UNIT14_ORDER_TABLES:
+
+        db.execute(f"""
+            CREATE TABLE IF NOT EXISTS {table} (
+                client_id TEXT PRIMARY KEY,
+                cycle_id TEXT NOT NULL,
+                action TEXT NOT NULL,
+                quantity TEXT NOT NULL,
+                state TEXT NOT NULL,
+                exchange_order_id TEXT,
+                confirmed_filled TEXT NOT NULL DEFAULT '0',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        db.execute(f"""
+            CREATE INDEX IF NOT EXISTS
+            {table}_cycle_action
+            ON {table} (
+                cycle_id,
+                action
+            )
+        """)
+
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS unit14_stage_targets (
+            cycle_id TEXT NOT NULL,
+            action TEXT NOT NULL,
+            target_quantity TEXT NOT NULL,
+            PRIMARY KEY (
+                cycle_id,
+                action
+            )
+        )
+    """)
+
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS unit14_runtime_state (
+            cycle_id TEXT NOT NULL,
+            state_key TEXT NOT NULL,
+            state_value TEXT,
+            PRIMARY KEY (
+                cycle_id,
+                state_key
+            )
+        )
+    """)
+
+    return db
+
+
+# ============================================================
+# IMPORT LEGACY TRANSACTIONS
+# NO DELETION OR RESET OF EXISTING RECORDS
+# ============================================================
+
+def unit_14_import_legacy_orders(cycle_id):
+
+    db = unit_14_stage_db()
+
+    imported = 0
+
+    try:
+
+        db.execute("BEGIN IMMEDIATE")
+
+        tables = {
+            row[0]
+            for row in db.execute("""
+                SELECT name
+                FROM sqlite_master
+                WHERE type = 'table'
+            """)
+        }
+
+        for source in (
+            "stage_orders",
+            "breakeven_orders",
+            "tp3_orders",
+        ):
+
+            if source not in tables:
+
+                continue
+
+            rows = db.execute(f"""
+                SELECT
+                    client_id,
+                    cycle_id,
+                    action,
+                    quantity,
+                    state,
+                    exchange_order_id,
+                    confirmed_filled,
+                    created_at,
+                    updated_at
+                FROM {source}
+                WHERE cycle_id = ?
+            """, (
+                cycle_id,
+            )).fetchall()
+
+            for row in rows:
+
+                destination = (
+                    unit_14_order_table(
+                        row[2]
+                    )
+                )
+
+                cursor = db.execute(f"""
+                    INSERT OR IGNORE INTO {destination} (
+                        client_id,
+                        cycle_id,
+                        action,
+                        quantity,
+                        state,
+                        exchange_order_id,
+                        confirmed_filled,
+                        created_at,
+                        updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, row)
+
+                imported += cursor.rowcount
+
+        db.execute("COMMIT")
+
+    except Exception:
+
+        if db.in_transaction:
+
+            db.execute("ROLLBACK")
+
+        raise
+
+    finally:
+
+        db.close()
+
+    return imported
+
+
+# ============================================================
+# CREATE INDEPENDENT MANAGEMENT CYCLE
+# NO ORIGINAL E0 OWNERSHIP GATE
+# ============================================================
+
+def unit_14_stage_create_cycle(
+    cycle_id,
+    symbol,
+    original_side,
+    original_quantity,
+    original_entry,
+    frozen_atr,
+):
+
+    db = unit_14_stage_db()
+
+    try:
+
+        db.execute("""
+            INSERT OR IGNORE INTO stage_cycles (
+                cycle_id,
+                symbol,
+                original_side,
+                original_quantity,
+                original_entry,
+                frozen_atr,
+                stage,
+                state
+            )
+            VALUES (
+                ?, ?, ?, ?, ?, ?,
+                'READY',
+                'ACTIVE'
+            )
+        """, (
+            str(cycle_id),
+            str(symbol).upper(),
+            str(original_side).upper(),
+            str(original_quantity),
+            str(original_entry),
+            str(frozen_atr),
+        ))
+
+    finally:
+
+        db.close()
+
+    unit_14_import_legacy_orders(
+        cycle_id
+    )
+
+    return cycle_id
+
+
+# ============================================================
+# READ AND WRITE PERSISTENT RUNTIME STATE
+# FOR ATR, TRAILING PEAK AND RECOVERY GENERATION
+# ============================================================
+
+def unit_14_state_get(
+    cycle_id,
+    key,
+    default=None,
+):
+
+    db = unit_14_stage_db()
+
+    try:
+
+        row = db.execute("""
+            SELECT state_value
+            FROM unit14_runtime_state
+            WHERE cycle_id = ?
+            AND state_key = ?
+        """, (
+            cycle_id,
+            key,
+        )).fetchone()
+
+        if row is None:
+
+            return default
+
+        return json.loads(
+            row[0]
+        )
+
+    finally:
+
+        db.close()
+
+
+def unit_14_state_set(
+    cycle_id,
+    key,
+    value,
+):
+
+    db = unit_14_stage_db()
+
+    try:
+
+        db.execute("""
+            INSERT INTO unit14_runtime_state (
+                cycle_id,
+                state_key,
+                state_value
+            )
+            VALUES (?, ?, ?)
+
+            ON CONFLICT (
+                cycle_id,
+                state_key
+            )
+
+            DO UPDATE SET
+                state_value = excluded.state_value
+        """, (
+            cycle_id,
+            key,
+            json.dumps(
+                value,
+                default=str
+            ),
+        ))
+
+    finally:
+
+        db.close()
+
+    return value
+
+
+# ============================================================
+# READ ALL TRANSACTION ATTEMPTS FOR ONE ACTION
+# ============================================================
+
+def unit_14_stage_orders(
+    cycle_id,
+    action,
+):
+
+    table = unit_14_order_table(
+        action
+    )
+
+    db = unit_14_stage_db()
+
+    db.row_factory = sqlite3.Row
+
+    try:
+
+        rows = db.execute(f"""
+            SELECT *
+            FROM {table}
+            WHERE cycle_id = ?
+            AND action = ?
+            ORDER BY created_at, rowid
+        """, (
+            cycle_id,
+            action,
+        )).fetchall()
+
+        return [
+            dict(row)
+            for row in rows
+        ]
+
+    finally:
+
+        db.close()
+
+
+# ============================================================
+# FREEZE STAGE TARGET AT FIRST ACTUAL EXECUTION
+# NOT WHEN MARKET PRICE CROSSES A TRIGGER
+# ============================================================
+
+def unit_14_stage_target(
+    cycle_id,
+    action,
+    quantity=None,
+):
+
+    db = unit_14_stage_db()
+
+    try:
+
+        if quantity is not None:
+
+            db.execute("""
+                INSERT OR IGNORE INTO
+                unit14_stage_targets (
+                    cycle_id,
+                    action,
+                    target_quantity
+                )
+                VALUES (?, ?, ?)
+            """, (
+                cycle_id,
+                action,
+                str(quantity),
+            ))
+
+        row = db.execute("""
+            SELECT target_quantity
+            FROM unit14_stage_targets
+            WHERE cycle_id = ?
+            AND action = ?
+        """, (
+            cycle_id,
+            action,
+        )).fetchone()
+
+        if row is None:
+
+            return None
+
+        return Decimal(
+            str(row[0])
+        )
+
+    finally:
+
+        db.close()
+
+
+# ============================================================
+# CLAIM AN ACTUAL SUBMISSION ATTEMPT
+# CONFIRMED TERMINAL ORDERS DO NOT BLOCK RETRIES
+# ============================================================
+
+def unit_14_stage_claim(
+    cycle_id,
+    action,
+    quantity,
+    target_quantity=None,
+):
+
+    D = unit_14_v3_D
+
+    quantity = D(quantity)
+
+    table = unit_14_order_table(
+        action
+    )
+
+    db = unit_14_stage_db()
+
+    try:
+
+        db.execute("BEGIN IMMEDIATE")
+
+        rows = db.execute(f"""
+            SELECT
+                client_id,
+                quantity,
+                state,
+                confirmed_filled
+            FROM {table}
+            WHERE cycle_id = ?
+            AND action = ?
+        """, (
+            cycle_id,
+            action,
+        )).fetchall()
+
+        confirmed = sum(
+            (
+                D(row[3])
+                for row in rows
+            ),
+            Decimal(0),
+        )
+
+        for row in rows:
+
+            if not unit_14_terminal_status(
+                row[2]
+            ):
+
+                db.execute("COMMIT")
+
+                return {
+                    "claimed": False,
+                    "client_id": row[0],
+                    "state": row[2],
+                    "quantity": row[1],
+                }
+
+        target_row = db.execute("""
+            SELECT target_quantity
+            FROM unit14_stage_targets
+            WHERE cycle_id = ?
+            AND action = ?
+        """, (
+            cycle_id,
+            action,
+        )).fetchone()
+
+        if target_row is None:
+
+            target = D(
+                target_quantity
+                if target_quantity is not None
+                else quantity
+            )
+
+            db.execute("""
+                INSERT INTO unit14_stage_targets (
+                    cycle_id,
+                    action,
+                    target_quantity
+                )
+                VALUES (?, ?, ?)
+            """, (
+                cycle_id,
+                action,
+                str(target),
+            ))
+
+        else:
+
+            target = D(
+                target_row[0]
+            )
+
+        remaining = max(
+            Decimal(0),
+            target - confirmed
+        )
+
+        quantity = min(
+            quantity,
+            remaining
+        )
+
+        if quantity <= 0:
+
+            db.execute("COMMIT")
+
+            return {
+                "claimed": False,
+                "client_id": None,
+                "state": "NO_OUTSTANDING_QUANTITY",
+                "quantity": "0",
+            }
+
+        client_id = unit_14_stage_client_id(
+            cycle_id,
+            action,
+        )
+
+        db.execute(f"""
+            INSERT INTO {table} (
+                client_id,
+                cycle_id,
+                action,
+                quantity,
+                state
+            )
+            VALUES (?, ?, ?, ?, 'SUBMITTING')
+        """, (
+            client_id,
+            cycle_id,
+            action,
+            str(quantity),
+        ))
+
+        db.execute("COMMIT")
+
+        return {
+            "claimed": True,
+            "client_id": client_id,
+            "state": "SUBMITTING",
+            "quantity": str(quantity),
+        }
+
+    except Exception:
+
+        if db.in_transaction:
+
+            db.execute("ROLLBACK")
+
+        raise
+
+    finally:
+
+        db.close()
+
+
+# ============================================================
+# UPDATE THE ACTUAL TRANSACTION TABLE
+# CONFIRMED FILLS NEVER DECREASE
+# ============================================================
+
+def unit_14_stage_update(
+    client_id,
+    state,
+    exchange_order_id=None,
+    confirmed_filled=None,
+):
+
+    db = unit_14_stage_db()
+
+    try:
+
+        db.execute("BEGIN IMMEDIATE")
+
+        for table in UNIT14_ORDER_TABLES:
+
+            row = db.execute(f"""
+                SELECT
+                    confirmed_filled,
+                    exchange_order_id,
+                    state
+                FROM {table}
+                WHERE client_id = ?
+            """, (
+                client_id,
+            )).fetchone()
+
+            if row is None:
+
+                continue
+
+            previous = Decimal(
+                str(row[0])
+            )
+
+            filled = previous
+
+            if confirmed_filled is not None:
+
+                filled = max(
+                    previous,
+                    Decimal(
+                        str(confirmed_filled)
+                    )
+                )
+
+            if row[1] and exchange_order_id:
+
+                if str(row[1]) != str(
+                    exchange_order_id
+                ):
+
+                    raise RuntimeError(
+                        "UNIT 14 ORDER ID CONFLICT"
+                    )
+
+            if row[2] == "FILLED":
+
+                state = "FILLED"
+
+            db.execute(f"""
+                UPDATE {table}
+                SET
+                    state = ?,
+                    exchange_order_id =
+                        COALESCE(
+                            ?,
+                            exchange_order_id
+                        ),
+                    confirmed_filled = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE client_id = ?
+            """, (
+                str(state).upper(),
+                exchange_order_id,
+                str(filled),
+                client_id,
+            ))
+
+            db.execute("COMMIT")
+
+            return True
+
+        db.execute("COMMIT")
+
+        return False
+
+    except Exception:
+
+        if db.in_transaction:
+
+            db.execute("ROLLBACK")
+
+        raise
+
+    finally:
+
+        db.close()
+
+
+# ============================================================
+# READ MANAGEMENT CYCLE
+# RETAIN EXISTING UNIT 14 RESULT INTERFACE
+# ============================================================
+
+def unit_14_stage_read(cycle_id):
+
+    db = unit_14_stage_db()
+
+    db.row_factory = sqlite3.Row
+
+    try:
+
+        row = db.execute("""
+            SELECT *
+            FROM stage_cycles
+            WHERE cycle_id = ?
+        """, (
+            cycle_id,
+        )).fetchone()
+
+        if row is None:
+
+            return None
+
+        result = dict(row)
+
+    finally:
+
+        db.close()
+
+    result["orders"] = {}
+
+    result["order_attempts"] = {}
+
+    for action in UNIT14_STAGE_ACTIONS:
+
+        attempts = unit_14_stage_orders(
+            cycle_id,
+            action,
+        )
+
+        result["order_attempts"][
+            action
+        ] = attempts
+
+        if attempts:
+
+            result["orders"][
+                action
+            ] = attempts[-1]
+
+    return result
+
+
+# ============================================================
+# EXACT EXCHANGE ORDER IDENTIFICATION
+# PRESERVE ORIGINAL WEEX FIELD ALIASES
+# ============================================================
+
+def unit_14_match_exchange_order(
+    record,
+    history,
+    symbol,
+):
+
+    client_id = str(
+        record["client_id"]
+    )
+
+    saved_id = str(
+        record.get(
+            "exchange_order_id"
+        ) or ""
+    )
+
+    matches = []
+
+    for order in history:
+
+        if not isinstance(
+            order, dict
+        ):
+
+            continue
+
+        if order.get("symbol"):
+
+            if str(
+                order["symbol"]
+            ).upper() != symbol.upper():
+
+                continue
+
+        clients = {
+            str(order[field])
+            for field in (
+                "clientOrderId",
+                "newClientOrderId",
+                "clientOid",
+            )
+            if order.get(field) is not None
+        }
+
+        order_ids = {
+            str(order[field])
+            for field in (
+                "orderId",
+                "order_id",
+            )
+            if order.get(field) is not None
+        }
+
+        client_match = (
+            client_id in clients
+        )
+
+        exchange_match = (
+            bool(saved_id)
+            and saved_id in order_ids
+        )
+
+        if not (
+            client_match
+            or exchange_match
+        ):
+
+            continue
+
+        if saved_id and order_ids:
+
+            if saved_id not in order_ids:
+
+                continue
+
+        if clients:
+
+            if client_id not in clients:
+
+                continue
+
+        matches.append(order)
+
+    return matches
+
+
+# ============================================================
+# RECONCILE ONE ACTUAL ORDER ATTEMPT
+# ============================================================
+
+def unit_14_reconcile_attempt(
+    record,
+    history,
+    symbol,
+):
+
+    D = unit_14_v3_D
+
+    matches = unit_14_match_exchange_order(
+        record,
+        history,
+        symbol,
+    )
+
+    if not matches:
+
+        return record
+
+    order_ids = {
+        str(
+            order.get("orderId")
+            or order.get("order_id")
+        )
+        for order in matches
+        if (
+            order.get("orderId")
+            or order.get("order_id")
+        )
+    }
+
+    if len(order_ids) > 1:
+
+        raise RuntimeError(
+            "UNIT 14 AMBIGUOUS ORDER ID"
+        )
+
+    expected = D(
+        record["quantity"]
+    )
+
+    previous = D(
+        record["confirmed_filled"]
+    )
+
+    filled = max(
+        [previous] + [
+            D(
+                order.get(
+                    "executedQty",
+                    order.get(
+                        "filledQty",
+                        "0"
+                    )
+                ) or 0
+            )
+            for order in matches
+        ]
+    )
+
+    terminal = {
+        "CANCELED",
+        "CANCELLED",
+        "REJECTED",
+        "EXPIRED",
+        "FILLED",
+    }
+
+    statuses = {
+        str(
+            order.get("status")
+            or order.get("state")
+            or ""
+        ).upper()
+        for order in matches
+    }
+
+    if filled >= expected:
+
+        state = "FILLED"
+
+    elif statuses & terminal:
+
+        state = (
+            "PARTIAL_TERMINAL"
+            if filled > 0
+            else "TERMINAL_UNFILLED"
+        )
+
+    elif filled > 0:
+
+        state = "PARTIAL"
+
+    else:
+
+        state = "PENDING"
+
+    exchange_id = (
+        next(iter(order_ids), None)
+        or record.get(
+            "exchange_order_id"
+        )
+    )
+
+    unit_14_stage_update(
+        record["client_id"],
+        state,
+        exchange_id,
+        filled,
+    )
+
+    record.update({
+        "state": state,
+        "exchange_order_id": exchange_id,
+        "confirmed_filled": str(filled),
+    })
+
+    return record
+
+
+# ============================================================
+# RECONCILE ALL ATTEMPTS FOR ONE STAGE ACTION
+# ============================================================
+
+def unit_14_stage_reconcile_order(
+    cycle_id,
+    action,
+    history=None,
+):
+
+    cycle = unit_14_stage_read(
+        cycle_id
+    )
+
+    if cycle is None:
+
+        return {
+            "action": action,
+            "state": "NOT_CLAIMED",
+            "confirmed_filled": "0",
+            "complete": False,
+            "pending": False,
+        }
+
+    attempts = cycle[
+        "order_attempts"
+    ].get(action, [])
+
+    if not attempts:
+
+        return {
+            "action": action,
+            "state": "NOT_CLAIMED",
+            "confirmed_filled": "0",
+            "complete": False,
+            "pending": False,
+        }
+
+    if history is None:
+
+        history = unit_14_v3_history(
+            cycle["symbol"]
+        )
+
+    confirmed = Decimal(0)
+
+    pending = False
+
+    for record in attempts:
+
+        record = unit_14_reconcile_attempt(
+            record,
+            history,
+            cycle["symbol"],
+        )
+
+        confirmed += Decimal(
+            record["confirmed_filled"]
+        )
+
+        if not unit_14_terminal_status(
+            record["state"]
+        ):
+
+            pending = True
+
+    target = unit_14_stage_target(
+        cycle_id,
+        action,
+    )
+
+    if target is None:
+
+        target = Decimal(
+            attempts[0]["quantity"]
+        )
+
+    complete = (
+        target > 0
+        and confirmed >= target
+        and not pending
+    )
+
+    remaining = max(
+        Decimal(0),
+        target - confirmed,
+    )
+
+    if complete:
+
+        state = "FILLED"
+
+    elif pending:
+
+        state = "PENDING"
+
+    elif confirmed > 0:
+
+        state = "PARTIAL_TERMINAL"
+
+    else:
+
+        state = "TERMINAL_UNFILLED"
+
+    return {
+        "action": action,
+        "state": state,
+        "client_id":
+            attempts[-1]["client_id"],
+        "exchange_order_id":
+            attempts[-1].get(
+                "exchange_order_id"
+            ),
+        "confirmed_filled":
+            str(confirmed),
+        "expected_quantity":
+            str(target),
+        "remaining_quantity":
+            str(remaining),
+        "complete": complete,
+        "pending": pending,
+        "retry_available":
+            not pending and not complete,
+        "attempts": attempts,
+    }
+
+
+# ============================================================
+# RECONCILE INDEPENDENT ACTIONS
+# NO COLLECTIVE ACK_UNKNOWN EXECUTION BLOCK
+# ============================================================
+
+def unit_14_stage_reconcile_cycle(
+    cycle_id,
+):
+
+    cycle = unit_14_stage_read(
+        cycle_id
+    )
+
+    if cycle is None:
+
+        return {}
+
+    history = unit_14_v3_history(
+        cycle["symbol"]
+    )
+
+    results = {}
+
+    for action in UNIT14_STAGE_ACTIONS:
+
+        try:
+
+            results[action] = (
+                unit_14_stage_reconcile_order(
+                    cycle_id,
+                    action,
+                    history,
+                )
+            )
+
+        except Exception as exc:
+
+            results[action] = {
+                "action": action,
+                "state": "RECONCILIATION_ERROR",
+                "complete": False,
+                "pending": True,
+                "error": str(exc),
+            }
+
+    return results
+
+
+# ============================================================
+# SHARED ACTUAL ORDER EXECUTOR
+# ALL HEDGE, RECOVERY, BACKUP AND CLOSE ACTIONS
+# ============================================================
+
+def unit_14_execute_action(
+    cycle_id,
+    action,
+    symbol,
+    side,
+    quantity,
+    is_close=False,
+    target_quantity=None,
+):
+
+    D = unit_14_v3_D
+
+    quantity = D(quantity)
+
+    if quantity <= 0:
+
+        return {
+            "action": action,
+            "status": "NO_EXECUTABLE_QUANTITY",
+            "attempted": False,
+            "complete": False,
+            "exchange_write": False,
+        }
+
+    history = unit_14_v3_history(
+        symbol
+    )
+
+    previous = unit_14_stage_reconcile_order(
+        cycle_id,
+        action,
+        history,
+    )
+
+    if previous["complete"]:
+
+        return {
+            **previous,
+            "status": "FILLED",
+            "attempted": False,
+            "exchange_write": False,
+        }
+
+    if previous.get("pending"):
+
+        return {
+            **previous,
+            "status": "AWAITING_RECONCILIATION",
+            "attempted": False,
+            "exchange_write": False,
+        }
+
+    if is_close:
+
+        position = unit_14_v3_position(
+            side
+        )
+
+        if position is None:
+
+            return {
+                "action": action,
+                "status": "POSITION_NOT_PRESENT",
+                "attempted": False,
+                "complete": False,
+                "exchange_write": False,
+            }
+
+        quantity = min(
+            quantity,
+            D(position["size"])
+        )
+
+    claim = unit_14_stage_claim(
+        cycle_id,
+        action,
+        quantity,
+        target_quantity,
+    )
+
+    if not claim["claimed"]:
+
+        return {
+            "action": action,
+            "status": claim["state"],
+            "attempted": False,
+            "complete": False,
+            "exchange_write": False,
+        }
+
+    client_id = claim["client_id"]
+
+    quantity = D(
+        claim["quantity"]
+    )
+
+    print(
+        "UNIT 14 ORDER SUBMISSION",
+        "ACTION =", action,
+        "SIDE =", side,
+        "QUANTITY =", quantity,
+        "CLIENT ID =", client_id,
+        flush=True,
+    )
+
+    try:
+
+        reply = unit_14_submit_order(
+            symbol,
+            side,
+            quantity,
+            client_id,
+            is_close,
+        )
+
+    except Exception as exc:
+
+        unit_14_stage_update(
+            client_id,
+            "ACK_UNKNOWN",
+        )
+
+        return {
+            "action": action,
+            "status": "ACK_UNKNOWN",
+            "client_id": client_id,
+            "attempted": True,
+            "complete": False,
+            "exchange_write": False,
+            "error": str(exc),
+        }
+
+    print(
+        "UNIT 14 EXCHANGE RESPONSE =",
+        reply,
+        flush=True,
+    )
+
+    exchange_id = None
+
+    explicit_failure = False
+
+    if isinstance(reply, dict):
+
+        data = reply.get("data")
+
+        order = (
+            data
+            if isinstance(data, dict)
+            else reply
+        )
+
+        exchange_id = (
+            order.get("orderId")
+            or order.get("order_id")
+        )
+
+        explicit_failure = (
+            reply.get("success") is False
+            or str(
+                order.get("status")
+                or ""
+            ).upper() == "REJECTED"
+        )
+
+    if exchange_id:
+
+        state = "SUBMITTED"
+
+    elif explicit_failure:
+
+        state = "TERMINAL_UNFILLED"
+
+    else:
+
+        state = "ACK_UNKNOWN"
+
+    unit_14_stage_update(
+        client_id,
+        state,
+        exchange_id,
+    )
+
+    try:
+
+        reconciled = (
+            unit_14_stage_reconcile_order(
+                cycle_id,
+                action,
+                unit_14_v3_history(symbol),
+            )
+        )
+
+    except Exception as exc:
+
+        return {
+            "action": action,
+            "status": state,
+            "client_id": client_id,
+            "exchange_order_id": exchange_id,
+            "attempted": True,
+            "complete": False,
+            "exchange_write": bool(exchange_id),
+            "error": str(exc),
+        }
+
+    reconciled.update({
+        "status": reconciled["state"],
+        "attempted": True,
+        "exchange_write": bool(
+            exchange_id
+            or D(
+                reconciled["confirmed_filled"]
+            ) > 0
+        ),
+    })
+
+    print(
+        "UNIT 14 ACTION =", action,
+        "STATE =", reconciled["state"],
+        "CONFIRMED FILL =",
+        reconciled["confirmed_filled"],
+        flush=True,
+    )
+
+    return reconciled
+
+
+# ============================================================
+# INDEPENDENT CYCLE TERMINATION
+# HISTORICAL RECORDS ARE NOT DELETED
+# ============================================================
+
+def unit_14_finalize_flat_cycle(
+    cycle_id,
+):
+
+    cycle = unit_14_stage_read(
+        cycle_id
+    )
+
+    if cycle is None:
+
+        return {
+            "status": "CYCLE_NOT_FOUND",
+            "terminated": False,
+        }
+
+    positions = unit_14_v3_positions()
+
+    if positions:
+
+        return {
+            "status": "POSITIONS_STILL_ACTIVE",
+            "terminated": False,
+        }
+
+    results = (
+        unit_14_stage_reconcile_cycle(
+            cycle_id
+        )
+    )
+
+    unresolved = [
+        action
+        for action, record in results.items()
+        if record.get("pending")
+    ]
+
+    state = (
+        "CLOSED_PENDING_RECONCILIATION"
+        if unresolved
+        else "CLOSED"
+    )
+
+    db = unit_14_stage_db()
+
+    try:
+
+        db.execute("""
+            UPDATE stage_cycles
+            SET
+                state = ?,
+                stage = 'EXCHANGE_FLAT'
+            WHERE cycle_id = ?
+        """, (
+            state,
+            cycle_id,
+        ))
+
+    finally:
+
+        db.close()
+
+    return {
+        "status": "CYCLE_TERMINATED",
+        "cycle_id": cycle_id,
+        "terminated": True,
+        "state": state,
+        "unresolved_actions": unresolved,
+        "exchange_write": False,
+    }
+
+
+# ============================================================
+# END COMPLETE UNIT 14 V4 - PART 2 OF 4
+# ZERO INDENTATION
+# NEXT: H1 / H2 / R1 / R2 / B1 - B5
+# ============================================================
