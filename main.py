@@ -16360,6 +16360,746 @@ FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
 
 # ============================================================
 # COMPLETE UNIT 14 V4 REPLACEMENT
+# PART 1 OF 4
+# EXCHANGE EXECUTION FOUNDATION
+# UNIT 13 -> UNIT 14 -> UNIT 15
+# ZERO INDENTATION
+# ============================================================
+
+import os
+import json
+import time
+import uuid
+import hashlib
+import sqlite3
+import urllib.request
+import urllib.parse
+import urllib.error
+
+from decimal import Decimal, ROUND_DOWN
+
+
+UNIT14_V3_BASE = "https://api-contract.weex.com"
+
+UNIT14_V3_POSITION = "/capi/v3/sim/position/allPosition"
+
+UNIT14_V3_BALANCE = "/capi/v3/sim/balance"
+
+UNIT14_V3_HISTORY = "/capi/v3/sim/order/history"
+
+UNIT14_V3_ORDER = "/capi/v3/sim/order"
+
+
+UNIT14_STAGE_ACTIONS = (
+    "H1-C",
+    "H1-H",
+    "H2-C",
+    "H2-H",
+    "R1-C",
+    "R1-O",
+    "R2-C",
+    "R2-O",
+    "B1",
+    "B2",
+    "B3",
+    "B4",
+    "B5",
+    "BE-C",
+    "TP3-C",
+)
+
+
+# ============================================================
+# DECIMAL AND QUANTITY UTILITIES
+# ============================================================
+
+def unit_14_v3_D(
+    value,
+    name="VALUE",
+    zero=False,
+):
+
+    return Decimal(str(value))
+
+
+def unit_14_v3_floor(value, step):
+
+    value = Decimal(str(value))
+    step = Decimal(str(step))
+
+    return (
+        value / step
+    ).to_integral_value(
+        rounding=ROUND_DOWN
+    ) * step
+
+
+def unit_14_opposite_side(side):
+
+    return {
+        "LONG": "SHORT",
+        "SHORT": "LONG",
+    }[str(side).upper()]
+
+
+# ============================================================
+# SHARED WEEX AUTHENTICATED REQUEST
+# PRESERVE ORIGINAL UNIT 14 CALL SIGNATURE
+# ============================================================
+
+def unit_14_v3_signed_request(
+    method,
+    path,
+    query="",
+    payload=None,
+):
+
+    if method == "GET":
+
+        params = (
+            urllib.parse.parse_qsl(
+                query,
+                keep_blank_values=True,
+            )
+            if isinstance(query, str)
+            else query
+        )
+
+        return unit_13_v4_signed_request(
+            method,
+            path,
+            params or None,
+        )
+
+    return unit_13_v4_signed_request(
+        method,
+        path,
+        payload,
+    )
+
+
+# ============================================================
+# CURRENT ACTIVE EXCHANGE POSITIONS
+# LONG AND SHORT INDEPENDENT
+# ============================================================
+
+def unit_14_v3_positions():
+
+    _, symbol = unit_13_14_active_symbols()
+
+    rows = unit_14_v3_signed_request(
+        "GET",
+        UNIT14_V3_POSITION,
+    )
+
+    if not isinstance(rows, list):
+
+        raise RuntimeError(
+            "UNIT 14 INVALID POSITION RESPONSE"
+        )
+
+    active = {}
+
+    for position in rows:
+
+        if str(
+            position.get("symbol") or ""
+        ).upper() != symbol:
+
+            continue
+
+        size = Decimal(
+            str(
+                position.get("size")
+                or 0
+            )
+        )
+
+        if size <= 0:
+
+            continue
+
+        side = str(
+            position.get("side") or ""
+        ).upper()
+
+        if side in ("LONG", "SHORT"):
+
+            active[side] = position
+
+    return active
+
+
+# ============================================================
+# READ ONE POSITION
+# NO ORIGINAL E0 OWNERSHIP REQUIREMENT
+# ============================================================
+
+def unit_14_v3_position(side=None):
+
+    active = unit_14_v3_positions()
+
+    if side is not None:
+
+        return active.get(
+            str(side).upper()
+        )
+
+    if len(active) == 1:
+
+        return next(
+            iter(active.values())
+        )
+
+    return None
+
+
+# ============================================================
+# AVAILABLE EXCHANGE BALANCE
+# ============================================================
+
+def unit_14_v3_balance():
+
+    rows = unit_14_v3_signed_request(
+        "GET",
+        UNIT14_V3_BALANCE,
+    )
+
+    for row in rows:
+
+        if str(
+            row.get("asset") or ""
+        ).upper() == "SUSDT":
+
+            return Decimal(
+                str(
+                    row["availableBalance"]
+                )
+            )
+
+    raise RuntimeError(
+        "UNIT 14 SUSDT BALANCE MISSING"
+    )
+
+
+# ============================================================
+# EXCHANGE ORDER HISTORY
+# SUPPORT TARGETED HISTORICAL RECONCILIATION
+# ============================================================
+
+def unit_14_v3_history(
+    demo_symbol=None,
+    start_time=None,
+    end_time=None,
+):
+
+    if demo_symbol is None:
+
+        _, demo_symbol = (
+            unit_13_14_active_symbols()
+        )
+
+    demo_symbol = str(
+        demo_symbol
+    ).strip().upper()
+
+    orders = []
+
+    for page in range(20):
+
+        params = {
+            "symbol": demo_symbol,
+            "limit": 1000,
+            "page": page,
+        }
+
+        if start_time is not None:
+
+            params["startTime"] = int(
+                start_time
+            )
+
+        if end_time is not None:
+
+            params["endTime"] = int(
+                end_time
+            )
+
+        batch = unit_14_v3_signed_request(
+            "GET",
+            UNIT14_V3_HISTORY,
+            urllib.parse.urlencode(params),
+        )
+
+        if not isinstance(batch, list):
+
+            raise RuntimeError(
+                "UNIT 14 INVALID HISTORY RESPONSE"
+            )
+
+        orders.extend(batch)
+
+        if len(batch) < 1000:
+
+            break
+
+    return orders
+
+
+# ============================================================
+# CURRENT MARKET MARK PRICE
+# REUSE UNIT 13 IMPLEMENTATION
+# ============================================================
+
+def unit_14_v3_mark():
+
+    return unit_13_v4_mark_price()
+
+
+# ============================================================
+# INDEPENDENT POSITION IDENTITY
+# COMPATIBLE WITH UNIT 13 V6
+# ============================================================
+
+def unit_14_v3_trade_key(position):
+
+    return unit_13_cycle_id(position)
+
+
+# ============================================================
+# POSITION DETAILS FOR EXECUTION
+# ============================================================
+
+def unit_14_position_details(position):
+
+    D = unit_14_v3_D
+
+    size = D(
+        position["size"]
+    )
+
+    side = str(
+        position["side"]
+    ).upper()
+
+    leverage = D(
+        position["leverage"]
+    )
+
+    entry = (
+        D(position["openValue"])
+        / size
+    )
+
+    liquidation = D(
+        position.get("liquidationPrice")
+        or 0
+    )
+
+    return {
+        "symbol": str(
+            position["symbol"]
+        ).upper(),
+
+        "side": side,
+
+        "size": size,
+
+        "entry": entry,
+
+        "leverage": leverage,
+
+        "liquidation": liquidation,
+
+        "cycle_id":
+            unit_14_v3_trade_key(position),
+
+        "position": position,
+    }
+
+
+# ============================================================
+# UNIQUE EXECUTION ATTEMPT ID
+# NO PERMANENT STAGE CONSUMPTION
+# ============================================================
+
+def unit_14_stage_client_id(
+    cycle_id,
+    action,
+):
+
+    digest = hashlib.sha256(
+        (
+            str(cycle_id)
+            + "|"
+            + str(action)
+            + "|"
+            + uuid.uuid4().hex
+        ).encode("utf-8")
+    ).hexdigest()[:20]
+
+    return (
+        "U14-"
+        + str(action).upper()
+        + "-"
+        + digest
+    )
+
+
+# ============================================================
+# LEGACY BACKUP ID INTERFACE
+# FOR HISTORICAL ORDER IDENTIFICATION
+# ============================================================
+
+def unit_14_v3_backup_id(
+    stage,
+    key,
+):
+
+    return (
+        "FR-B"
+        + str(stage)
+        + "-"
+        + str(key)
+    )[:36]
+
+
+# ============================================================
+# DIRECT MARKET ORDER EXECUTOR
+# HEDGE, RECOVERY, BACKUP, BE AND TP3
+# ============================================================
+
+def unit_14_submit_order(
+    symbol,
+    position_side,
+    quantity,
+    client_id,
+    is_close=False,
+):
+
+    position_side = str(
+        position_side
+    ).upper()
+
+    if is_close:
+
+        order_side = {
+            "LONG": "SELL",
+            "SHORT": "BUY",
+        }[position_side]
+
+    else:
+
+        order_side = {
+            "LONG": "BUY",
+            "SHORT": "SELL",
+        }[position_side]
+
+    payload = {
+        "symbol": symbol,
+
+        "side": order_side,
+
+        "positionSide": position_side,
+
+        "type": "MARKET",
+
+        "quantity": format(
+            Decimal(str(quantity)),
+            "f"
+        ),
+
+        "newClientOrderId": client_id,
+    }
+
+    return unit_14_v3_signed_request(
+        "POST",
+        UNIT14_V3_ORDER,
+        payload=payload,
+    )
+
+
+# ============================================================
+# DIRECT POSITION CLOSE
+# ============================================================
+
+def unit_14_submit_close(
+    symbol,
+    side,
+    quantity,
+    client_id,
+):
+
+    return unit_14_submit_order(
+        symbol,
+        side,
+        quantity,
+        client_id,
+        is_close=True,
+    )
+
+
+# ============================================================
+# DIRECT POSITION OPEN OR INCREASE
+# ============================================================
+
+def unit_14_submit_open(
+    symbol,
+    side,
+    quantity,
+    client_id,
+):
+
+    return unit_14_submit_order(
+        symbol,
+        side,
+        quantity,
+        client_id,
+        is_close=False,
+    )
+
+
+# ============================================================
+# REQUIRED OPENING MARGIN
+# SUPPORT EXCHANGE CONTRACT MULTIPLIER
+# ============================================================
+
+def unit_14_required_margin(
+    quantity,
+    mark,
+    leverage,
+    contract_multiplier="1",
+    buffer_percent="0",
+):
+
+    D = unit_14_v3_D
+
+    notional = (
+        D(quantity)
+        * D(mark)
+        * D(contract_multiplier)
+    )
+
+    margin = (
+        notional / D(leverage)
+    )
+
+    return margin * (
+        Decimal(1)
+        + D(buffer_percent)
+        / Decimal(100)
+    )
+
+
+# ============================================================
+# AVAILABLE BALANCE BASED ORDER QUANTITY
+# FOR B1 - B5
+# ============================================================
+
+def unit_14_balance_quantity(
+    balance,
+    allocation_percent,
+    mark,
+    leverage,
+    quantity_step,
+    contract_multiplier="1",
+):
+
+    D = unit_14_v3_D
+
+    margin = (
+        D(balance)
+        * D(allocation_percent)
+        / Decimal(100)
+    )
+
+    quantity = (
+        margin
+        * D(leverage)
+        / (
+            D(mark)
+            * D(contract_multiplier)
+        )
+    )
+
+    return unit_14_v3_floor(
+        quantity,
+        D(quantity_step),
+    )
+
+
+# ============================================================
+# LIQUIDATION BUFFER TRIGGER
+# ORIGINAL LONG AND SHORT FORMULA
+# ============================================================
+
+def unit_14_v3_trigger(
+    side,
+    liquidation,
+    mark,
+    buffer_pct,
+):
+
+    D = unit_14_v3_D
+
+    liquidation = D(liquidation)
+    mark = D(mark)
+
+    fraction = (
+        D(buffer_pct)
+        / Decimal(100)
+    )
+
+    if liquidation <= 0:
+
+        return Decimal(0), False
+
+    if side == "LONG":
+
+        trigger = liquidation * (
+            Decimal(1) + fraction
+        )
+
+        reached = mark <= trigger
+
+    else:
+
+        trigger = liquidation * (
+            Decimal(1) - fraction
+        )
+
+        reached = mark >= trigger
+
+    return trigger, bool(reached)
+
+
+# ============================================================
+# UNIT 13 INDEPENDENT POSITION HANDOVER
+# ============================================================
+
+def unit_14_tp_position_result(
+    unit_13_result,
+    side,
+):
+
+    side = str(side).upper()
+
+    for result in unit_13_result.get(
+        "position_results", []
+    ):
+
+        if str(
+            result.get("position_side") or ""
+        ).upper() == side:
+
+            return result
+
+    if str(
+        unit_13_result.get(
+            "position_side"
+        ) or ""
+    ).upper() == side:
+
+        return unit_13_result
+
+    return {}
+
+
+# ============================================================
+# EXCHANGE TERMINAL TRANSACTION STATUS
+# ============================================================
+
+def unit_14_terminal_status(status):
+
+    return str(status).upper() in (
+        "FILLED",
+        "CANCELED",
+        "CANCELLED",
+        "REJECTED",
+        "EXPIRED",
+        "TERMINAL_UNFILLED",
+        "PARTIAL_TERMINAL",
+    )
+
+
+# ============================================================
+# BASE UNIT 14 RESULT
+# PRESERVE EXISTING UNIT 15 INTERFACE
+# ============================================================
+
+def unit_14_v3_result(unit_13_result):
+
+    return {
+        "unit": 14,
+
+        "status": "MONITORING",
+
+        "unit_13_status":
+            unit_13_result.get("status"),
+
+        "position_exists": False,
+
+        "active_position_exists": False,
+
+        "position_results": [],
+
+        "backup_maximum": 5,
+
+        "backups_filled": 0,
+
+        "backup_next_stage": None,
+
+        "backup_trigger_reached": False,
+
+        "backup_submission_enabled": True,
+
+        "backup_execution_attempted": False,
+
+        "backup_execution_completed": False,
+
+        "hedge_execution_attempted": False,
+
+        "hedge_execution_completed": False,
+
+        "recovery_execution_attempted": False,
+
+        "recovery_execution_completed": False,
+
+        "breakeven_armed": False,
+
+        "breakeven_execution_attempted": False,
+
+        "breakeven_execution_completed": False,
+
+        "tp3_armed": False,
+
+        "tp3_execution_attempted": False,
+
+        "tp3_execution_completed": False,
+
+        "real_submission_attempted": False,
+
+        "sl_execution_attempted": False,
+
+        "exchange_write": False,
+
+        "position_management_independent_of_bot_mode":
+            True,
+
+        "skip_reason": "NONE",
+    }
+
+
+# ============================================================
+# END COMPLETE UNIT 14 V4 - PART 1 OF 4
+# ZERO INDENTATION
+# NEXT: SQLITE TRANSACTIONS AND RECONCILIATION
+# ============================================================
+
+
+
+# ============================================================
+# COMPLETE UNIT 14 V4 REPLACEMENT
 # PART 2 OF 4
 # SQLITE TRANSACTIONS AND EXCHANGE RECONCILIATION
 # ZERO INDENTATION
