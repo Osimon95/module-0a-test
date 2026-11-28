@@ -19894,3 +19894,1806 @@ def unit_14_v4_backup_handover(
 # ZERO INDENTATION
 # NEXT: ATR BREAK-EVEN / TP3 / MAIN EXECUTOR
 # ============================================================
+
+
+# ============================================================
+# COMPLETE UNIT 14 V4 REPLACEMENT
+# PART 4 OF 4
+# ATR BREAK-EVEN / TP3 / MAIN EXECUTION
+# ZERO INDENTATION
+# ============================================================
+
+
+# ============================================================
+# ATR DYNAMIC BREAK-EVEN
+# ACTIVE AFTER EXCHANGE-CONFIRMED TP1
+# ============================================================
+
+def unit_14_atr_breakeven(
+    symbol,
+    position,
+    mark,
+    strategy,
+):
+
+    D = unit_14_v3_D
+
+    side = str(
+        position["side"]
+    ).upper()
+
+    size = D(position["size"])
+
+    entry = (
+        D(position["openValue"])
+        / size
+    )
+
+    mark = D(mark)
+
+    atr = unit_14_current_atr()
+
+    fee = D(
+        strategy.get(
+            "futures_taker_fee_percent",
+            "0.08"
+        )
+    ) / Decimal(100)
+
+    key = (
+        "PROTECTION-"
+        + unit_13_cycle_id(position)
+    )
+
+    if side == "LONG":
+
+        breakeven = (
+            entry * (1 + fee)
+            / (1 - fee)
+        )
+
+    else:
+
+        breakeven = (
+            entry * (1 - fee)
+            / (1 + fee)
+        )
+
+    previous = unit_14_state_get(
+        key,
+        "ATR_BE",
+        {},
+    )
+
+    best = D(
+        previous.get(
+            "best_mark",
+            mark
+        )
+    )
+
+    previous_stop = D(
+        previous.get(
+            "stop_price",
+            breakeven
+        )
+    )
+
+    if side == "LONG":
+
+        best = max(
+            best,
+            mark,
+        )
+
+        stop = max(
+            previous_stop,
+            breakeven,
+            best - atr,
+        )
+
+        reached = mark <= stop
+
+    else:
+
+        best = min(
+            best,
+            mark,
+        )
+
+        stop = min(
+            previous_stop,
+            breakeven,
+            best + atr,
+        )
+
+        reached = mark >= stop
+
+    # Persist the dynamic stop.
+    # Do not persist price crossing as completion.
+
+    unit_14_state_set(
+        key,
+        "ATR_BE",
+        {
+            "best_mark": str(best),
+            "stop_price": str(stop),
+        },
+    )
+
+    print(
+        "UNIT 14 BREAKEVEN ENTRY =",
+        entry,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 FEE ADJUSTED BE =",
+        breakeven,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 BREAKEVEN ATR =",
+        atr,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 BREAKEVEN BEST MARK =",
+        best,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 BREAKEVEN STOP =",
+        stop,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 BREAKEVEN TRIGGERED =",
+        reached,
+        flush=True,
+    )
+
+    return {
+        "trade_key": key,
+        "breakeven_price": str(breakeven),
+        "best_mark": str(best),
+        "stop_price": str(stop),
+        "atr": str(atr),
+        "triggered": bool(reached),
+    }
+
+
+# ============================================================
+# SHARED REMAINING POSITION CLOSE EXECUTOR
+# BE-C AND TP3-C USE INDEPENDENT SQLITE TABLES
+# ============================================================
+
+def unit_14_execute_remaining_close(
+    cycle_id,
+    position,
+    action,
+    quantity_step,
+    minimum_quantity,
+):
+
+    D = unit_14_v3_D
+
+    side = str(
+        position["side"]
+    ).upper()
+
+    symbol = str(
+        position["symbol"]
+    ).upper()
+
+    prefix = (
+        "TP3"
+        if action == "TP3-C"
+        else "BE"
+    )
+
+    result = {
+        "status": prefix + "_MONITORING",
+        "execution_attempted": False,
+        "confirmed": False,
+        "exchange_write": False,
+        "order_id": None,
+    }
+
+    previous = (
+        unit_14_stage_reconcile_order(
+            cycle_id,
+            action,
+            unit_14_v3_history(symbol),
+        )
+    )
+
+    if previous.get("pending"):
+
+        result.update({
+            "status":
+                prefix + "_AWAITING_FILL",
+
+            "confirmed_filled":
+                previous.get(
+                    "confirmed_filled",
+                    "0"
+                ),
+
+            "order_id":
+                previous.get(
+                    "exchange_order_id"
+                ),
+        })
+
+        return result
+
+    # Read current exchange position.
+    # Do not use stale position quantity.
+
+    active = unit_14_v3_position(
+        side
+    )
+
+    if active is None:
+
+        result.update({
+            "status":
+                prefix + "_POSITION_FLAT",
+
+            "confirmed":
+                previous.get(
+                    "complete",
+                    False
+                ),
+        })
+
+        return result
+
+    # Do not close a replacement position
+    # using an older position snapshot.
+
+    if (
+        unit_13_cycle_id(active)
+        != unit_13_cycle_id(position)
+    ):
+
+        result["status"] = (
+            prefix + "_POSITION_CHANGED"
+        )
+
+        return result
+
+    quantity = unit_14_v3_floor(
+        D(active["size"]),
+        D(quantity_step),
+    )
+
+    if quantity < D(minimum_quantity):
+
+        result["status"] = (
+            prefix + "_BELOW_EXCHANGE_MINIMUM"
+        )
+
+        return result
+
+    target = unit_14_stage_target(
+        cycle_id,
+        action,
+    )
+
+    if target is None:
+
+        target = quantity
+
+    confirmed = D(
+        previous.get(
+            "confirmed_filled",
+            "0"
+        )
+    )
+
+    outstanding = max(
+        Decimal(0),
+        target - confirmed,
+    )
+
+    quantity = unit_14_v3_floor(
+        min(
+            quantity,
+            outstanding,
+        ),
+        D(quantity_step),
+    )
+
+    if quantity < D(minimum_quantity):
+
+        result.update({
+            "status":
+                prefix + "_NO_OUTSTANDING_QUANTITY",
+
+            "confirmed":
+                previous.get(
+                    "complete",
+                    False
+                ),
+        })
+
+        return result
+
+    execution = unit_14_execute_action(
+        cycle_id=cycle_id,
+
+        action=action,
+
+        symbol=symbol,
+
+        side=side,
+
+        quantity=quantity,
+
+        is_close=True,
+
+        target_quantity=target,
+    )
+
+    result.update({
+        "status":
+            prefix
+            + "_"
+            + execution["status"],
+
+        "execution_attempted":
+            execution.get(
+                "attempted",
+                False
+            ),
+
+        "confirmed":
+            execution.get(
+                "complete",
+                False
+            ),
+
+        "exchange_write":
+            execution.get(
+                "exchange_write",
+                False
+            ),
+
+        "order_id":
+            execution.get(
+                "exchange_order_id"
+            ),
+
+        "confirmed_filled":
+            execution.get(
+                "confirmed_filled",
+                "0"
+            ),
+
+        "execution":
+            execution,
+    })
+
+    return result
+
+
+# ============================================================
+# ATR BREAK-EVEN MARKET CLOSE
+# ============================================================
+
+def unit_14_execute_breakeven(
+    cycle_id,
+    position,
+    quantity_step,
+    minimum_quantity,
+):
+
+    return unit_14_execute_remaining_close(
+        cycle_id,
+        position,
+        "BE-C",
+        quantity_step,
+        minimum_quantity,
+    )
+
+
+# ============================================================
+# TP3 MARKET CLOSE
+# ============================================================
+
+def unit_14_execute_tp3(
+    cycle_id,
+    position,
+    quantity_step,
+    minimum_quantity,
+):
+
+    return unit_14_execute_remaining_close(
+        cycle_id,
+        position,
+        "TP3-C",
+        quantity_step,
+        minimum_quantity,
+    )
+
+
+# ============================================================
+# TP3 DYNAMIC TRAILING
+# PERSIST BEST MARK AND TRAILING STOP
+# ============================================================
+
+def unit_14_tp3_persistent_state(
+    cycle_id,
+    side,
+    mark,
+    atr,
+    trail_ref,
+    trail_min,
+    trail_max,
+):
+
+    D = unit_14_v3_D
+
+    mark = D(mark)
+
+    atr = D(atr)
+
+    trail_ref = D(trail_ref)
+
+    trail_min = D(trail_min)
+
+    trail_max = D(trail_max)
+
+    atr_percent = (
+        atr / mark
+    ) * Decimal(100)
+
+    dynamic_percent = min(
+        trail_max,
+        max(
+            trail_min,
+            trail_ref,
+            atr_percent,
+        ),
+    )
+
+    fraction = (
+        dynamic_percent
+        / Decimal(100)
+    )
+
+    previous = unit_14_state_get(
+        cycle_id,
+        "TP3_TRAILING",
+        {},
+    )
+
+    best = D(
+        previous.get(
+            "best_mark",
+            mark
+        )
+    )
+
+    if side == "LONG":
+
+        best = max(
+            best,
+            mark,
+        )
+
+        calculated_stop = (
+            best * (1 - fraction)
+        )
+
+        stop = max(
+            calculated_stop,
+            D(
+                previous.get(
+                    "stop_price",
+                    calculated_stop
+                )
+            ),
+        )
+
+        reached = mark <= stop
+
+    else:
+
+        best = min(
+            best,
+            mark,
+        )
+
+        calculated_stop = (
+            best * (1 + fraction)
+        )
+
+        stop = min(
+            calculated_stop,
+            D(
+                previous.get(
+                    "stop_price",
+                    calculated_stop
+                )
+            ),
+        )
+
+        reached = mark >= stop
+
+    unit_14_state_set(
+        cycle_id,
+        "TP3_TRAILING",
+        {
+            "best_mark": str(best),
+            "stop_price": str(stop),
+            "trailing_percent":
+                str(dynamic_percent),
+        },
+    )
+
+    print(
+        "UNIT 14 TP3 BEST MARK =",
+        best,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 TP3 STOP PRICE =",
+        stop,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 TP3 TRAILING PERCENT =",
+        dynamic_percent,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 TP3 TRIGGER REACHED =",
+        reached,
+        flush=True,
+    )
+
+    return {
+        "tp3_armed": True,
+
+        "tp3_best_mark":
+            str(best),
+
+        "tp3_stop_price":
+            str(stop),
+
+        "tp3_trailing_percent":
+            str(dynamic_percent),
+
+        "tp3_trigger_reached":
+            bool(reached),
+
+        "tp3_trailing_dynamic":
+            True,
+    }
+
+
+# ============================================================
+# CONFIRMED TP HANDOVER
+# PRICE CROSSING ALONE DOES NOT ACTIVATE PROTECTION
+# ============================================================
+
+def unit_14_v4_tp_handover(
+    unit_13_result,
+):
+
+    D = unit_14_v3_D
+
+    tp1_filled = D(
+        unit_13_result.get(
+            "tp1_verified_filled_quantity",
+            "0"
+        )
+    )
+
+    tp2_filled = D(
+        unit_13_result.get(
+            "tp2_verified_filled_quantity",
+            "0"
+        )
+    )
+
+    tp1_completed = bool(
+        unit_13_result.get(
+            "tp1_completed"
+        )
+        and tp1_filled > 0
+    )
+
+    tp2_completed = bool(
+        unit_13_result.get(
+            "tp2_completed"
+        )
+        and tp2_filled > 0
+    )
+
+    return {
+        "tp1_completed":
+            tp1_completed,
+
+        "tp2_completed":
+            tp2_completed,
+
+        "tp3_armed":
+            bool(
+                tp1_completed
+                and tp2_completed
+                and unit_13_result.get(
+                    "tp3_armed"
+                )
+            ),
+
+        "tp1_confirmed_filled":
+            str(tp1_filled),
+
+        "tp2_confirmed_filled":
+            str(tp2_filled),
+    }
+
+
+# ============================================================
+# POST TP1 / TP2 POSITION MANAGEMENT
+# ============================================================
+
+def unit_14_post_tp_management(
+    config,
+    cycle_id,
+    position,
+    tp,
+    mark,
+):
+
+    strategy = config.get(
+        "strategy", {}
+    )
+
+    precision = (
+        unit_14_contract_details(config)
+    )
+
+    handover = (
+        unit_14_v4_tp_handover(tp)
+    )
+
+    result = {
+        "status": "POST_TP_MONITORING",
+
+        "handled": True,
+
+        "cycle_id": cycle_id,
+
+        "tp1_completed":
+            handover["tp1_completed"],
+
+        "tp2_completed":
+            handover["tp2_completed"],
+
+        "tp3_armed":
+            handover["tp3_armed"],
+
+        "exchange_write": False,
+
+        "breakeven_execution_attempted":
+            False,
+
+        "breakeven_execution_completed":
+            False,
+
+        "tp3_execution_attempted":
+            False,
+
+        "tp3_execution_completed":
+            False,
+    }
+
+    symbol = str(
+        position["symbol"]
+    ).upper()
+
+    side = str(
+        position["side"]
+    ).upper()
+
+    # Reconcile an existing close before
+    # selecting another close mechanism.
+
+    history = unit_14_v3_history(
+        symbol
+    )
+
+    be_order = (
+        unit_14_stage_reconcile_order(
+            cycle_id,
+            "BE-C",
+            history,
+        )
+    )
+
+    tp3_order = (
+        unit_14_stage_reconcile_order(
+            cycle_id,
+            "TP3-C",
+            history,
+        )
+    )
+
+    if be_order.get("pending"):
+
+        result["status"] = (
+            "BE_AWAITING_EXCHANGE_FILL"
+        )
+
+        return result
+
+    if tp3_order.get("pending"):
+
+        result["status"] = (
+            "TP3_AWAITING_EXCHANGE_FILL"
+        )
+
+        return result
+
+    # ========================================================
+    # TP3 DYNAMIC TRAILING
+    # ========================================================
+
+    if handover["tp3_armed"]:
+
+        trailing = (
+            unit_14_tp3_persistent_state(
+                cycle_id=cycle_id,
+
+                side=side,
+
+                mark=mark,
+
+                atr=unit_14_current_atr(),
+
+                trail_ref=strategy.get(
+                    "tp3_trailing_reference_percent",
+                    "0.20"
+                ),
+
+                trail_min=strategy.get(
+                    "tp3_trailing_min_percent",
+                    "0.10"
+                ),
+
+                trail_max=strategy.get(
+                    "tp3_trailing_max_percent",
+                    "0.40"
+                ),
+            )
+        )
+
+        result.update(trailing)
+
+        result["status"] = (
+            "TP3_TRAILING_MONITORING"
+        )
+
+        if trailing["tp3_trigger_reached"]:
+
+            execution = unit_14_execute_tp3(
+                cycle_id,
+                position,
+                precision["step"],
+                precision["minimum"],
+            )
+
+            result.update({
+                "status":
+                    execution["status"],
+
+                "tp3_execution":
+                    execution,
+
+                "tp3_execution_attempted":
+                    execution[
+                        "execution_attempted"
+                    ],
+
+                "tp3_execution_completed":
+                    execution["confirmed"],
+
+                "tp3_order_id":
+                    execution["order_id"],
+
+                "exchange_write":
+                    execution["exchange_write"],
+            })
+
+        return result
+
+    # ========================================================
+    # ATR BREAK-EVEN AFTER TP1
+    # ========================================================
+
+    protection = unit_14_atr_breakeven(
+        symbol,
+        position,
+        mark,
+        strategy,
+    )
+
+    result.update({
+        "status":
+            "ATR_BREAKEVEN_MONITORING",
+
+        "breakeven_armed":
+            True,
+
+        "breakeven":
+            protection,
+    })
+
+    if protection["triggered"]:
+
+        execution = (
+            unit_14_execute_breakeven(
+                cycle_id,
+                position,
+                precision["step"],
+                precision["minimum"],
+            )
+        )
+
+        result.update({
+            "status":
+                execution["status"],
+
+            "breakeven_execution":
+                execution,
+
+            "breakeven_execution_attempted":
+                execution[
+                    "execution_attempted"
+                ],
+
+            "breakeven_execution_completed":
+                execution["confirmed"],
+
+            "exchange_write":
+                execution["exchange_write"],
+        })
+
+    return result
+
+
+# ============================================================
+# READ ACTIVE MANAGEMENT CYCLES
+# ============================================================
+
+def unit_14_active_cycles(symbol):
+
+    db = unit_14_stage_db()
+
+    db.row_factory = sqlite3.Row
+
+    try:
+
+        rows = db.execute("""
+            SELECT *
+            FROM stage_cycles
+            WHERE symbol = ?
+            AND state = 'ACTIVE'
+            AND cycle_id LIKE 'U14-%'
+            ORDER BY created_at, rowid
+        """, (
+            symbol,
+        )).fetchall()
+
+        return [
+            dict(row)
+            for row in rows
+        ]
+
+    finally:
+
+        db.close()
+
+
+# ============================================================
+# RESOLVE CURRENT HEDGE GENERATION
+# ============================================================
+
+def unit_14_current_generation(
+    position,
+):
+
+    base = (
+        "U14-"
+        + unit_13_cycle_id(position)
+    )
+
+    generation = unit_14_state_get(
+        base,
+        "CURRENT_GENERATION",
+        None,
+    )
+
+    if generation:
+
+        cycle = unit_14_stage_read(
+            generation
+        )
+
+        if (
+            cycle is not None
+            and cycle["state"] == "ACTIVE"
+        ):
+
+            return generation
+
+    return unit_14_ensure_e0_cycle(
+        position
+    )
+
+
+# ============================================================
+# CREATE FRESH HEDGE GENERATION AFTER RECOVERY
+# NO DELETION OF COMPLETED H1/H2/R1/R2 TRANSACTIONS
+# ============================================================
+
+def unit_14_new_hedge_generation(
+    old_cycle_id,
+    position,
+):
+
+    D = unit_14_v3_D
+
+    base = (
+        "U14-"
+        + unit_13_cycle_id(position)
+    )
+
+    size = D(
+        position["size"]
+    )
+
+    entry = (
+        D(position["openValue"])
+        / size
+    )
+
+    new_cycle_id = (
+        base
+        + "-"
+        + uuid.uuid4().hex[:12]
+    )
+
+    unit_14_stage_create_cycle(
+        new_cycle_id,
+
+        str(
+            position["symbol"]
+        ).upper(),
+
+        str(
+            position["side"]
+        ).upper(),
+
+        size,
+
+        entry,
+
+        unit_14_current_atr(),
+    )
+
+    db = unit_14_stage_db()
+
+    try:
+
+        db.execute("""
+            UPDATE stage_cycles
+            SET
+                state = 'RECOVERED',
+                stage = 'RECOVERY_COMPLETE'
+            WHERE cycle_id = ?
+        """, (
+            old_cycle_id,
+        ))
+
+    finally:
+
+        db.close()
+
+    unit_14_state_set(
+        base,
+        "CURRENT_GENERATION",
+        new_cycle_id,
+    )
+
+    print(
+        "UNIT 14 PREVIOUS HEDGE CYCLE =",
+        old_cycle_id,
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 FRESH HEDGE CYCLE =",
+        new_cycle_id,
+        flush=True,
+    )
+
+    return new_cycle_id
+
+
+# ============================================================
+# FIND CONTINUING HEDGE CONVERSION
+# INCLUDING FULL H2 CONVERSION
+# ============================================================
+
+def unit_14_continuing_cycles(
+    symbol,
+    positions,
+):
+
+    cycles = unit_14_active_cycles(
+        symbol
+    )
+
+    history = unit_14_v3_history(
+        symbol
+    )
+
+    continuing = []
+
+    for cycle in cycles:
+
+        cycle_id = cycle["cycle_id"]
+
+        orders = {}
+
+        for action in (
+            "H1-C",
+            "H1-H",
+            "H2-C",
+            "H2-H",
+            "R1-C",
+            "R1-O",
+            "R2-C",
+            "R2-O",
+        ):
+
+            orders[action] = (
+                unit_14_stage_reconcile_order(
+                    cycle_id,
+                    action,
+                    history,
+                )
+            )
+
+        hedge_opened = (
+            unit_14_confirmed_quantity(
+                orders,
+                "H1-H",
+            )
+            + unit_14_confirmed_quantity(
+                orders,
+                "H2-H",
+            )
+        )
+
+        hedge_closed = (
+            unit_14_confirmed_quantity(
+                orders,
+                "R1-C",
+            )
+            + unit_14_confirmed_quantity(
+                orders,
+                "R2-C",
+            )
+        )
+
+        pending = any(
+            order.get(
+                "pending",
+                False
+            )
+            for order in orders.values()
+        )
+
+        side = cycle["original_side"]
+
+        opposite = unit_14_opposite_side(
+            side
+        )
+
+        outstanding_hedge = (
+            hedge_opened > hedge_closed
+            and opposite in positions
+        )
+
+        if pending or outstanding_hedge:
+
+            continuing.append(cycle)
+
+    return continuing
+
+
+# ============================================================
+# HISTORICAL CYCLE RECONCILIATION
+# NO HISTORICAL CYCLE EXECUTION AUTHORIZATION
+# ============================================================
+
+def unit_14_reconcile_historical_cycles():
+
+    _, symbol = unit_13_14_active_symbols()
+
+    db = unit_14_stage_db()
+
+    try:
+
+        rows = db.execute("""
+            SELECT cycle_id
+            FROM stage_cycles
+            WHERE symbol = ?
+            AND state =
+                'CLOSED_PENDING_RECONCILIATION'
+        """, (
+            symbol,
+        )).fetchall()
+
+    finally:
+
+        db.close()
+
+    results = []
+
+    for row in rows:
+
+        cycle_id = row[0]
+
+        try:
+
+            records = (
+                unit_14_stage_reconcile_cycle(
+                    cycle_id
+                )
+            )
+
+            unresolved = any(
+                record.get("pending")
+                for record in records.values()
+            )
+
+            if not unresolved:
+
+                db = unit_14_stage_db()
+
+                try:
+
+                    db.execute("""
+                        UPDATE stage_cycles
+                        SET state = 'CLOSED'
+                        WHERE cycle_id = ?
+                    """, (
+                        cycle_id,
+                    ))
+
+                finally:
+
+                    db.close()
+
+            results.append({
+                "cycle_id": cycle_id,
+                "unresolved": unresolved,
+            })
+
+        except Exception as exc:
+
+            results.append({
+                "cycle_id": cycle_id,
+                "error": str(exc),
+            })
+
+    return results
+
+
+# ============================================================
+# MAIN UNIT 14 POSITION MANAGEMENT
+# ============================================================
+
+def fresh_reconstruction_unit_14(
+    config,
+    unit_13_result,
+):
+
+    result = unit_14_v3_result(
+        unit_13_result
+    )
+
+    print("=" * 80, flush=True)
+
+    print(
+        "UNIT 14 V4 EXECUTION START",
+        flush=True,
+    )
+
+    _, symbol = unit_13_14_active_symbols()
+
+    positions = unit_14_v3_positions()
+
+    precision = (
+        unit_14_contract_details(config)
+    )
+
+    if not positions:
+
+        for cycle in unit_14_active_cycles(
+            symbol
+        ):
+
+            unit_14_finalize_flat_cycle(
+                cycle["cycle_id"]
+            )
+
+        result.update({
+            "status":
+                "IDLE_NO_POSITION",
+
+            "skip_reason":
+                "EXCHANGE_FLAT",
+        })
+
+        return result
+
+    mark = unit_14_v3_mark()
+
+    result.update({
+        "symbol": symbol,
+
+        "position_exists": True,
+
+        "active_position_exists": True,
+
+        "active_position_count":
+            len(positions),
+
+        "mark_price":
+            float(mark),
+    })
+
+    outcomes = []
+
+    managed_sides = set()
+
+    # ========================================================
+    # CONTINUE EXISTING HEDGE CONVERSIONS
+    # ========================================================
+
+    continuing = unit_14_continuing_cycles(
+        symbol,
+        positions,
+    )
+
+    for cycle in continuing:
+
+        cycle_id = cycle["cycle_id"]
+
+        side = cycle["original_side"]
+
+        opposite = unit_14_opposite_side(
+            side
+        )
+
+        if side in managed_sides:
+
+            continue
+
+        try:
+
+            outcome = unit_14_stage_dispatch(
+                active_positions=positions,
+
+                original_position=
+                    positions.get(side),
+
+                unit_13_result=
+                    unit_13_result,
+
+                quantity_step=
+                    precision["step"],
+
+                minimum_quantity=
+                    precision["minimum"],
+
+                mark=mark,
+
+                config=config,
+
+                cycle_id=cycle_id,
+            )
+
+            outcome["position_side"] = (
+                side
+            )
+
+            outcomes.append(outcome)
+
+            managed_sides.add(side)
+
+            managed_sides.add(opposite)
+
+            if outcome.get(
+                "fresh_hedge_cycle_required"
+            ):
+
+                current = (
+                    unit_14_v3_position(side)
+                )
+
+                if current is not None:
+
+                    outcome[
+                        "new_cycle_id"
+                    ] = (
+                        unit_14_new_hedge_generation(
+                            cycle_id,
+                            current,
+                        )
+                    )
+
+        except Exception as exc:
+
+            outcomes.append({
+                "position_side": side,
+                "cycle_id": cycle_id,
+                "status": "STAGE_ERROR",
+                "error": str(exc),
+                "exchange_write": False,
+            })
+
+            managed_sides.add(side)
+
+            managed_sides.add(opposite)
+
+    # ========================================================
+    # MANAGE OTHER CURRENT EXCHANGE POSITIONS
+    # ========================================================
+
+    positions = unit_14_v3_positions()
+
+    for side, position in positions.items():
+
+        if side in managed_sides:
+
+            continue
+
+        try:
+
+            tp = unit_14_tp_position_result(
+                unit_13_result,
+                side,
+            )
+
+            handover = (
+                unit_14_v4_tp_handover(tp)
+            )
+
+            cycle_id = (
+                unit_14_current_generation(
+                    position
+                )
+            )
+
+            # ------------------------------------------------
+            # POST TP1 / TP2
+            # ------------------------------------------------
+
+            if handover["tp1_completed"]:
+
+                outcome = (
+                    unit_14_post_tp_management(
+                        config,
+                        cycle_id,
+                        position,
+                        tp,
+                        mark,
+                    )
+                )
+
+            # ------------------------------------------------
+            # PRE TP1 HEDGE / RECOVERY / BACKUP
+            # ------------------------------------------------
+
+            else:
+
+                outcome = (
+                    unit_14_stage_dispatch(
+                        active_positions=
+                            positions,
+
+                        original_position=
+                            position,
+
+                        unit_13_result=
+                            handover,
+
+                        quantity_step=
+                            precision["step"],
+
+                        minimum_quantity=
+                            precision["minimum"],
+
+                        mark=mark,
+
+                        config=config,
+
+                        cycle_id=cycle_id,
+                    )
+                )
+
+                if outcome.get(
+                    "fresh_hedge_cycle_required"
+                ):
+
+                    current = (
+                        unit_14_v3_position(
+                            side
+                        )
+                    )
+
+                    if current is not None:
+
+                        outcome[
+                            "new_cycle_id"
+                        ] = (
+                            unit_14_new_hedge_generation(
+                                cycle_id,
+                                current,
+                            )
+                        )
+
+            outcome["position_side"] = side
+
+            outcome["cycle_id"] = cycle_id
+
+            outcomes.append(outcome)
+
+            managed_sides.add(side)
+
+            if outcome.get("stage") in (
+                "H1", "H2", "R1", "R2"
+            ):
+
+                managed_sides.add(
+                    unit_14_opposite_side(side)
+                )
+
+        except Exception as exc:
+
+            outcomes.append({
+                "position_side": side,
+
+                "status":
+                    "POSITION_EXECUTION_ERROR",
+
+                "error": str(exc),
+
+                "exchange_write": False,
+            })
+
+            print(
+                "UNIT 14 POSITION ERROR =",
+                str(exc),
+                flush=True,
+            )
+
+    # ========================================================
+    # UNIT 15 COMPATIBLE RESULT HANDOVER
+    # ========================================================
+
+    if outcomes:
+
+        primary = next(
+            (
+                outcome
+                for outcome in outcomes
+                if outcome.get(
+                    "exchange_write"
+                )
+            ),
+            outcomes[0],
+        )
+
+        result.update(primary)
+
+    result["position_results"] = outcomes
+
+    result["exchange_write"] = any(
+        outcome.get(
+            "exchange_write",
+            False
+        )
+        for outcome in outcomes
+    )
+
+    for field in (
+        "backup_execution_attempted",
+        "backup_execution_completed",
+        "breakeven_execution_attempted",
+        "breakeven_execution_completed",
+        "tp3_execution_attempted",
+        "tp3_execution_completed",
+    ):
+
+        result[field] = any(
+            outcome.get(
+                field,
+                False
+            )
+            for outcome in outcomes
+        )
+
+    result[
+        "hedge_execution_attempted"
+    ] = any(
+        outcome.get("stage") in (
+            "H1", "H2"
+        )
+        and outcome.get(
+            "execution_attempted"
+        )
+        for outcome in outcomes
+    )
+
+    result[
+        "hedge_execution_completed"
+    ] = any(
+        outcome.get("stage") in (
+            "H1", "H2"
+        )
+        and outcome.get("complete")
+        for outcome in outcomes
+    )
+
+    result[
+        "recovery_execution_attempted"
+    ] = any(
+        outcome.get("stage") in (
+            "R1", "R2"
+        )
+        and outcome.get(
+            "execution_attempted"
+        )
+        for outcome in outcomes
+    )
+
+    result[
+        "recovery_execution_completed"
+    ] = any(
+        outcome.get("stage") in (
+            "R1", "R2"
+        )
+        and outcome.get("complete")
+        for outcome in outcomes
+    )
+
+    result["real_submission_attempted"] = False
+
+    result["sl_execution_attempted"] = False
+
+    result[
+        "position_management_independent_of_bot_mode"
+    ] = True
+
+    print(
+        "UNIT 14 FINAL STATUS =",
+        result["status"],
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 EXCHANGE WRITE =",
+        result["exchange_write"],
+        flush=True,
+    )
+
+    print(
+        "UNIT 14 EXECUTION COMPLETE",
+        flush=True,
+    )
+
+    print("=" * 80, flush=True)
+
+    return result
+
+
+# ============================================================
+# ORIGINAL HYBRID ADAPTER INTERFACE
+# ============================================================
+
+def fresh_unit_14_hybrid_adapter(
+    config,
+    unit_13_result,
+):
+
+    try:
+
+        return fresh_reconstruction_unit_14(
+            config,
+            unit_13_result,
+        )
+
+    except Exception as exc:
+
+        result = unit_14_v3_result(
+            unit_13_result
+        )
+
+        result.update({
+            "status":
+                "UNIT14_EXECUTION_ERROR",
+
+            "execution_error":
+                str(exc),
+
+            "skip_reason":
+                str(exc),
+        })
+
+        print(
+            "UNIT 14 EXECUTION ERROR =",
+            str(exc),
+            flush=True,
+        )
+
+        return result
+
+
+# ============================================================
+# LOCAL VALIDATION
+# NO EXCHANGE ORDERS DURING VALIDATION
+# ============================================================
+
+def unit_14_validation_v3():
+
+    tests = {}
+
+    try:
+
+        db = unit_14_stage_db()
+
+        db.close()
+
+        tests["SQLITE"] = True
+
+    except Exception:
+
+        tests["SQLITE"] = False
+
+    tests["FRACTIONAL_QUANTITY"] = (
+        unit_14_v3_floor(
+            Decimal("6.5"),
+            Decimal("0.1"),
+        )
+        == Decimal("6.5")
+    )
+
+    tests["LONG_BUFFER"] = (
+        unit_14_v3_trigger(
+            "LONG",
+            Decimal("80000"),
+            Decimal("80200"),
+            Decimal("0.3"),
+        )
+        == (
+            Decimal("80240"),
+            True,
+        )
+    )
+
+    tests["SHORT_BUFFER"] = (
+        unit_14_v3_trigger(
+            "SHORT",
+            Decimal("80000"),
+            Decimal("79800"),
+            Decimal("0.3"),
+        )
+        == (
+            Decimal("79760"),
+            True,
+        )
+    )
+
+    tests["INDEPENDENT_BE_TABLE"] = (
+        unit_14_order_table("BE-C")
+        == "breakeven_orders_v4"
+    )
+
+    tests["INDEPENDENT_TP3_TABLE"] = (
+        unit_14_order_table("TP3-C")
+        == "tp3_orders_v4"
+    )
+
+    tests["INDEPENDENT_ATTEMPT_ID"] = (
+        unit_14_stage_client_id(
+            "TEST",
+            "H1-C"
+        )
+        != unit_14_stage_client_id(
+            "TEST",
+            "H1-C"
+        )
+    )
+
+    tests["REJECTED_RETRY"] = (
+        unit_14_terminal_status(
+            "REJECTED"
+        )
+    )
+
+    tests["UNKNOWN_NOT_TERMINAL"] = (
+        not unit_14_terminal_status(
+            "ACK_UNKNOWN"
+        )
+    )
+
+    for name, passed in tests.items():
+
+        print(
+            "UNIT 14 TEST:",
+            name,
+            "=",
+            "PASS" if passed else "FAIL",
+            flush=True,
+        )
+
+    passed = all(
+        tests.values()
+    )
+
+    print(
+        "UNIT 14 VALIDATION RESULT =",
+        "PASS" if passed else "FAIL",
+        flush=True,
+    )
+
+    return passed
+
+
+# ============================================================
+# ORIGINAL INITIALIZATION VARIABLES
+# UNIT 13 -> UNIT 14 -> UNIT 15
+# ============================================================
+
+FRESH_UNIT_14_VALIDATION_READY = (
+    unit_14_validation_v3()
+)
+
+FRESH_RECONSTRUCTION_UNIT_14_RESULT = (
+    fresh_unit_14_hybrid_adapter(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_13_RESULT,
+    )
+)
+
+print(
+    "FRESH RECONSTRUCTION UNIT 14 V4 READY =",
+    FRESH_UNIT_14_VALIDATION_READY,
+    flush=True,
+)
+
+
+# ============================================================
+# END COMPLETE UNIT 14 V4 REPLACEMENT
+# END PART 4 OF 4
+# UNIT 15 FOLLOWS
+# ZERO INDENTATION
+# ============================================================
