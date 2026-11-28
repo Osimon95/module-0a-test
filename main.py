@@ -30215,3 +30215,1833 @@ def scan_forever():
 # DO NOT ADD A SECOND scan_forever() CALL.
 #
 # ============================================================
+
+# ============================================================
+# WEEX DEMO POSITION CONTROLLER V2
+# COMPLETE REPLACEMENT
+# ZERO INDENTATION
+#
+# COMPATIBLE WITH:
+# UNIT 13 V6
+# UNIT 14 V4
+# UNIT 15 V6
+# CONTINUOUS SCAN V3
+#
+# UNIVERSAL SYMBOL PRECISION
+# PERSISTENT SQLITE RECONCILIATION
+# INDEPENDENT LONG AND SHORT CLOSING
+# ============================================================
+
+import os as _dpc_os
+import json as _dpc_json
+import time as _dpc_time
+import sqlite3 as _dpc_sql
+import hashlib as _dpc_hashlib
+import uuid as _dpc_uuid
+
+from decimal import Decimal as _DPC_D
+from decimal import ROUND_DOWN as _DPC_ROUND_DOWN
+
+
+# ============================================================
+# PERSISTENT DATABASE
+# ============================================================
+
+_DPC_JOURNAL_DIR = (
+    "/var/data/demo_position_control"
+)
+
+_DPC_DB_PATH = _dpc_os.path.join(
+    _DPC_JOURNAL_DIR,
+    "manual_execution_v2.sqlite3",
+)
+
+
+# ============================================================
+# EXISTING RENDER ENVIRONMENT INTERFACE
+# ============================================================
+
+def dpc_setting(name, default=""):
+
+    return _dpc_os.getenv(
+        name,
+        default,
+    ).strip()
+
+
+# ============================================================
+# DECIMAL HELPERS
+# ============================================================
+
+def dpc_decimal(value):
+
+    number = _DPC_D(str(value))
+
+    if not number.is_finite():
+
+        raise ValueError(
+            "DPC_INVALID_DECIMAL"
+        )
+
+    return number
+
+
+def dpc_amount(value):
+
+    return format(
+        dpc_decimal(value).normalize(),
+        "f",
+    )
+
+
+def dpc_now_ms():
+
+    return int(
+        _dpc_time.time() * 1000
+    )
+
+
+# ============================================================
+# ACTIVE SYMBOL INTERFACE
+# ============================================================
+
+def dpc_symbols():
+
+    market, demo = (
+        unit_13_14_active_symbols()
+    )
+
+    return (
+        str(market).upper(),
+        str(demo).upper(),
+    )
+
+
+# ============================================================
+# EXCHANGE POSITION RETRIEVAL
+# ============================================================
+
+def dpc_positions():
+
+    positions = unit_14_v3_positions()
+
+    if not isinstance(
+        positions,
+        dict,
+    ):
+
+        raise RuntimeError(
+            "DPC_INVALID_POSITION_RESPONSE"
+        )
+
+    return positions
+
+
+# ============================================================
+# CURRENT EXCHANGE CONTRACT SPECIFICATIONS
+# ============================================================
+
+def dpc_contract_details():
+
+    config = FRESH_RECONSTRUCTION_CONFIG
+
+    market, demo = dpc_symbols()
+
+    loaded = (
+        unit_9_load_symbol_specifications(
+            config,
+            market,
+        )
+    )
+
+    if loaded is not True:
+
+        raise RuntimeError(
+            "DPC_CONTRACT_SPECS_UNAVAILABLE"
+        )
+
+    contract = scan_contract_details(
+        config
+    )
+
+    return {
+        "market_symbol":
+            market,
+
+        "demo_symbol":
+            demo,
+
+        "quantity_step":
+            dpc_decimal(
+                contract["quantity_step"]
+            ),
+
+        "minimum_quantity":
+            dpc_decimal(
+                contract["minimum_quantity"]
+            ),
+
+        "contract_multiplier":
+            dpc_decimal(
+                contract["contract_multiplier"]
+            ),
+    }
+
+
+# ============================================================
+# POSITION ENTRY PRICE
+# ============================================================
+
+def dpc_entry_price(position):
+
+    for key in (
+        "avgPrice",
+        "entryPrice",
+        "openPriceAvg",
+    ):
+
+        raw = position.get(key)
+
+        if raw is not None:
+
+            try:
+
+                value = dpc_decimal(raw)
+
+                if value > 0:
+
+                    return value
+
+            except Exception:
+
+                continue
+
+    size = dpc_decimal(
+        position.get("size", "0")
+    )
+
+    open_value = dpc_decimal(
+        position.get("openValue", "0")
+    )
+
+    if size > 0 and open_value > 0:
+
+        return open_value / size
+
+    return None
+
+
+# ============================================================
+# POSITION INSPECTION
+# ============================================================
+
+def dpc_inspect():
+
+    positions = dpc_positions()
+
+    market, demo = dpc_symbols()
+
+    mark = dpc_decimal(
+        unit_14_v3_mark()
+    )
+
+    precision = (
+        FRESH_RECONSTRUCTION_CONFIG.get(
+            "market_precision",
+            {},
+        )
+    )
+
+    multiplier = None
+
+    if (
+        precision.get(
+            "specifications_symbol"
+        ) == market
+
+        and precision.get(
+            "symbol_specifications_confirmed"
+        ) is True
+    ):
+
+        multiplier = dpc_decimal(
+            precision.get(
+                "contract_multiplier",
+                1,
+            )
+        )
+
+    print("=" * 80, flush=True)
+
+    print(
+        "DEMO POSITION CONTROLLER = INSPECT",
+        flush=True,
+    )
+
+    print(
+        "DEMO MARKET SYMBOL =",
+        market,
+        flush=True,
+    )
+
+    print(
+        "DEMO ORDER SYMBOL =",
+        demo,
+        flush=True,
+    )
+
+    print(
+        "DEMO MARK PRICE =",
+        mark,
+        flush=True,
+    )
+
+    print(
+        "DEMO OPEN POSITIONS =",
+        len(positions),
+        flush=True,
+    )
+
+    for side, position in positions.items():
+
+        size = dpc_decimal(
+            position["size"]
+        )
+
+        entry = dpc_entry_price(
+            position
+        )
+
+        leverage = position.get(
+            "leverage",
+            "UNAVAILABLE",
+        )
+
+        liquidation = position.get(
+            "liquidationPrice",
+
+            position.get(
+                "liqPrice",
+                "UNAVAILABLE",
+            ),
+        )
+
+        pnl = None
+
+        if (
+            entry is not None
+            and multiplier is not None
+        ):
+
+            if side == "LONG":
+
+                pnl = (
+                    mark - entry
+                ) * size * multiplier
+
+            elif side == "SHORT":
+
+                pnl = (
+                    entry - mark
+                ) * size * multiplier
+
+        print("-" * 60, flush=True)
+
+        print(
+            "POSITION SIDE =",
+            side,
+            flush=True,
+        )
+
+        print(
+            "POSITION SIZE =",
+            size,
+            flush=True,
+        )
+
+        print(
+            "ENTRY PRICE =",
+            entry,
+            flush=True,
+        )
+
+        print(
+            "MARK PRICE =",
+            mark,
+            flush=True,
+        )
+
+        print(
+            "LEVERAGE =",
+            leverage,
+            flush=True,
+        )
+
+        print(
+            "LIQUIDATION PRICE =",
+            liquidation,
+            flush=True,
+        )
+
+        print(
+            "ESTIMATED UNREALIZED PNL =",
+
+            pnl
+            if pnl is not None
+            else "UNAVAILABLE",
+
+            flush=True,
+        )
+
+        print(
+            "PNL EXCLUDES FEES AND FUNDING",
+            flush=True,
+        )
+
+    print("=" * 80, flush=True)
+
+    return positions
+
+
+# ============================================================
+# SQLITE MANUAL EXECUTION DATABASE
+# EXISTING JSON JOURNAL FILES ARE PRESERVED
+# ============================================================
+
+def dpc_db():
+
+    _dpc_os.makedirs(
+        _DPC_JOURNAL_DIR,
+        exist_ok=True,
+    )
+
+    db = _dpc_sql.connect(
+        _DPC_DB_PATH,
+        timeout=30,
+        isolation_level=None,
+    )
+
+    db.row_factory = _dpc_sql.Row
+
+    db.execute(
+        "PRAGMA journal_mode=WAL"
+    )
+
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS
+        dpc_commands_v2 (
+            command_key TEXT PRIMARY KEY,
+            command_id TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            position_side TEXT NOT NULL,
+            position_identity TEXT NOT NULL,
+            original_quantity TEXT NOT NULL,
+            state TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        )
+    """)
+
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS
+        dpc_orders_v2 (
+            client_id TEXT PRIMARY KEY,
+            command_key TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            position_side TEXT NOT NULL,
+            quantity TEXT NOT NULL,
+            confirmed_filled TEXT NOT NULL DEFAULT '0',
+            exchange_order_id TEXT,
+            state TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        )
+    """)
+
+    db.execute("""
+        CREATE INDEX IF NOT EXISTS
+        dpc_order_command_index_v2
+        ON dpc_orders_v2 (
+            command_key
+        )
+    """)
+
+    return db
+
+
+# ============================================================
+# COMMAND IDENTITY
+# SEPARATE LONG AND SHORT COMMAND RECORDS
+# ============================================================
+
+def dpc_command_key(
+    command_id,
+    symbol,
+    side,
+):
+
+    raw = (
+        str(command_id)
+
+        + "|"
+
+        + str(symbol)
+
+        + "|"
+
+        + str(side)
+    )
+
+    return _dpc_hashlib.sha256(
+        raw.encode("utf-8")
+    ).hexdigest()
+
+
+# ============================================================
+# POSITION IDENTITY
+# ============================================================
+
+def dpc_position_identity(position):
+
+    return unit_13_cycle_id(
+        position
+    )
+
+
+# ============================================================
+# LEGACY COMMAND JOURNAL INSPECTION
+# ============================================================
+
+def dpc_legacy_command_exists(
+    command_id,
+):
+
+    digest = _dpc_hashlib.sha256(
+        command_id.encode("utf-8")
+    ).hexdigest()
+
+    path = _dpc_os.path.join(
+        _DPC_JOURNAL_DIR,
+        digest + ".json",
+    )
+
+    return _dpc_os.path.isfile(
+        path
+    )
+
+
+# ============================================================
+# READ EXISTING COMMAND
+# ============================================================
+
+def dpc_read_command(command_key):
+
+    db = dpc_db()
+
+    try:
+
+        row = db.execute("""
+            SELECT *
+            FROM dpc_commands_v2
+            WHERE command_key = ?
+        """, (
+            command_key,
+        )).fetchone()
+
+        return (
+            dict(row)
+            if row is not None
+            else None
+        )
+
+    finally:
+
+        db.close()
+
+
+# ============================================================
+# REGISTER MANUAL CLOSE COMMAND
+# ============================================================
+
+def dpc_command_claim(
+    command_id,
+    symbol,
+    side,
+    position,
+):
+
+    command_key = dpc_command_key(
+        command_id,
+        symbol,
+        side,
+    )
+
+    identity = dpc_position_identity(
+        position
+    )
+
+    quantity = dpc_decimal(
+        position["size"]
+    )
+
+    now = dpc_now_ms()
+
+    db = dpc_db()
+
+    try:
+
+        db.execute("""
+            INSERT OR IGNORE INTO
+            dpc_commands_v2 (
+                command_key,
+                command_id,
+                symbol,
+                position_side,
+                position_identity,
+                original_quantity,
+                state,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            command_key,
+
+            command_id,
+
+            symbol,
+
+            side,
+
+            identity,
+
+            str(quantity),
+
+            "ACTIVE",
+
+            now,
+
+            now,
+        ))
+
+    finally:
+
+        db.close()
+
+    return dpc_read_command(
+        command_key
+    )
+
+
+# ============================================================
+# UPDATE COMMAND STATE
+# ============================================================
+
+def dpc_update_command(
+    command_key,
+    state,
+):
+
+    db = dpc_db()
+
+    try:
+
+        db.execute("""
+            UPDATE dpc_commands_v2
+            SET
+                state = ?,
+                updated_at = ?
+            WHERE command_key = ?
+        """, (
+            state,
+
+            dpc_now_ms(),
+
+            command_key,
+        ))
+
+    finally:
+
+        db.close()
+
+
+# ============================================================
+# READ COMMAND ORDER ATTEMPTS
+# ============================================================
+
+def dpc_read_orders(command_key):
+
+    db = dpc_db()
+
+    try:
+
+        rows = db.execute("""
+            SELECT *
+            FROM dpc_orders_v2
+            WHERE command_key = ?
+            ORDER BY created_at
+        """, (
+            command_key,
+        )).fetchall()
+
+        return [
+            dict(row)
+            for row in rows
+        ]
+
+    finally:
+
+        db.close()
+
+
+# ============================================================
+# TERMINAL EXCHANGE ORDER STATES
+# ============================================================
+
+def dpc_terminal(state):
+
+    return str(state).upper() in (
+        "FILLED",
+        "CANCELED",
+        "CANCELLED",
+        "REJECTED",
+        "EXPIRED",
+    )
+
+
+# ============================================================
+# ATOMIC ORDER CLAIM
+# ONLY ONE UNRESOLVED ATTEMPT PER COMMAND
+# ============================================================
+
+def dpc_order_claim(
+    command,
+    quantity,
+):
+
+    db = dpc_db()
+
+    try:
+
+        db.execute("BEGIN IMMEDIATE")
+
+        rows = db.execute("""
+            SELECT state
+            FROM dpc_orders_v2
+            WHERE command_key = ?
+        """, (
+            command["command_key"],
+        )).fetchall()
+
+        for row in rows:
+
+            if not dpc_terminal(
+                row["state"]
+            ):
+
+                db.execute("ROLLBACK")
+
+                return None
+
+        client_id = (
+            "DPC-"
+            + _dpc_uuid.uuid4().hex[:24]
+        )
+
+        now = dpc_now_ms()
+
+        db.execute("""
+            INSERT INTO dpc_orders_v2 (
+                client_id,
+                command_key,
+                symbol,
+                position_side,
+                quantity,
+                confirmed_filled,
+                state,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            client_id,
+
+            command["command_key"],
+
+            command["symbol"],
+
+            command["position_side"],
+
+            str(quantity),
+
+            "0",
+
+            "SUBMITTING",
+
+            now,
+
+            now,
+        ))
+
+        db.execute("COMMIT")
+
+        return client_id
+
+    except Exception:
+
+        if db.in_transaction:
+
+            db.execute("ROLLBACK")
+
+        raise
+
+    finally:
+
+        db.close()
+
+
+# ============================================================
+# UPDATE ORDER ATTEMPT
+# PRESERVE CONFIRMED FILLED QUANTITY
+# ============================================================
+
+def dpc_update_order(
+    client_id,
+    state,
+    exchange_order_id=None,
+    confirmed_filled=None,
+):
+
+    db = dpc_db()
+
+    try:
+
+        db.execute("BEGIN IMMEDIATE")
+
+        row = db.execute("""
+            SELECT *
+            FROM dpc_orders_v2
+            WHERE client_id = ?
+        """, (
+            client_id,
+        )).fetchone()
+
+        if row is None:
+
+            db.execute("ROLLBACK")
+
+            return False
+
+        previous_filled = dpc_decimal(
+            row["confirmed_filled"]
+        )
+
+        if confirmed_filled is None:
+
+            filled = previous_filled
+
+        else:
+
+            filled = max(
+                previous_filled,
+
+                dpc_decimal(
+                    confirmed_filled
+                ),
+            )
+
+        previous_id = row[
+            "exchange_order_id"
+        ]
+
+        if (
+            previous_id
+
+            and exchange_order_id
+
+            and str(previous_id)
+            != str(exchange_order_id)
+        ):
+
+            raise RuntimeError(
+                "DPC_EXCHANGE_ORDER_ID_CONFLICT"
+            )
+
+        order_id = (
+            exchange_order_id
+            or previous_id
+        )
+
+        if row["state"] == "FILLED":
+
+            state = "FILLED"
+
+        db.execute("""
+            UPDATE dpc_orders_v2
+            SET
+                state = ?,
+                confirmed_filled = ?,
+                exchange_order_id = ?,
+                updated_at = ?
+            WHERE client_id = ?
+        """, (
+            str(state).upper(),
+
+            str(filled),
+
+            order_id,
+
+            dpc_now_ms(),
+
+            client_id,
+        ))
+
+        db.execute("COMMIT")
+
+        return True
+
+    except Exception:
+
+        if db.in_transaction:
+
+            db.execute("ROLLBACK")
+
+        raise
+
+    finally:
+
+        db.close()
+
+
+# ============================================================
+# EXCHANGE ORDER HISTORY
+# ============================================================
+
+def dpc_history(symbol):
+
+    history = unit_14_v3_history(
+        demo_symbol=symbol,
+    )
+
+    if not isinstance(history, list):
+
+        raise RuntimeError(
+            "DPC_INVALID_HISTORY_RESPONSE"
+        )
+
+    return history
+
+
+# ============================================================
+# MATCH EXACT MANUAL CLOSE ORDER
+# ============================================================
+
+def dpc_match_order(
+    attempt,
+    history,
+):
+
+    matches = []
+
+    expected_side = (
+        "SELL"
+
+        if attempt["position_side"] == "LONG"
+
+        else "BUY"
+    )
+
+    for record in history:
+
+        if not isinstance(
+            record,
+            dict,
+        ):
+
+            continue
+
+        client_id = (
+            record.get("clientOrderId")
+
+            or record.get(
+                "newClientOrderId"
+            )
+        )
+
+        order_id = record.get(
+            "orderId"
+        )
+
+        client_match = (
+            client_id is not None
+
+            and str(client_id)
+            == attempt["client_id"]
+        )
+
+        exchange_match = (
+            attempt.get(
+                "exchange_order_id"
+            ) is not None
+
+            and order_id is not None
+
+            and str(order_id)
+            == str(
+                attempt["exchange_order_id"]
+            )
+        )
+
+        if not (
+            client_match
+            or exchange_match
+        ):
+
+            continue
+
+        if str(
+            record.get("symbol", "")
+        ).upper() != attempt["symbol"]:
+
+            continue
+
+        if str(
+            record.get(
+                "positionSide",
+                "",
+            )
+        ).upper() != attempt[
+            "position_side"
+        ]:
+
+            continue
+
+        if str(
+            record.get("side", "")
+        ).upper() != expected_side:
+
+            continue
+
+        matches.append(record)
+
+    if not matches:
+
+        return None
+
+    return max(
+        matches,
+
+        key=lambda record: (
+            dpc_decimal(
+                record.get(
+                    "executedQty",
+                    "0",
+                ) or "0"
+            ),
+
+            int(
+                record.get(
+                    "updateTime",
+                    0,
+                ) or 0
+            ),
+        ),
+    )
+
+
+# ============================================================
+# RECONCILE ALL ATTEMPTS FOR ONE COMMAND
+# ============================================================
+
+def dpc_reconcile_command(command):
+
+    attempts = dpc_read_orders(
+        command["command_key"]
+    )
+
+    if attempts:
+
+        history = dpc_history(
+            command["symbol"]
+        )
+
+        for attempt in attempts:
+
+            if dpc_terminal(
+                attempt["state"]
+            ):
+
+                continue
+
+            matched = dpc_match_order(
+                attempt,
+                history,
+            )
+
+            if matched is None:
+
+                continue
+
+            filled = dpc_decimal(
+                matched.get(
+                    "executedQty",
+                    "0",
+                ) or "0"
+            )
+
+            state = str(
+                matched.get(
+                    "status",
+                    attempt["state"],
+                )
+            ).upper()
+
+            dpc_update_order(
+                attempt["client_id"],
+
+                state,
+
+                matched.get("orderId"),
+
+                filled,
+            )
+
+    attempts = dpc_read_orders(
+        command["command_key"]
+    )
+
+    confirmed = sum(
+        (
+            dpc_decimal(
+                attempt[
+                    "confirmed_filled"
+                ]
+            )
+
+            for attempt in attempts
+        ),
+
+        _DPC_D("0"),
+    )
+
+    pending = any(
+        not dpc_terminal(
+            attempt["state"]
+        )
+
+        for attempt in attempts
+    )
+
+    original = dpc_decimal(
+        command["original_quantity"]
+    )
+
+    return {
+        "confirmed_filled":
+            confirmed,
+
+        "pending":
+            pending,
+
+        "original_quantity":
+            original,
+
+        "remaining_quantity":
+            max(
+                _DPC_D("0"),
+
+                original - confirmed,
+            ),
+
+        "attempts":
+            attempts,
+    }
+
+
+# ============================================================
+# MANUAL CLOSE NOTIFICATION
+# CONFIRMED EXECUTION ONLY
+# ============================================================
+
+def dpc_notify_completion(
+    command,
+    confirmed_quantity,
+):
+
+    notification_id = (
+        "DPC:"
+
+        + command["command_key"]
+
+        + ":"
+
+        + dpc_amount(
+            confirmed_quantity
+        )
+    )
+
+    message = (
+        "WEEX DEMO MANUAL CLOSE\n"
+
+        f"Symbol: {command['symbol']}\n"
+
+        f"Position: {command['position_side']}\n"
+
+        "Confirmed closed quantity: "
+
+        f"{dpc_amount(confirmed_quantity)}\n"
+
+        "Status: CLOSED_CONFIRMED"
+    )
+
+    try:
+
+        unit15_queue_notification(
+            notification_id,
+            message,
+        )
+
+    except Exception as exc:
+
+        print(
+            "DPC NOTIFICATION ERROR =",
+            repr(exc),
+            flush=True,
+        )
+
+
+# ============================================================
+# SUBMIT MANUAL MARKET CLOSE
+# REUSE UNIT 14 EXECUTION INTERFACE
+# ============================================================
+
+def dpc_submit_close(
+    command,
+    quantity,
+):
+
+    client_id = dpc_order_claim(
+        command,
+        quantity,
+    )
+
+    if client_id is None:
+
+        return "RECONCILIATION_PENDING"
+
+    print(
+        "DEMO CONTROL SUBMITTING CLOSE =",
+        command["position_side"],
+        flush=True,
+    )
+
+    print(
+        "DEMO CONTROL CLOSE QUANTITY =",
+        quantity,
+        flush=True,
+    )
+
+    print(
+        "DEMO CONTROL CLIENT ORDER ID =",
+        client_id,
+        flush=True,
+    )
+
+    try:
+
+        reply = unit_14_submit_close(
+            command["symbol"],
+
+            command["position_side"],
+
+            quantity,
+
+            client_id,
+        )
+
+    except Exception as exc:
+
+        dpc_update_order(
+            client_id,
+            "ACK_UNKNOWN",
+        )
+
+        print(
+            "DEMO CONTROL ACK UNKNOWN =",
+            repr(exc),
+            flush=True,
+        )
+
+        return "ACK_UNKNOWN"
+
+    print(
+        "DEMO CONTROL ORDER RESPONSE =",
+        reply,
+        flush=True,
+    )
+
+    if isinstance(reply, dict):
+
+        order_id = reply.get(
+            "orderId"
+        )
+
+        if order_id:
+
+            dpc_update_order(
+                client_id,
+
+                "ACKNOWLEDGED",
+
+                order_id,
+            )
+
+            return "ACKNOWLEDGED"
+
+        response_status = str(
+            reply.get(
+                "status",
+                "",
+            )
+        ).upper()
+
+        if response_status == "REJECTED":
+
+            dpc_update_order(
+                client_id,
+                "REJECTED",
+            )
+
+            return "REJECTED"
+
+    dpc_update_order(
+        client_id,
+        "ACK_UNKNOWN",
+    )
+
+    return "ACK_UNKNOWN"
+
+
+# ============================================================
+# COMPLETE MANUAL POSITION CLOSE
+# PERSISTENT RECONCILIATION AND PARTIAL FILL CONTINUATION
+# ============================================================
+
+def dpc_close(
+    side,
+    command_id,
+):
+
+    side = str(side).upper()
+
+    if side not in (
+        "LONG",
+        "SHORT",
+    ):
+
+        raise ValueError(
+            "DPC_INVALID_POSITION_SIDE"
+        )
+
+    market, symbol = dpc_symbols()
+
+    command_key = dpc_command_key(
+        command_id,
+        symbol,
+        side,
+    )
+
+    command = dpc_read_command(
+        command_key
+    )
+
+    # ========================================================
+    # PRESERVE COMPLETED COMMANDS
+    # DO NOT CLOSE A NEW POSITION WITH AN OLD COMMAND
+    # ========================================================
+
+    if command is not None:
+
+        if command["state"] in (
+            "CLOSED_CONFIRMED",
+            "POSITION_CHANGED",
+            "POSITION_ALREADY_FLAT",
+        ):
+
+            return command["state"]
+
+    # ========================================================
+    # LEGACY JOURNAL COMPATIBILITY
+    # OLD UNRESOLVED COMMANDS REQUIRE A NEW EXPLICIT ID
+    # ========================================================
+
+    if command is None:
+
+        if dpc_legacy_command_exists(
+            command_id
+        ):
+
+            return "LEGACY_COMMAND_REQUIRES_REVIEW"
+
+    positions = dpc_positions()
+
+    position = positions.get(
+        side
+    )
+
+    # ========================================================
+    # REGISTER NEW COMMAND
+    # ========================================================
+
+    if command is None:
+
+        if position is None:
+
+            return "NO_POSITION"
+
+        command = dpc_command_claim(
+            command_id,
+
+            symbol,
+
+            side,
+
+            position,
+        )
+
+    # ========================================================
+    # RECONCILE PREVIOUS ATTEMPTS
+    # ========================================================
+
+    reconciliation = (
+        dpc_reconcile_command(
+            command
+        )
+    )
+
+    confirmed = reconciliation[
+        "confirmed_filled"
+    ]
+
+    print(
+        "DEMO CONTROL CONFIRMED FILLED =",
+        confirmed,
+        flush=True,
+    )
+
+    print(
+        "DEMO CONTROL PENDING ORDER =",
+        reconciliation["pending"],
+        flush=True,
+    )
+
+    # ========================================================
+    # RE-READ EXCHANGE POSITION AFTER RECONCILIATION
+    # ========================================================
+
+    position = dpc_positions().get(
+        side
+    )
+
+    if position is None:
+
+        if (
+            not reconciliation["pending"]
+
+            and confirmed >= reconciliation[
+                "original_quantity"
+            ]
+        ):
+
+            dpc_update_command(
+                command_key,
+                "CLOSED_CONFIRMED",
+            )
+
+            dpc_notify_completion(
+                command,
+                confirmed,
+            )
+
+            return "CLOSED_CONFIRMED"
+
+        if reconciliation["pending"]:
+
+            return "FLAT_RECONCILIATION_PENDING"
+
+        dpc_update_command(
+            command_key,
+            "POSITION_ALREADY_FLAT",
+        )
+
+        return "POSITION_ALREADY_FLAT"
+
+    # ========================================================
+    # DO NOT REUSE COMMAND ON A DIFFERENT POSITION
+    # ========================================================
+
+    current_identity = (
+        dpc_position_identity(
+            position
+        )
+    )
+
+    if current_identity != command[
+        "position_identity"
+    ]:
+
+        if reconciliation["pending"]:
+
+            return "POSITION_CHANGED_RECONCILIATION_PENDING"
+
+        dpc_update_command(
+            command_key,
+            "POSITION_CHANGED",
+        )
+
+        return "POSITION_CHANGED"
+
+    # ========================================================
+    # UNKNOWN OR OPEN ORDER
+    # RECONCILE BEFORE ANOTHER SUBMISSION
+    # ========================================================
+
+    if reconciliation["pending"]:
+
+        return "RECONCILIATION_PENDING"
+
+    # ========================================================
+    # CURRENT CONTRACT QUANTITY PRECISION
+    # ========================================================
+
+    contract = dpc_contract_details()
+
+    step = contract[
+        "quantity_step"
+    ]
+
+    minimum = contract[
+        "minimum_quantity"
+    ]
+
+    current_size = dpc_decimal(
+        position["size"]
+    )
+
+    remaining_target = reconciliation[
+        "remaining_quantity"
+    ]
+
+    quantity = min(
+        current_size,
+        remaining_target,
+    )
+
+    quantity = (
+        quantity / step
+    ).to_integral_value(
+        rounding=_DPC_ROUND_DOWN
+    ) * step
+
+    if quantity <= 0:
+
+        return "TARGET_FILLED_POSITION_REMAINS"
+
+    if quantity < minimum:
+
+        print(
+            "DEMO CONTROL REMAINING QUANTITY =",
+            quantity,
+            flush=True,
+        )
+
+        print(
+            "DEMO CONTROL EXCHANGE MINIMUM =",
+            minimum,
+            flush=True,
+        )
+
+        return "BELOW_EXCHANGE_MINIMUM"
+
+    # ========================================================
+    # IMMEDIATE POSITION RECHECK
+    # ========================================================
+
+    latest = dpc_positions().get(
+        side
+    )
+
+    if latest is None:
+
+        return "POSITION_CHANGED"
+
+    if dpc_position_identity(
+        latest
+    ) != current_identity:
+
+        return "POSITION_CHANGED"
+
+    latest_size = dpc_decimal(
+        latest["size"]
+    )
+
+    if latest_size != current_size:
+
+        return "POSITION_SIZE_CHANGED"
+
+    # ========================================================
+    # EXECUTE REMAINING CLOSE QUANTITY
+    # ========================================================
+
+    submission = dpc_submit_close(
+        command,
+        quantity,
+    )
+
+    print(
+        "DEMO CONTROL SUBMISSION STATUS =",
+        submission,
+        flush=True,
+    )
+
+    # ========================================================
+    # IMMEDIATE EXCHANGE RECONCILIATION
+    # ========================================================
+
+    reconciliation = (
+        dpc_reconcile_command(
+            command
+        )
+    )
+
+    confirmed = reconciliation[
+        "confirmed_filled"
+    ]
+
+    remaining_position = (
+        dpc_positions().get(side)
+    )
+
+    if (
+        remaining_position is None
+
+        and not reconciliation["pending"]
+
+        and confirmed >= reconciliation[
+            "original_quantity"
+        ]
+    ):
+
+        dpc_update_command(
+            command_key,
+            "CLOSED_CONFIRMED",
+        )
+
+        dpc_notify_completion(
+            command,
+            confirmed,
+        )
+
+        return "CLOSED_CONFIRMED"
+
+    if reconciliation["pending"]:
+
+        return "RECONCILIATION_PENDING"
+
+    if remaining_position is None:
+
+        dpc_update_command(
+            command_key,
+            "POSITION_ALREADY_FLAT",
+        )
+
+        return "POSITION_ALREADY_FLAT"
+
+    return "REMAINING_POSITION_PENDING"
+
+
+# ============================================================
+# RENDER MANUAL POSITION COMMAND PROCESSOR
+# EXISTING ENVIRONMENT VARIABLES PRESERVED
+# ============================================================
+
+def dpc_process():
+
+    command = dpc_setting(
+        "DEMO_POSITION_CONTROL",
+        "OFF",
+    ).upper()
+
+    arm = dpc_setting(
+        "DEMO_CONTROL_ARM",
+        "NO",
+    ).upper()
+
+    command_id = dpc_setting(
+        "DEMO_CONTROL_COMMAND_ID",
+        "",
+    )
+
+    # Refresh the active symbol because
+    # manual mode bypasses the entry pipeline.
+
+    scan_refresh_active_pair(
+        FRESH_RECONSTRUCTION_CONFIG
+    )
+
+    if command == "OFF":
+
+        return "OFF"
+
+    # ========================================================
+    # INSPECTION COMMANDS
+    # ========================================================
+
+    if command in (
+        "INSPECT",
+        "STATUS",
+    ):
+
+        dpc_inspect()
+
+        return "INSPECTED"
+
+    # ========================================================
+    # EXISTING MANUAL CLOSE COMMANDS
+    # ========================================================
+
+    if command not in (
+        "CLOSE_LONG",
+        "CLOSE_SHORT",
+        "CLOSE_ALL",
+    ):
+
+        print(
+            "DEMO CONTROL UNKNOWN COMMAND =",
+            command,
+            flush=True,
+        )
+
+        return "REJECTED"
+
+    if arm != "YES":
+
+        print(
+            "DEMO CONTROL CLOSE NOT ARMED",
+            flush=True,
+        )
+
+        return "NOT_ARMED"
+
+    if not command_id:
+
+        print(
+            "DEMO CONTROL COMMAND ID REQUIRED",
+            flush=True,
+        )
+
+        return "REJECTED"
+
+    # ========================================================
+    # INDEPENDENT LONG AND SHORT CLOSING
+    # ========================================================
+
+    if command == "CLOSE_ALL":
+
+        results = {}
+
+        for side in (
+            "LONG",
+            "SHORT",
+        ):
+
+            try:
+
+                results[side] = dpc_close(
+                    side,
+
+                    command_id
+                    + "-"
+                    + side,
+                )
+
+            except Exception as exc:
+
+                results[side] = (
+                    "ERROR:"
+                    + str(exc)
+                )
+
+                print(
+                    "DEMO CONTROL SIDE ERROR =",
+                    side,
+                    repr(exc),
+                    flush=True,
+                )
+
+        print(
+            "DEMO CONTROL CLOSE ALL RESULTS =",
+            results,
+            flush=True,
+        )
+
+        completed_states = (
+            "CLOSED_CONFIRMED",
+            "NO_POSITION",
+            "POSITION_ALREADY_FLAT",
+        )
+
+        if all(
+            state in completed_states
+
+            for state in results.values()
+        ):
+
+            return "CLOSE_ALL_CONFIRMED_FLAT"
+
+        return (
+            "CLOSE_ALL_PENDING:"
+            + _dpc_json.dumps(results)
+        )
+
+    # ========================================================
+    # SINGLE POSITION CLOSING
+    # ========================================================
+
+    side = command.split(
+        "_",
+        1,
+    )[1]
+
+    result = dpc_close(
+        side,
+        command_id,
+    )
+
+    print(
+        "DEMO CONTROL RESULT =",
+        result,
+        flush=True,
+    )
+
+    return result
+
+
+# ============================================================
+# END WEEX DEMO POSITION CONTROLLER V2
+# ZERO INDENTATION
+# ============================================================
+
+
+# ============================================================
+# START COMPLETE CONTINUOUS SCAN CONTROLLER V3
+# ALL FUNCTIONS NOW DEFINED
+# SINGLE ACTIVATION
+# ============================================================
+
+scan_forever()
+
+
+# ============================================================
+# END COMPLETE MAIN.PY
+# ============================================================
