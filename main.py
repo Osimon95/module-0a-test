@@ -9,7 +9,7 @@
 # STANDARD LIBRARY IMPORTS
 # ============================================================
 
-import 
+import json
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -13902,3 +13902,513 @@ print(
 # ============================================================
 
 
+# ============================================================
+# COMPLETE UNIT 13 V6
+# PART 1 OF 3
+# EXCHANGE COMMUNICATION AND TP CALCULATIONS
+# ZERO INDENTATION
+# ============================================================
+
+import os
+import json
+import time
+import hmac
+import base64
+import hashlib
+import sqlite3
+import uuid
+import urllib.request
+import urllib.parse
+import urllib.error
+
+from decimal import Decimal, ROUND_DOWN, ROUND_UP
+
+
+UNIT13_V4_BASE = "https://api-contract.weex.com"
+
+UNIT13_V4_POSITION = "/capi/v3/sim/position/allPosition"
+
+UNIT13_V4_ORDER = "/capi/v3/sim/order"
+
+UNIT13_V4_HISTORY = "/capi/v3/sim/order/history"
+
+
+# ============================================================
+# DECIMAL AND QUANTITY HANDLING
+# ============================================================
+
+def unit_13_v4_D(
+    value,
+    name="NUMBER",
+    allow_zero=False
+):
+
+    return Decimal(str(value))
+
+
+def unit_13_floor(quantity, step):
+
+    quantity = Decimal(str(quantity))
+    step = Decimal(str(step))
+
+    return (
+        quantity / step
+    ).to_integral_value(
+        rounding=ROUND_DOWN
+    ) * step
+
+
+# ============================================================
+# STEP-AWARE TP ALLOCATION
+# ============================================================
+
+def unit_13_v4_allocation(
+    total,
+    step,
+    pct1=10,
+    pct2=20
+):
+
+    total = Decimal(str(total))
+    step = Decimal(str(step))
+
+    n = int(total / step)
+
+    if n <= 0:
+
+        return (
+            Decimal(0),
+            Decimal(0),
+            Decimal(0),
+        )
+
+    if n == 1:
+
+        s1, s2, s3 = 0, 0, 1
+
+    elif n == 2:
+
+        s1, s2, s3 = 1, 0, 1
+
+    else:
+
+        s1 = max(
+            1,
+            int(
+                Decimal(n)
+                * Decimal(str(pct1))
+                / Decimal(100)
+            )
+        )
+
+        s2 = max(
+            1,
+            int(
+                Decimal(n)
+                * Decimal(str(pct2))
+                / Decimal(100)
+            )
+        )
+
+        while s1 + s2 >= n:
+
+            if s2 > 1:
+
+                s2 -= 1
+
+            else:
+
+                s1 -= 1
+
+        s3 = n - s1 - s2
+
+    return (
+        Decimal(s1) * step,
+        Decimal(s2) * step,
+        Decimal(s3) * step,
+    )
+
+
+# ============================================================
+# NET ROI TARGET CALCULATION
+# ============================================================
+
+def unit_13_v4_targets(
+    entry,
+    leverage,
+    side,
+    price_step,
+    tp1_floor,
+    tp2_floor,
+    taker_fee,
+):
+
+    D = unit_13_v4_D
+
+    entry = D(entry)
+    lev = D(leverage)
+    ps = D(price_step)
+
+    p1 = D(tp1_floor)
+    p2 = D(tp2_floor)
+    fee = D(taker_fee)
+
+    fee_roi = Decimal(2) * fee * lev
+
+    move1 = (p1 + fee_roi) / lev
+    move2 = (p2 + fee_roi) / lev
+
+    if side == "LONG":
+
+        raw1 = entry * (
+            1 + move1 / Decimal(100)
+        )
+
+        raw2 = entry * (
+            1 + move2 / Decimal(100)
+        )
+
+        t1 = (
+            raw1 / ps
+        ).to_integral_value(
+            rounding=ROUND_UP
+        ) * ps
+
+        t2 = (
+            raw2 / ps
+        ).to_integral_value(
+            rounding=ROUND_UP
+        ) * ps
+
+        if t2 <= t1:
+
+            t2 = t1 + ps
+
+    else:
+
+        raw1 = entry * (
+            1 - move1 / Decimal(100)
+        )
+
+        raw2 = entry * (
+            1 - move2 / Decimal(100)
+        )
+
+        t1 = (
+            raw1 / ps
+        ).to_integral_value(
+            rounding=ROUND_DOWN
+        ) * ps
+
+        t2 = (
+            raw2 / ps
+        ).to_integral_value(
+            rounding=ROUND_DOWN
+        ) * ps
+
+        if t2 >= t1:
+
+            t2 = t1 - ps
+
+    return t1, t2
+
+
+# ============================================================
+# DIRECT WEEX SIGNED REQUEST
+# ORIGINAL AUTHENTICATION MECHANISM
+# ============================================================
+
+def unit_13_v4_signed_request(
+    method,
+    path,
+    payload=None
+):
+
+    key = (
+        os.getenv("WEEX_API_KEY")
+        or os.getenv("API_KEY")
+    )
+
+    secret = (
+        os.getenv("WEEX_API_SECRET")
+        or os.getenv("API_SECRET")
+    )
+
+    phrase = (
+        os.getenv("WEEX_API_PASSPHRASE")
+        or os.getenv("API_PASSPHRASE")
+    )
+
+    query = (
+        urllib.parse.urlencode(payload)
+        if method == "GET" and payload
+        else ""
+    )
+
+    request_path = path + (
+        "?" + query if query else ""
+    )
+
+    body = (
+        json.dumps(
+            payload,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        )
+        if method == "POST"
+        and payload is not None
+        else ""
+    )
+
+    timestamp = str(
+        int(time.time() * 1000)
+    )
+
+    message = (
+        timestamp
+        + method
+        + request_path
+        + body
+    )
+
+    signature = base64.b64encode(
+        hmac.new(
+            secret.encode("utf-8"),
+            message.encode("utf-8"),
+            hashlib.sha256,
+        ).digest()
+    ).decode("utf-8")
+
+    request = urllib.request.Request(
+        UNIT13_V4_BASE + request_path,
+        method=method,
+        data=(
+            body.encode("utf-8")
+            if method == "POST"
+            else None
+        ),
+        headers={
+            "ACCESS-KEY": key,
+            "ACCESS-SIGN": signature,
+            "ACCESS-TIMESTAMP": timestamp,
+            "ACCESS-PASSPHRASE": phrase,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+    )
+
+    try:
+
+        with urllib.request.urlopen(
+            request,
+            timeout=15,
+        ) as response:
+
+            raw = response.read().decode(
+                "utf-8",
+                errors="replace"
+            )
+
+    except urllib.error.HTTPError as exc:
+
+        detail = exc.read().decode(
+            "utf-8",
+            errors="replace"
+        )
+
+        raise RuntimeError(
+            "UNIT 13 WEEX HTTP "
+            + str(exc.code)
+            + ": "
+            + detail
+        ) from exc
+
+    return json.loads(raw)
+
+
+# ============================================================
+# ACTIVE SYMBOL HANDOVER
+# ============================================================
+
+def unit_13_14_active_symbols():
+
+    exchange = (
+        FRESH_RECONSTRUCTION_CONFIG["exchange"]
+    )
+
+    market = str(
+        exchange["market_symbol"]
+    ).strip().upper()
+
+    demo = str(
+        exchange["demo_order_symbol"]
+    ).strip().upper()
+
+    return market, demo
+
+
+# ============================================================
+# CURRENT MARKET PRICE
+# ============================================================
+
+def unit_13_v4_mark_price():
+
+    market_symbol, _ = (
+        unit_13_14_active_symbols()
+    )
+
+    query = urllib.parse.urlencode({
+        "symbol": market_symbol,
+        "priceType": "MARK",
+    })
+
+    request = urllib.request.Request(
+        UNIT13_V4_BASE
+        + "/capi/v3/market/symbolPrice?"
+        + query,
+        method="GET",
+    )
+
+    with urllib.request.urlopen(
+        request,
+        timeout=15,
+    ) as response:
+
+        market = json.loads(
+            response.read().decode("utf-8")
+        )
+
+    return Decimal(str(market["price"]))
+
+
+# ============================================================
+# CURRENT EXCHANGE POSITIONS
+# ============================================================
+
+def unit_13_v4_positions():
+
+    _, demo_symbol = (
+        unit_13_14_active_symbols()
+    )
+
+    records = unit_13_v4_signed_request(
+        "GET",
+        UNIT13_V4_POSITION,
+    )
+
+    return [
+        position
+        for position in records
+        if str(
+            position.get("symbol", "")
+        ).upper() == demo_symbol
+        and Decimal(
+            str(position.get("size") or 0)
+        ) > 0
+    ]
+
+
+# ============================================================
+# EXCHANGE ORDER HISTORY
+# ============================================================
+
+def unit_13_v4_history(symbol):
+
+    return unit_13_v4_signed_request(
+        "GET",
+        UNIT13_V4_HISTORY,
+        {
+            "symbol": symbol,
+            "limit": 500,
+            "page": 0,
+        }
+    )
+
+
+# ============================================================
+# DIRECT TP MARKET CLOSE EXECUTOR
+# ORIGINAL WEEX ORDER PAYLOAD
+# ============================================================
+
+def unit_13_submit_close(
+    symbol,
+    side,
+    quantity,
+    client_id,
+):
+
+    close_side = (
+        "SELL"
+        if side == "LONG"
+        else "BUY"
+    )
+
+    payload = {
+        "symbol": symbol,
+        "side": close_side,
+        "positionSide": side,
+        "type": "MARKET",
+        "quantity": format(
+            Decimal(str(quantity)),
+            "f"
+        ),
+        "newClientOrderId": client_id,
+    }
+
+    return unit_13_v4_signed_request(
+        "POST",
+        UNIT13_V4_ORDER,
+        payload,
+    )
+
+
+# ============================================================
+# BASE RESULT FOR EXISTING UNIT 14 INTERFACE
+# ============================================================
+
+def unit_13_v4_base_result(
+    unit_12_result,
+    status,
+    reason
+):
+
+    return {
+        "unit": 13,
+        "status": status,
+        "read_only": False,
+
+        "unit_12_status":
+            unit_12_result.get("status"),
+
+        "active_position_exists": False,
+        "position_exists": False,
+
+        "tp_management_required": False,
+        "tp_execution_attempted": False,
+        "tp_execution_completed": False,
+
+        "tp1_completed": False,
+        "tp2_completed": False,
+        "tp3_armed": False,
+
+        "tp_history_unresolved": False,
+        "tp_legacy_closures_unattributed": False,
+
+        "sl_execution_attempted": False,
+        "backup_execution_attempted": False,
+
+        "real_submission_attempted": False,
+        "exchange_write": False,
+
+        "position_management_independent_of_bot_mode":
+            True,
+
+        "skip_reason": reason,
+    }
+
+
+# ============================================================
+# END COMPLETE UNIT 13 V6 - PART 1 OF 3
+# ZERO INDENTATION
+# NEXT: SQLITE TRANSACTION RECORDS
+# ============================================================
