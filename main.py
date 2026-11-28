@@ -28419,3 +28419,1799 @@ def scan_flush_configuration_notifications():
 # UNITS 3-15 HANDOVER
 # SCAN SUPERVISOR
 # ============================================================
+
+
+# ============================================================
+# COMPLETE CONTINUOUS SCAN CONTROLLER V3
+# PART 3 OF 3
+# CONTINUOUS EXECUTION / MANAGEMENT / SUPERVISION
+# ZERO INDENTATION
+# ============================================================
+
+
+# ============================================================
+# PUBLISH CURRENT ACTIVE SYMBOL PAIR
+# ============================================================
+
+def scan_refresh_active_pair(config):
+
+    active_pair = unit_2_active_symbol_pair()
+
+    market_symbol = str(
+        active_pair.get(
+            "market_symbol",
+            "",
+        )
+    ).strip().upper()
+
+    demo_symbol = str(
+        active_pair.get(
+            "demo_order_symbol",
+            "",
+        )
+    ).strip().upper()
+
+    if not market_symbol or not demo_symbol:
+
+        raise RuntimeError(
+            "SCAN ACTIVE SYMBOL PAIR MISSING"
+        )
+
+    exchange = config["exchange"]
+
+    exchange["market_symbol"] = (
+        market_symbol
+    )
+
+    exchange["demo_order_symbol"] = (
+        demo_symbol
+    )
+
+    exchange["active_symbol_source"] = (
+        active_pair.get("source")
+    )
+
+    print(
+        "SCAN ACTIVE MARKET SYMBOL =",
+        market_symbol,
+        flush=True,
+    )
+
+    print(
+        "SCAN ACTIVE DEMO SYMBOL =",
+        demo_symbol,
+        flush=True,
+    )
+
+    return market_symbol, demo_symbol
+
+
+# ============================================================
+# FRESH MARKET AND ATR PUBLICATION
+# UNIT 3 -> UNIT 4 -> UNIT 14
+# ============================================================
+
+def scan_refresh_market_analysis(config):
+
+    global FRESH_RECONSTRUCTION_MARKET_SNAPSHOT
+    global FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT
+
+    global SCAN_LAST_ATR_SYMBOL
+    global SCAN_LAST_ATR_TIME
+    global SCAN_LAST_MARKET_SUCCESS
+
+    market_symbol = str(
+        config["exchange"]["market_symbol"]
+    ).upper()
+
+    market = fresh_reconstruction_unit_3()
+
+    if not isinstance(market, dict):
+
+        raise RuntimeError(
+            "SCAN UNIT 3 SNAPSHOT INVALID"
+        )
+
+    FRESH_RECONSTRUCTION_MARKET_SNAPSHOT = (
+        market
+    )
+
+    analysis = fresh_reconstruction_unit_4()
+
+    if not isinstance(analysis, dict):
+
+        raise RuntimeError(
+            "SCAN UNIT 4 SNAPSHOT INVALID"
+        )
+
+    atr = scan_positive_decimal(
+        analysis["atr14"],
+        "ATR14",
+    )
+
+    FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT = (
+        analysis
+    )
+
+    SCAN_LAST_ATR_SYMBOL = (
+        market_symbol
+    )
+
+    SCAN_LAST_ATR_TIME = (
+        _scan_time.time()
+    )
+
+    SCAN_LAST_MARKET_SUCCESS = (
+        SCAN_LAST_ATR_TIME
+    )
+
+    print(
+        "SCAN FRESH MARKET TIMESTAMP =",
+        market.get("exchange_time_ms"),
+        flush=True,
+    )
+
+    print(
+        "SCAN REFRESHED ATR14 =",
+        atr,
+        flush=True,
+    )
+
+    print(
+        "SCAN ATR SYMBOL =",
+        SCAN_LAST_ATR_SYMBOL,
+        flush=True,
+    )
+
+    return market, analysis
+
+
+# ============================================================
+# SYMBOL SWITCH RECONCILIATION
+# EXISTING UNIT 8 PERSISTENT CONTROLLER
+# ============================================================
+
+def scan_reconcile_symbol(
+    config,
+    account,
+):
+
+    global FRESH_RECONSTRUCTION_SYMBOL_SWITCH_RESULT
+
+    position_state = (
+        scan_entry_position_state(
+            account
+        )
+    )
+
+    if not position_state["verified"]:
+
+        raise RuntimeError(
+            position_state["status"]
+        )
+
+    requested_market = _scan_os.getenv(
+        "WEEX_SYMBOL",
+        "BTCUSDT",
+    ).strip().upper()
+
+    discovery = (
+        unit_8_discover_demo_contract(
+            requested_market
+        )
+    )
+
+    requested_demo = str(
+        discovery.get("demo_symbol")
+        or ""
+    ).strip().upper()
+
+    active_market = str(
+        config["exchange"]["market_symbol"]
+    ).upper()
+
+    active_demo = str(
+        config["exchange"]["demo_order_symbol"]
+    ).upper()
+
+    switch_result = unit_8_symbol_switch(
+        requested_market=requested_market,
+
+        requested_demo=requested_demo,
+
+        positions=account["positions"],
+
+        positions_verified=True,
+
+        contract_verified=False,
+
+        candidate_ready=(
+            discovery.get("candidate_ready")
+            is True
+        ),
+    )
+
+    FRESH_RECONSTRUCTION_SYMBOL_SWITCH_RESULT = (
+        switch_result
+    )
+
+    new_market = str(
+        switch_result.get(
+            "active_market_symbol",
+            "",
+        )
+    ).upper()
+
+    new_demo = str(
+        switch_result.get(
+            "active_demo_symbol",
+            "",
+        )
+    ).upper()
+
+    changed = (
+        new_market != active_market
+
+        or new_demo != active_demo
+    )
+
+    requested_active = (
+        requested_market == new_market
+
+        and requested_demo == new_demo
+    )
+
+    print(
+        "SCAN SYMBOL SWITCH STATUS =",
+        switch_result.get("status"),
+        flush=True,
+    )
+
+    print(
+        "SCAN ACTIVE MARKET SYMBOL =",
+        new_market,
+        flush=True,
+    )
+
+    print(
+        "SCAN ACTIVE DEMO SYMBOL =",
+        new_demo,
+        flush=True,
+    )
+
+    print(
+        "SCAN QUEUED MARKET SYMBOL =",
+        switch_result.get(
+            "queued_market_symbol"
+        ),
+        flush=True,
+    )
+
+    print(
+        "SCAN QUEUED DEMO SYMBOL =",
+        switch_result.get(
+            "queued_demo_symbol"
+        ),
+        flush=True,
+    )
+
+    return {
+        "changed": changed,
+
+        "requested_active":
+            requested_active,
+
+        "market_symbol":
+            new_market,
+
+        "demo_symbol":
+            new_demo,
+
+        "status":
+            switch_result.get("status"),
+
+        "result":
+            switch_result,
+    }
+
+
+# ============================================================
+# COMPLETE MARKET AND ENTRY PIPELINE
+# UNITS 3-12
+# ============================================================
+
+def scan_refresh_entry_pipeline():
+
+    config = FRESH_RECONSTRUCTION_CONFIG
+
+    # ========================================================
+    # RESTORE LAST ACCEPTED CONFIGURATION
+    # BEFORE NEW ENTRY SIZING
+    # ========================================================
+
+    scan_restore_accepted_configuration(
+        config
+    )
+
+    # ========================================================
+    # ACTIVE SYMBOL
+    # ========================================================
+
+    active_market, active_demo = (
+        scan_refresh_active_pair(
+            config
+        )
+    )
+
+    # ========================================================
+    # CONTRACT SPECIFICATIONS
+    # ========================================================
+
+    specifications_loaded = (
+        unit_9_load_symbol_specifications(
+            config,
+            active_market,
+        )
+    )
+
+    # Refresh market and ATR even when
+    # contract specification retrieval fails.
+
+    market, analysis = (
+        scan_refresh_market_analysis(
+            config
+        )
+    )
+
+    if specifications_loaded is not True:
+
+        return scan_idle_unit12_result(
+            "CONTRACT_SPECIFICATIONS_PENDING"
+        )
+
+    # ========================================================
+    # UNIT 5: MARKET REGIME
+    # ========================================================
+
+    candidate = (
+        fresh_reconstruction_unit_5(
+            config,
+            analysis,
+        )
+    )
+
+    # ========================================================
+    # UNIT 6: SIGNAL QUALIFICATION
+    # ========================================================
+
+    execution = (
+        fresh_reconstruction_unit_6(
+            config,
+            analysis,
+            candidate,
+        )
+    )
+
+    # ========================================================
+    # UNIT 7: SIZING POLICY
+    # ========================================================
+
+    sizing = (
+        fresh_reconstruction_unit_7(
+            config,
+            execution,
+        )
+    )
+
+    # ========================================================
+    # UNIT 8: ACCOUNT AND LEVERAGE
+    # ========================================================
+
+    account = (
+        fresh_reconstruction_unit_8(
+            config,
+            sizing,
+            market,
+        )
+    )
+
+    if not isinstance(account, dict):
+
+        raise RuntimeError(
+            "SCAN UNIT 8 ACCOUNT INVALID"
+        )
+
+    # ========================================================
+    # UNIVERSAL SYMBOL SWITCHING
+    # ========================================================
+
+    symbol_decision = (
+        scan_reconcile_symbol(
+            config,
+            account,
+        )
+    )
+
+    if symbol_decision["changed"]:
+
+        print(
+            "SCAN SYMBOL CHANGED =",
+            symbol_decision["market_symbol"],
+            flush=True,
+        )
+
+        print(
+            "SCAN NEW SYMBOL REQUIRES FRESH DATA",
+            flush=True,
+        )
+
+        # The next scan refreshes market data,
+        # ATR and specifications for the new pair.
+        #
+        # Do not use the previous symbol's
+        # market snapshot for new entry.
+
+        return scan_idle_unit12_result(
+            "SYMBOL_CHANGED_REFRESH_NEXT_SCAN"
+        )
+
+    # ========================================================
+    # TP NET ROI ACCEPTANCE
+    # ========================================================
+
+    tp_decision = (
+        unit_8_tp_net_roi_control(
+            config,
+            account,
+            market,
+        )
+    )
+
+    print(
+        "SCAN TP NET ROI STATUS =",
+        tp_decision.get("status"),
+        flush=True,
+    )
+
+    print(
+        "SCAN TP NET ROI ELIGIBLE =",
+        tp_decision.get("eligible"),
+        flush=True,
+    )
+
+    # ========================================================
+    # INITIAL_USDT ACCEPTANCE
+    # INDEPENDENT OF TP DECISION
+    # ========================================================
+
+    margin_decision = (
+        unit_8_entry_margin_control(
+            config,
+            account,
+            market,
+        )
+    )
+
+    print(
+        "SCAN ENTRY MARGIN STATUS =",
+        margin_decision.get("status"),
+        flush=True,
+    )
+
+    print(
+        "SCAN UNIT 12 ENTRY ELIGIBLE =",
+        margin_decision.get("eligible"),
+        flush=True,
+    )
+
+    # ========================================================
+    # NEW ENTRY CONFIGURATION DECISIONS
+    # DOES NOT SUSPEND EXISTING POSITION MANAGEMENT
+    # ========================================================
+
+    if not symbol_decision[
+        "requested_active"
+    ]:
+
+        return scan_idle_unit12_result(
+            "SYMBOL_REQUEST_"
+            + str(
+                symbol_decision["status"]
+            )
+        )
+
+    if tp_decision.get(
+        "eligible"
+    ) is not True:
+
+        return scan_idle_unit12_result(
+            "TP_NET_ROI_"
+            + str(
+                tp_decision.get("status")
+            )
+        )
+
+    if margin_decision.get(
+        "eligible"
+    ) is not True:
+
+        return scan_idle_unit12_result(
+            "ENTRY_MARGIN_"
+            + str(
+                margin_decision.get("status")
+            )
+        )
+
+    # ========================================================
+    # REFRESH DOWNSTREAM SIZING AFTER ACCEPTANCE
+    # ========================================================
+
+    sizing = (
+        fresh_reconstruction_unit_7(
+            config,
+            execution,
+        )
+    )
+
+    account = (
+        fresh_reconstruction_unit_8(
+            config,
+            sizing,
+            market,
+        )
+    )
+
+    if not isinstance(account, dict):
+
+        raise RuntimeError(
+            "SCAN REFRESHED ACCOUNT INVALID"
+        )
+
+    # ========================================================
+    # UNIT 9: EXECUTABLE ENTRY SIZING
+    # ========================================================
+
+    entry = fresh_reconstruction_unit_9(
+        config,
+        account,
+    )
+
+    # ========================================================
+    # UNIT 10: EXECUTION HANDOVER
+    # ========================================================
+
+    boundary = fresh_unit_10_hybrid_adapter(
+        config,
+        entry,
+    )
+
+    # ========================================================
+    # UNIT 11: EXCHANGE ORDER PAYLOAD
+    # ========================================================
+
+    prepared = fresh_unit_11_hybrid_adapter(
+        config,
+        boundary,
+    )
+
+    # ========================================================
+    # UNIT 12: INITIAL ENTRY EXECUTION
+    # BOT_MODE REMAINS CONTROLLED BY UNIT 12
+    # ========================================================
+
+    submission = (
+        fresh_unit_12_hybrid_execution_adapter(
+            config,
+            prepared,
+        )
+    )
+
+    if not isinstance(submission, dict):
+
+        raise RuntimeError(
+            "SCAN UNIT 12 RESULT INVALID"
+        )
+
+    return submission
+
+
+# ============================================================
+# UNIT 13 TP EXECUTION NOTIFICATION
+# CONFIRMED FILLS ONLY
+# ============================================================
+
+def scan_queue_unit13_notifications(
+    unit13,
+):
+
+    outcomes = unit13.get(
+        "position_results",
+        [],
+    )
+
+    if not outcomes:
+
+        outcomes = [unit13]
+
+    queued = 0
+
+    for outcome in outcomes:
+
+        if not isinstance(
+            outcome,
+            dict,
+        ):
+
+            continue
+
+        symbol = outcome.get(
+            "symbol"
+        )
+
+        side = outcome.get(
+            "position_side"
+        )
+
+        action = outcome.get(
+            "tp_action"
+        )
+
+        if not isinstance(
+            action,
+            dict,
+        ):
+
+            continue
+
+        stage = str(
+            action.get(
+                "stage",
+                "",
+            )
+        ).upper()
+
+        if stage not in (
+            "TP1",
+            "TP2",
+        ):
+
+            continue
+
+        filled = scan_decimal(
+            action.get(
+                "filled_quantity",
+                "0",
+            )
+        )
+
+        if filled <= 0:
+
+            continue
+
+        order_id = (
+            action.get("order_id")
+
+            or action.get("client_id")
+        )
+
+        if not order_id:
+
+            continue
+
+        status = str(
+            action.get(
+                "status",
+                "",
+            )
+        ).upper()
+
+        notification_id = (
+            "UNIT13:"
+
+            + str(symbol)
+
+            + ":"
+
+            + str(side)
+
+            + ":"
+
+            + stage
+
+            + ":"
+
+            + str(order_id)
+
+            + ":"
+
+            + scan_config_amount(
+                filled
+            )
+        )
+
+        message = (
+            "WEEX DEMO TP EXECUTION\n"
+
+            f"Symbol: {symbol}\n"
+
+            f"Position: {side}\n"
+
+            f"Stage: {stage}\n"
+
+            "Confirmed filled quantity: "
+
+            f"{scan_config_amount(filled)}\n"
+
+            f"Order ID: {order_id}\n"
+
+            f"Exchange status: {status}"
+        )
+
+        unit15_queue_notification(
+            notification_id,
+            message,
+        )
+
+        queued += 1
+
+    return queued
+
+
+# ============================================================
+# EXISTING POSITION MANAGEMENT
+# UNIT 13 -> UNIT 14 -> UNIT 15
+# ============================================================
+
+def scan_manage_position(unit12_result):
+
+    global FRESH_RECONSTRUCTION_UNIT_12_RESULT
+    global FRESH_RECONSTRUCTION_UNIT_13_RESULT
+    global FRESH_RECONSTRUCTION_UNIT_14_RESULT
+    global FRESH_RECONSTRUCTION_UNIT_15_RESULT
+
+    config = FRESH_RECONSTRUCTION_CONFIG
+
+    FRESH_RECONSTRUCTION_UNIT_12_RESULT = (
+        unit12_result
+    )
+
+    # ========================================================
+    # UNIT 13: TP1 AND TP2 EXECUTION
+    # ========================================================
+
+    try:
+
+        unit13 = (
+            fresh_unit_13_hybrid_adapter(
+                config,
+                unit12_result,
+            )
+        )
+
+        if not isinstance(
+            unit13,
+            dict,
+        ):
+
+            raise RuntimeError(
+                "UNIT13_RESULT_INVALID"
+            )
+
+    except Exception as exc:
+
+        print(
+            "SCAN UNIT 13 ERROR =",
+            repr(exc),
+            flush=True,
+        )
+
+        _scan_traceback.print_exc()
+
+        unit13 = unit_13_v4_base_result(
+            unit12_result,
+            "ERROR",
+            str(exc),
+        )
+
+        unit13[
+            "execution_error"
+        ] = str(exc)
+
+    FRESH_RECONSTRUCTION_UNIT_13_RESULT = (
+        unit13
+    )
+
+    print(
+        "SCAN UNIT 13 STATUS =",
+        unit13.get("status"),
+        flush=True,
+    )
+
+    # ========================================================
+    # UNIT 14: INDEPENDENT POSITION MANAGEMENT
+    #
+    # H1 / H2
+    # R1 / R2
+    # B1-B5
+    # ATR BREAK-EVEN
+    # TP3 TRAILING
+    # ========================================================
+
+    try:
+
+        unit14 = (
+            fresh_unit_14_hybrid_adapter(
+                config,
+                unit13,
+            )
+        )
+
+        if not isinstance(
+            unit14,
+            dict,
+        ):
+
+            raise RuntimeError(
+                "UNIT14_RESULT_INVALID"
+            )
+
+    except Exception as exc:
+
+        print(
+            "SCAN UNIT 14 ERROR =",
+            repr(exc),
+            flush=True,
+        )
+
+        _scan_traceback.print_exc()
+
+        unit14 = unit_14_v3_result(
+            unit13
+        )
+
+        unit14.update({
+            "status": "ERROR",
+
+            "execution_error":
+                str(exc),
+        })
+
+    FRESH_RECONSTRUCTION_UNIT_14_RESULT = (
+        unit14
+    )
+
+    print(
+        "SCAN UNIT 14 STATUS =",
+        unit14.get("status"),
+        flush=True,
+    )
+
+    # ========================================================
+    # UNIT 13 CONFIRMED TP NOTIFICATIONS
+    # REPORTING FAILURE DOES NOT BLOCK MANAGEMENT
+    # ========================================================
+
+    try:
+
+        tp_notifications = (
+            scan_queue_unit13_notifications(
+                unit13
+            )
+        )
+
+        print(
+            "SCAN UNIT 13 TP NOTIFICATIONS =",
+            tp_notifications,
+            flush=True,
+        )
+
+    except Exception as exc:
+
+        print(
+            "SCAN UNIT 13 NOTIFICATION ERROR =",
+            repr(exc),
+            flush=True,
+        )
+
+    # ========================================================
+    # UNIT 15: CONTINUOUS HANDOVER
+    # REPORTING WORKER REMAINS INDEPENDENT
+    # ========================================================
+
+    try:
+
+        unit15 = (
+            fresh_unit_15_hybrid_adapter(
+                config,
+                unit14,
+            )
+        )
+
+        if not isinstance(
+            unit15,
+            dict,
+        ):
+
+            raise RuntimeError(
+                "UNIT15_RESULT_INVALID"
+            )
+
+    except Exception as exc:
+
+        print(
+            "SCAN UNIT 15 HANDOVER ERROR =",
+            repr(exc),
+            flush=True,
+        )
+
+        _scan_traceback.print_exc()
+
+        unit15 = {
+            "unit": 15,
+
+            "status":
+                "HANDOVER_ERROR",
+
+            "errors":
+                [str(exc)],
+
+            "exchange_write":
+                False,
+        }
+
+    FRESH_RECONSTRUCTION_UNIT_15_RESULT = (
+        unit15
+    )
+
+    print(
+        "SCAN UNIT 15 STATUS =",
+        unit15.get("status"),
+        flush=True,
+    )
+
+    print(
+        "SCAN UNIT 15 HANDOVER =",
+        unit15.get(
+            "notification_result",
+            {},
+        ),
+        flush=True,
+    )
+
+    print(
+        "SCAN UNIT 15 ERRORS =",
+        unit15.get(
+            "errors",
+            [],
+        ),
+        flush=True,
+    )
+
+    return unit13, unit14
+
+
+# ============================================================
+# MARKET REFRESH FALLBACK
+# WHEN ENTRY PIPELINE FAILS
+# ============================================================
+
+def scan_management_market_refresh():
+
+    config = FRESH_RECONSTRUCTION_CONFIG
+
+    active_market = str(
+        config["exchange"]["market_symbol"]
+    ).upper()
+
+    # Keep the currently configured symbol
+    # for management of the existing position.
+
+    try:
+
+        market, analysis = (
+            scan_refresh_market_analysis(
+                config
+            )
+        )
+
+        print(
+            "SCAN MANAGEMENT ATR REFRESH = PASS",
+            flush=True,
+        )
+
+        return True
+
+    except Exception as exc:
+
+        print(
+            "SCAN MANAGEMENT ATR REFRESH = FAILED",
+            flush=True,
+        )
+
+        print(
+            "SCAN MANAGEMENT ATR ERROR =",
+            repr(exc),
+            flush=True,
+        )
+
+        print(
+            "SCAN MANAGEMENT ATR SYMBOL =",
+            SCAN_LAST_ATR_SYMBOL,
+            flush=True,
+        )
+
+        print(
+            "SCAN MANAGEMENT ACTIVE SYMBOL =",
+            active_market,
+            flush=True,
+        )
+
+        return False
+
+
+# ============================================================
+# REPORTING WORKER STATUS
+# ============================================================
+
+def scan_reporting_status():
+
+    result = globals().get(
+        "FRESH_RECONSTRUCTION_UNIT_15_RESULT",
+        {},
+    )
+
+    if not isinstance(result, dict):
+
+        return False
+
+    if scan_result_has_error(
+        result
+    ):
+
+        return False
+
+    if result.get("errors"):
+
+        return False
+
+    return True
+
+
+# ============================================================
+# MANUAL POSITION CONTROL
+# PRESERVE ORIGINAL DPC CONTROLLER
+# ============================================================
+
+def scan_manual_position_control():
+
+    control_mode = _scan_os.getenv(
+        "DEMO_POSITION_CONTROL",
+        "OFF",
+    ).strip().upper()
+
+    if control_mode == "OFF":
+
+        return {
+            "active": False,
+
+            "status": "OFF",
+        }
+
+    try:
+
+        result = dpc_process()
+
+        print(
+            "SCAN DEMO CONTROL STATUS =",
+            result,
+            flush=True,
+        )
+
+        return {
+            "active": True,
+
+            "status":
+                "MANUAL_CONTROL",
+
+            "result":
+                result,
+        }
+
+    except Exception as exc:
+
+        print(
+            "SCAN DEMO CONTROL ERROR =",
+            repr(exc),
+            flush=True,
+        )
+
+        _scan_traceback.print_exc()
+
+        return {
+            "active": True,
+
+            "status":
+                "MANUAL_CONTROL_ERROR",
+
+            "error":
+                str(exc),
+        }
+
+
+# ============================================================
+# ONE COMPLETE CONTINUOUS SCAN
+# ============================================================
+
+def scan_one_cycle():
+
+    global SCAN_NUMBER
+    global SCAN_LAST_STATUS
+    global SCAN_LAST_MANAGEMENT_SUCCESS
+
+    if not SCAN_LOCK.acquire(
+        blocking=False
+    ):
+
+        print(
+            "SCAN ALREADY RUNNING",
+            flush=True,
+        )
+
+        return
+
+    entry_ok = False
+
+    management_ok = False
+
+    reporting_ok = False
+
+    SCAN_LAST_STATUS = "RUNNING"
+
+    try:
+
+        SCAN_NUMBER += 1
+
+        now = _SCAN_DT.now(
+            SCAN_TZ
+        )
+
+        print("=" * 80, flush=True)
+
+        print(
+            "CONTINUOUS SCAN NUMBER =",
+            SCAN_NUMBER,
+            flush=True,
+        )
+
+        print(
+            "SCAN TIME WAT =",
+            now.isoformat(),
+            flush=True,
+        )
+
+        print(
+            "SCAN BOT_MODE =",
+            _scan_os.getenv(
+                "BOT_MODE",
+                "PAUSE",
+            ),
+            flush=True,
+        )
+
+        # ====================================================
+        # MANUAL POSITION CONTROLLER
+        # ====================================================
+
+        manual = (
+            scan_manual_position_control()
+        )
+
+        if manual["active"]:
+
+            SCAN_LAST_STATUS = (
+                manual["status"]
+            )
+
+            return
+
+        # ====================================================
+        # MARKET REFRESH AND INITIAL ENTRY
+        # ====================================================
+
+        submission = (
+            scan_idle_unit12_result(
+                "ENTRY_NOT_ATTEMPTED"
+            )
+        )
+
+        try:
+
+            submission = (
+                scan_refresh_entry_pipeline()
+            )
+
+            entry_ok = not (
+                scan_result_has_error(
+                    submission
+                )
+            )
+
+            print(
+                "SCAN UNIT 12 STATUS =",
+                submission.get("status"),
+                flush=True,
+            )
+
+            print(
+                "SCAN UNIT 12 REASON =",
+                submission.get("skip_reason"),
+                flush=True,
+            )
+
+        except Exception as exc:
+
+            print(
+                "SCAN ENTRY PIPELINE ERROR =",
+                repr(exc),
+                flush=True,
+            )
+
+            _scan_traceback.print_exc()
+
+            submission = (
+                scan_error_unit12_result(
+                    str(exc)
+                )
+            )
+
+        # ====================================================
+        # MARKET DATA FALLBACK
+        # ENTRY FAILURE DOES NOT END THE SCAN
+        # ====================================================
+
+        if not entry_ok:
+
+            scan_management_market_refresh()
+
+        # ====================================================
+        # EXISTING POSITION MANAGEMENT
+        # INDEPENDENT OF ENTRY ELIGIBILITY
+        # ====================================================
+
+        try:
+
+            unit13, unit14 = (
+                scan_manage_position(
+                    submission
+                )
+            )
+
+            unit13_error = (
+                scan_result_has_error(
+                    unit13
+                )
+            )
+
+            unit14_error = (
+                scan_result_has_error(
+                    unit14
+                )
+            )
+
+            management_ok = not (
+                unit13_error
+
+                or unit14_error
+            )
+
+            if management_ok:
+
+                SCAN_LAST_MANAGEMENT_SUCCESS = (
+                    _scan_time.time()
+                )
+
+            print(
+                "SCAN UNIT 13 MANAGEMENT ERROR =",
+                unit13_error,
+                flush=True,
+            )
+
+            print(
+                "SCAN UNIT 14 MANAGEMENT ERROR =",
+                unit14_error,
+                flush=True,
+            )
+
+        except Exception as exc:
+
+            management_ok = False
+
+            print(
+                "SCAN POSITION MANAGEMENT ERROR =",
+                repr(exc),
+                flush=True,
+            )
+
+            _scan_traceback.print_exc()
+
+        # ====================================================
+        # REPORTING DIAGNOSTIC
+        # ====================================================
+
+        reporting_ok = (
+            scan_reporting_status()
+        )
+
+        # ====================================================
+        # FINAL SCAN STATUS
+        # ====================================================
+
+        if entry_ok and management_ok:
+
+            SCAN_LAST_STATUS = (
+                "PASS"
+
+                if reporting_ok
+
+                else "PASS_REPORTING_ERROR"
+            )
+
+        elif management_ok:
+
+            SCAN_LAST_STATUS = (
+                "MANAGEMENT_ONLY"
+
+                if reporting_ok
+
+                else "MANAGEMENT_ONLY_REPORTING_ERROR"
+            )
+
+        elif entry_ok:
+
+            SCAN_LAST_STATUS = (
+                "POSITION_MANAGEMENT_ERROR"
+            )
+
+        else:
+
+            SCAN_LAST_STATUS = (
+                "ENTRY_AND_MANAGEMENT_ERROR"
+            )
+
+        print(
+            "SCAN ENTRY PIPELINE SUCCESS =",
+            entry_ok,
+            flush=True,
+        )
+
+        print(
+            "SCAN MANAGEMENT SUCCESS =",
+            management_ok,
+            flush=True,
+        )
+
+        print(
+            "SCAN REPORTING SUCCESS =",
+            reporting_ok,
+            flush=True,
+        )
+
+    except Exception as exc:
+
+        SCAN_LAST_STATUS = (
+            "SCAN_EXECUTION_ERROR"
+        )
+
+        print(
+            "SCAN EXECUTION ERROR =",
+            repr(exc),
+            flush=True,
+        )
+
+        _scan_traceback.print_exc()
+
+    finally:
+
+        # ====================================================
+        # DELIVER PERSISTED CONFIGURATION NOTIFICATIONS
+        # EVEN WHEN ENTRY OR MANAGEMENT FAILS
+        # ====================================================
+
+        try:
+
+            scan_flush_configuration_notifications()
+
+        finally:
+
+            SCAN_LOCK.release()
+
+        print(
+            "SCAN FINAL STATUS =",
+            SCAN_LAST_STATUS,
+            flush=True,
+        )
+
+        print(
+            "SCAN EXCHANGE ENVIRONMENT = DEMO",
+            flush=True,
+        )
+
+        print(
+            "SCAN CONTINUES = TRUE",
+            flush=True,
+        )
+
+
+# ============================================================
+# CONTINUOUS SCAN LOCAL VALIDATION
+# NO EXCHANGE ORDER SUBMISSION
+# ============================================================
+
+def scan_validation_v3():
+
+    tests = {}
+
+    # ========================================================
+    # PRECISION CONVERSION
+    # ========================================================
+
+    tests["NEGATIVE_PRECISION"] = (
+        scan_precision_step(
+            -1,
+            "TEST",
+        ) == Decimal("10")
+    )
+
+    tests["ZERO_PRECISION"] = (
+        scan_precision_step(
+            0,
+            "TEST",
+        ) == Decimal("1")
+    )
+
+    tests["POSITIVE_PRECISION"] = (
+        scan_precision_step(
+            3,
+            "TEST",
+        ) == Decimal("0.001")
+    )
+
+    tests["FRACTIONAL_QUANTITY"] = (
+        scan_floor(
+            "6.5",
+            "0.5",
+        ) == Decimal("6.5")
+    )
+
+    # ========================================================
+    # TP CONFIGURATION PARSING
+    # ========================================================
+
+    tp = scan_parse_tp_roi(
+        "TP1:20,TP2:40"
+    )
+
+    tests["TP_CONFIGURATION"] = (
+        tp["TP1"] == Decimal("20")
+
+        and tp["TP2"] == Decimal("40")
+    )
+
+    # ========================================================
+    # IDLE AND ERROR DISTINCTION
+    # ========================================================
+
+    idle = scan_idle_unit12_result(
+        "TEST"
+    )
+
+    error = scan_error_unit12_result(
+        "TEST"
+    )
+
+    tests["IDLE_NOT_ERROR"] = (
+        not scan_result_has_error(
+            idle
+        )
+    )
+
+    tests["ERROR_DETECTION"] = (
+        scan_result_has_error(
+            error
+        )
+    )
+
+    # ========================================================
+    # CONFIGURATION DATABASE
+    # ========================================================
+
+    try:
+
+        db = scan_configuration_db()
+
+        db.close()
+
+        tests["CONFIGURATION_SQLITE"] = True
+
+    except Exception:
+
+        tests["CONFIGURATION_SQLITE"] = False
+
+    # ========================================================
+    # EXISTING UNIT INTERFACES
+    # ========================================================
+
+    interfaces = (
+        "fresh_reconstruction_unit_3",
+
+        "fresh_reconstruction_unit_4",
+
+        "fresh_reconstruction_unit_5",
+
+        "fresh_reconstruction_unit_6",
+
+        "fresh_reconstruction_unit_7",
+
+        "fresh_reconstruction_unit_8",
+
+        "fresh_reconstruction_unit_9",
+
+        "fresh_unit_10_hybrid_adapter",
+
+        "fresh_unit_11_hybrid_adapter",
+
+        "fresh_unit_12_hybrid_execution_adapter",
+
+        "fresh_unit_13_hybrid_adapter",
+
+        "fresh_unit_14_hybrid_adapter",
+
+        "fresh_unit_15_hybrid_adapter",
+
+        "unit_8_symbol_switch",
+
+        "unit_8_symbol_telegram_flush",
+    )
+
+    for name in interfaces:
+
+        tests[name] = callable(
+            globals().get(name)
+        )
+
+    # ========================================================
+    # VALIDATION DIAGNOSTICS
+    # ========================================================
+
+    for name, passed in tests.items():
+
+        print(
+            "SCAN TEST:",
+            name,
+            "=",
+
+            "PASS"
+            if passed
+            else "FAIL",
+
+            flush=True,
+        )
+
+    passed = sum(
+        bool(value)
+
+        for value in tests.values()
+    )
+
+    failed = len(tests) - passed
+
+    print(
+        "SCAN VALIDATION TESTS PASSED =",
+        passed,
+        flush=True,
+    )
+
+    print(
+        "SCAN VALIDATION TESTS FAILED =",
+        failed,
+        flush=True,
+    )
+
+    print(
+        "SCAN VALIDATION RESULT =",
+
+        "PASS"
+        if failed == 0
+        else "FAIL",
+
+        flush=True,
+    )
+
+    return failed == 0
+
+
+# ============================================================
+# CONTINUOUS SCAN SUPERVISOR
+# ============================================================
+
+def scan_forever():
+
+    print("=" * 80, flush=True)
+
+    print(
+        "CONTINUOUS SCAN CONTROLLER V3 STARTED",
+        flush=True,
+    )
+
+    print(
+        "SCAN INTERVAL SECONDS =",
+        SCAN_INTERVAL_SECONDS,
+        flush=True,
+    )
+
+    print(
+        "SCAN INITIAL_USDT CONTROLLER = V3",
+        flush=True,
+    )
+
+    print(
+        "SCAN TP NET ROI CONTROLLER = V3",
+        flush=True,
+    )
+
+    print(
+        "SCAN UNIVERSAL SYMBOL SWITCHING = ENABLED",
+        flush=True,
+    )
+
+    print(
+        "SCAN FRESH ATR PUBLICATION = ENABLED",
+        flush=True,
+    )
+
+    print(
+        "SCAN UNIT 13 = TP1 / TP2",
+        flush=True,
+    )
+
+    print(
+        "SCAN UNIT 14 = H1 H2 R1 R2 "
+        "B1-B5 BE TP3",
+        flush=True,
+    )
+
+    print(
+        "SCAN UNIT 15 = CONTINUOUS HANDOVER",
+        flush=True,
+    )
+
+    print(
+        "SCAN MANAGEMENT INDEPENDENT OF BOT_MODE",
+        flush=True,
+    )
+
+    # ========================================================
+    # LOCAL VALIDATION
+    # DIAGNOSTIC ONLY
+    # ========================================================
+
+    try:
+
+        validation_ready = (
+            scan_validation_v3()
+        )
+
+    except Exception as exc:
+
+        validation_ready = False
+
+        print(
+            "SCAN VALIDATION ERROR =",
+            repr(exc),
+            flush=True,
+        )
+
+    print(
+        "SCAN LOCAL VALIDATION READY =",
+        validation_ready,
+        flush=True,
+    )
+
+    # ========================================================
+    # RESTORE ACCEPTED CONFIGURATION
+    # ========================================================
+
+    try:
+
+        scan_restore_accepted_configuration(
+            FRESH_RECONSTRUCTION_CONFIG
+        )
+
+    except Exception as exc:
+
+        print(
+            "SCAN CONFIGURATION RESTORE ERROR =",
+            repr(exc),
+            flush=True,
+        )
+
+    # ========================================================
+    # RESTORE PENDING NOTIFICATION DELIVERY
+    # ========================================================
+
+    scan_flush_configuration_notifications()
+
+    print("=" * 80, flush=True)
+
+    # Original startup units have already
+    # executed once before scan_forever.
+
+    _scan_time.sleep(
+        SCAN_INTERVAL_SECONDS
+    )
+
+    # ========================================================
+    # CONTINUOUS EXECUTION
+    # ========================================================
+
+    while True:
+
+        started = (
+            _scan_time.monotonic()
+        )
+
+        try:
+
+            scan_one_cycle()
+
+        except Exception as exc:
+
+            print(
+                "SCAN SUPERVISOR ERROR =",
+                repr(exc),
+                flush=True,
+            )
+
+            _scan_traceback.print_exc()
+
+        elapsed = (
+            _scan_time.monotonic()
+            - started
+        )
+
+        sleep_for = max(
+            5.0,
+
+            SCAN_INTERVAL_SECONDS
+            - elapsed,
+        )
+
+        print(
+            "SCAN ELAPSED SECONDS =",
+            round(elapsed, 2),
+            flush=True,
+        )
+
+        print(
+            "SCAN NEXT SLEEP SECONDS =",
+            round(sleep_for, 2),
+            flush=True,
+        )
+
+        _scan_time.sleep(
+            sleep_for
+        )
+
+
+# ============================================================
+# END COMPLETE CONTINUOUS SCAN CONTROLLER V3
+# END PART 3 OF 3
+# ZERO INDENTATION
+# ============================================================
+#
+# PRESERVE EXISTING MANUAL POSITION CONTROLLER
+# AND ORIGINAL FINAL MAIN.PY ACTIVATION.
+#
+# DO NOT ADD A SECOND scan_forever() CALL.
+#
+# ============================================================
