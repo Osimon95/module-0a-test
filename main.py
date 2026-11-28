@@ -24297,3 +24297,1468 @@ def unit15_poll_equity():
 # ZERO INDENTATION
 # NEXT: COMMANDS / SCHEDULER / WORKER / ACTIVATION
 # ============================================================
+
+# ============================================================
+# COMPLETE UNIT 15 V6 REPLACEMENT
+# PART 3 OF 3
+# COMMANDS / SCHEDULER / WORKER / ACTIVATION
+# ZERO INDENTATION
+# ============================================================
+
+
+# ============================================================
+# PERSISTENT TELEGRAM COMMAND RECEPTION
+# STORE COMMAND BEFORE ADVANCING OFFSET
+# ============================================================
+
+def unit15_poll_commands():
+
+    if not UNIT15_ON_DEMAND:
+
+        return []
+
+    chat_id = _u15_os.getenv(
+        "TELEGRAM_CHAT_ID",
+        "",
+    ).strip()
+
+    token = _u15_os.getenv(
+        "TELEGRAM_BOT_TOKEN",
+        "",
+    ).strip()
+
+    if not token or not chat_id:
+
+        return []
+
+    offset = unit15_state_get(
+        "TELEGRAM_OFFSET",
+        None,
+    )
+
+    query = {
+        "timeout": 0,
+        "limit": 100,
+    }
+
+    if offset is not None:
+
+        query["offset"] = int(offset)
+
+    reply = unit15_telegram_api(
+        "getUpdates",
+        query,
+    )
+
+    updates = reply.get(
+        "result",
+        [],
+    )
+
+    aliases = {
+        "/report": 8,
+        "/report1h": 1,
+        "/report8h": 8,
+        "/report24h": 24,
+    }
+
+    received = []
+
+    for update in sorted(
+        updates,
+        key=lambda item: item.get(
+            "update_id", 0
+        ),
+    ):
+
+        uid = update.get(
+            "update_id"
+        )
+
+        if uid is None:
+
+            continue
+
+        uid = int(uid)
+
+        message = (
+            update.get("message")
+            or update.get("edited_message")
+            or {}
+        )
+
+        sender = str(
+            (
+                message.get("chat")
+                or {}
+            ).get("id")
+        )
+
+        if sender == chat_id:
+
+            text = str(
+                message.get("text", "")
+            ).strip()
+
+            command = (
+                text.split(" ", 1)[0]
+                .split("@", 1)[0]
+                .lower()
+            )
+
+            hours = aliases.get(
+                command
+            )
+
+            if hours is not None:
+
+                unit15_store_command(
+                    uid,
+                    command,
+                    hours,
+                )
+
+                received.append(hours)
+
+                print(
+                    "UNIT 15 COMMAND RECEIVED =",
+                    command,
+                    flush=True,
+                )
+
+        # Advance offset only after
+        # recognized commands are persisted.
+
+        offset = max(
+            int(offset or 0),
+            uid + 1,
+        )
+
+        unit15_state_set(
+            "TELEGRAM_OFFSET",
+            offset,
+        )
+
+    return received
+
+
+# ============================================================
+# EXECUTE PERSISTENT ON-DEMAND REPORT COMMANDS
+# FAILED DELIVERY REMAINS PENDING
+# ============================================================
+
+def unit15_process_commands():
+
+    if not UNIT15_ON_DEMAND:
+
+        return 0
+
+    completed = 0
+
+    commands = (
+        unit15_pending_commands()
+    )
+
+    for record in commands[:10]:
+
+        uid = int(
+            record["update_id"]
+        )
+
+        hours = int(
+            record["report_hours"]
+        )
+
+        report_key = (
+            "COMMAND:" + str(uid)
+        )
+
+        if unit15_report_delivered(
+            report_key
+        ):
+
+            unit15_complete_command(
+                uid
+            )
+
+            completed += 1
+
+            continue
+
+        end = _U15_DT.fromtimestamp(
+            record["received_at"] / 1000,
+            tz=_UNIT15_TZ,
+        )
+
+        try:
+
+            delivered = unit15_report(
+                hours=hours,
+
+                notification="ON_DEMAND",
+
+                end=end,
+
+                report_key=report_key,
+            )
+
+        except Exception as exc:
+
+            delivered = False
+
+            print(
+                "UNIT 15 COMMAND ERROR =",
+                type(exc).__name__,
+                flush=True,
+            )
+
+        if delivered:
+
+            unit15_complete_command(
+                uid
+            )
+
+            completed += 1
+
+            print(
+                "UNIT 15 COMMAND COMPLETED =",
+                uid,
+                flush=True,
+            )
+
+        else:
+
+            print(
+                "UNIT 15 COMMAND RETRY =",
+                uid,
+                flush=True,
+            )
+
+    return completed
+
+
+# ============================================================
+# SCHEDULED REPORTING WINDOWS
+# 05:00 / 13:00 / 21:00 WAT
+# ============================================================
+
+def unit15_due_slots(now):
+
+    slots = []
+
+    for days_back in (1, 0):
+
+        day = (
+            now
+            - _U15_TD(days=days_back)
+        ).date()
+
+        for hour in _UNIT15_SLOTS:
+
+            slot = _U15_DT(
+                day.year,
+                day.month,
+                day.day,
+                hour,
+                0,
+                tzinfo=_UNIT15_TZ,
+            )
+
+            minutes_late = (
+                now - slot
+            ).total_seconds() / 60
+
+            if (
+                0 <= minutes_late
+                <= _UNIT15_CATCHUP_MINUTES
+            ):
+
+                slots.append(slot)
+
+    return sorted(slots)
+
+
+# ============================================================
+# REGISTER DUE SCHEDULED REPORTS
+# PERSIST BEFORE ATTEMPTING DELIVERY
+# ============================================================
+
+def unit15_register_due_reports():
+
+    if not UNIT15_8H_ENABLED:
+
+        return 0
+
+    now = unit15_now()
+
+    count = 0
+
+    for slot in unit15_due_slots(now):
+
+        key = (
+            "SCHEDULED:"
+            + slot.strftime(
+                "%Y-%m-%d %H:%M"
+            )
+        )
+
+        if unit15_report_delivered(key):
+
+            continue
+
+        unit15_register_report(
+            report_key=key,
+
+            hours=8,
+
+            notification="SCHEDULED_8H",
+
+            window_end=int(
+                slot.timestamp() * 1000
+            ),
+        )
+
+        count += 1
+
+    return count
+
+
+# ============================================================
+# READ PENDING SCHEDULED REPORTS
+# SURVIVES RENDER RESTART
+# ============================================================
+
+def unit15_pending_scheduled_reports():
+
+    db = unit15_db()
+
+    try:
+
+        rows = db.execute("""
+            SELECT *
+            FROM unit15_report_delivery
+
+            WHERE state = 'PENDING'
+
+            AND notification =
+                'SCHEDULED_8H'
+
+            ORDER BY window_end
+
+        """).fetchall()
+
+        return [
+            dict(row)
+            for row in rows
+        ]
+
+    finally:
+
+        db.close()
+
+
+# ============================================================
+# SCHEDULED REPORT DELIVERY EXECUTOR
+# NO PREMATURE DELIVERY COMPLETION
+# ============================================================
+
+def unit15_process_scheduled_reports():
+
+    if not UNIT15_8H_ENABLED:
+
+        return 0
+
+    unit15_register_due_reports()
+
+    completed = 0
+
+    pending = (
+        unit15_pending_scheduled_reports()
+    )
+
+    for record in pending[:3]:
+
+        key = record["report_key"]
+
+        end = _U15_DT.fromtimestamp(
+            record["window_end"] / 1000,
+            tz=_UNIT15_TZ,
+        )
+
+        print(
+            "UNIT 15 SCHEDULE SLOT DUE =",
+            key,
+            flush=True,
+        )
+
+        delivered = unit15_report(
+            hours=int(
+                record["report_hours"]
+            ),
+
+            notification="SCHEDULED_8H",
+
+            end=end,
+
+            report_key=key,
+        )
+
+        if delivered:
+
+            completed += 1
+
+            print(
+                "UNIT 15 SCHEDULE DELIVERED =",
+                key,
+                flush=True,
+            )
+
+        else:
+
+            print(
+                "UNIT 15 SCHEDULE RETRY =",
+                key,
+                flush=True,
+            )
+
+    return completed
+
+
+# ============================================================
+# MANUAL POSITION CONTROLLER STATUS
+# PRESERVE EXISTING CONTROLLER INTERFACE
+# ============================================================
+
+def unit15_manual_controller_status():
+
+    command = _u15_os.getenv(
+        "DEMO_POSITION_CONTROL",
+        "OFF",
+    ).strip().upper()
+
+    armed = (
+        _u15_os.getenv(
+            "DEMO_CONTROL_ARM",
+            "NO",
+        ).strip().upper() == "YES"
+    )
+
+    valid = {
+        "OFF",
+        "INSPECT",
+        "STATUS",
+        "CLOSE_LONG",
+        "CLOSE_SHORT",
+        "CLOSE_ALL",
+    }
+
+    return {
+        "manual_controller_available":
+            True,
+
+        "manual_command":
+            command,
+
+        "manual_command_valid":
+            command in valid,
+
+        "manual_close_armed":
+            armed,
+
+        "manual_control_active":
+            command != "OFF",
+
+        "reporting_independent":
+            True,
+
+        "exchange_write":
+            False,
+    }
+
+
+# ============================================================
+# UNIT 14 EXECUTION NOTIFICATION
+# USE CONFIRMED TRANSACTION IDENTITIES
+# ============================================================
+
+def unit15_queue_execution_notice(
+    symbol,
+    side,
+    action,
+    execution,
+):
+
+    if not isinstance(
+        execution, dict
+    ):
+
+        return False
+
+    confirmed = unit15_num(
+        execution.get(
+            "confirmed_filled",
+            "0"
+        )
+    ) or _U15_D(0)
+
+    complete = bool(
+        execution.get("complete")
+        or execution.get("confirmed")
+    )
+
+    if not complete or confirmed <= 0:
+
+        return False
+
+    order_id = (
+        execution.get(
+            "exchange_order_id"
+        )
+        or execution.get("order_id")
+        or execution.get("client_id")
+    )
+
+    if not order_id:
+
+        return False
+
+    notification_id = (
+        "EXECUTION:"
+        + str(symbol)
+        + ":"
+        + str(action)
+        + ":"
+        + str(order_id)
+    )
+
+    message = (
+        "WEEX DEMO EXECUTION\n"
+        + str(symbol)
+        + "\n"
+        + "Position: "
+        + str(side)
+        + "\n"
+        + "Action: "
+        + str(action)
+        + "\n"
+        + "Confirmed quantity: "
+        + str(confirmed)
+        + "\n"
+        + "Order ID: "
+        + str(order_id)
+        + "\n"
+        + "Status: CONFIRMED"
+    )
+
+    unit15_queue_notification(
+        notification_id,
+        message,
+    )
+
+    return True
+
+
+# ============================================================
+# PROCESS UNIT 14 INDEPENDENT POSITION RESULTS
+# NO TRADING AUTHORIZATION OR EXECUTION GATE
+# ============================================================
+
+def unit15_process_unit14_result(
+    unit_14_result,
+):
+
+    if not isinstance(
+        unit_14_result,
+        dict,
+    ):
+
+        return {
+            "received": False,
+            "notifications": 0,
+        }
+
+    _, active_symbol = (
+        unit15_active_symbols()
+    )
+
+    symbol = (
+        unit_14_result.get("symbol")
+        or active_symbol
+    )
+
+    outcomes = unit_14_result.get(
+        "position_results",
+        [],
+    )
+
+    if not outcomes:
+
+        outcomes = [
+            unit_14_result
+        ]
+
+    queued = 0
+
+    for outcome in outcomes:
+
+        if not isinstance(
+            outcome,
+            dict,
+        ):
+
+            continue
+
+        side = str(
+            outcome.get(
+                "position_side",
+                "",
+            )
+        ).upper()
+
+        stage = outcome.get(
+            "stage"
+        )
+
+        # ----------------------------------------------------
+        # HEDGE AND RECOVERY TRANSACTIONS
+        # ----------------------------------------------------
+
+        if stage in (
+            "H1", "H2", "R1", "R2"
+        ):
+
+            close_record = outcome.get(
+                "close_record",
+                {},
+            )
+
+            open_record = outcome.get(
+                "open_record",
+                {},
+            )
+
+            close_action, open_action = (
+                unit_14_pair_actions(stage)
+            )
+
+            opposite = (
+                unit_14_opposite_side(side)
+                if side in ("LONG", "SHORT")
+                else ""
+            )
+
+            if stage in ("H1", "H2"):
+
+                close_side = side
+
+                open_side = opposite
+
+            else:
+
+                close_side = opposite
+
+                open_side = side
+
+            queued += int(
+                unit15_queue_execution_notice(
+                    symbol,
+                    close_side,
+                    close_action,
+                    close_record,
+                )
+            )
+
+            queued += int(
+                unit15_queue_execution_notice(
+                    symbol,
+                    open_side,
+                    open_action,
+                    open_record,
+                )
+            )
+
+        # ----------------------------------------------------
+        # BACKUP EXECUTION
+        # ----------------------------------------------------
+
+        backup = outcome.get(
+            "backup_execution",
+            {},
+        )
+
+        if backup:
+
+            action = backup.get(
+                "action"
+            ) or (
+                "B"
+                + str(
+                    outcome.get(
+                        "backup_submitted_stage",
+                        "",
+                    )
+                )
+            )
+
+            queued += int(
+                unit15_queue_execution_notice(
+                    symbol,
+                    side,
+                    action,
+                    backup,
+                )
+            )
+
+        # ----------------------------------------------------
+        # ATR BREAK-EVEN CLOSE
+        # ----------------------------------------------------
+
+        breakeven = outcome.get(
+            "breakeven_execution",
+            {},
+        )
+
+        if breakeven:
+
+            queued += int(
+                unit15_queue_execution_notice(
+                    symbol,
+                    side,
+                    "BE-C",
+                    breakeven,
+                )
+            )
+
+        # ----------------------------------------------------
+        # TP3 TRAILING CLOSE
+        # ----------------------------------------------------
+
+        tp3 = outcome.get(
+            "tp3_execution",
+            {},
+        )
+
+        if tp3:
+
+            queued += int(
+                unit15_queue_execution_notice(
+                    symbol,
+                    side,
+                    "TP3-C",
+                    tp3,
+                )
+            )
+
+    return {
+        "received": True,
+        "notifications": queued,
+    }
+
+
+# ============================================================
+# STARTUP REPORTING DIAGNOSTIC
+# ============================================================
+
+def unit15_startup_notification():
+
+    if not UNIT15_STARTUP_NOTIFY:
+
+        return False
+
+    market, demo = (
+        unit15_active_symbols()
+    )
+
+    message = (
+        "WEEX DEMO UNIT 15 V6\n"
+        "Reporting worker started\n"
+        f"Market symbol: {market}\n"
+        f"Demo symbol: {demo}\n"
+        "Schedule: 05:00 / 13:00 / 21:00 WAT\n"
+        "Commands: /report, /report1h, "
+        "/report8h, /report24h\n"
+        "SQLite reporting: ENABLED\n"
+        "Reporting independent of BOT_MODE\n"
+        "Startup time: "
+        + unit15_now().strftime(
+            "%Y-%m-%d %H:%M:%S WAT"
+        )
+    )
+
+    return unit15_telegram(
+        message
+    )
+
+
+# ============================================================
+# CONTINUOUS REPORTING WORKER
+# INDEPENDENT TASK EXECUTION
+# ============================================================
+
+def unit15_worker():
+
+    print("=" * 80, flush=True)
+
+    print(
+        "UNIT 15 V6 REPORTING WORKER STARTED",
+        flush=True,
+    )
+
+    print(
+        "UNIT 15 SCHEDULE = "
+        "05:00 / 13:00 / 21:00 WAT",
+        flush=True,
+    )
+
+    print(
+        "UNIT 15 SQLITE DATABASE =",
+        _UNIT15_DB_PATH,
+        flush=True,
+    )
+
+    print(
+        "UNIT 15 EXCHANGE WRITE = NONE",
+        flush=True,
+    )
+
+    try:
+
+        success = (
+            unit15_startup_notification()
+        )
+
+        print(
+            "UNIT 15 STARTUP TELEGRAM =",
+            success,
+            flush=True,
+        )
+
+    except Exception as exc:
+
+        print(
+            "UNIT 15 STARTUP ERROR =",
+            type(exc).__name__,
+            flush=True,
+        )
+
+    while True:
+
+        # ----------------------------------------------------
+        # REGISTER ACTIVE SYMBOL
+        # ----------------------------------------------------
+
+        try:
+
+            symbol = (
+                unit15_register_symbol()
+            )
+
+            if symbol:
+
+                unit15_contract_multiplier(
+                    symbol
+                )
+
+        except Exception as exc:
+
+            print(
+                "UNIT 15 SYMBOL REGISTER ERROR =",
+                type(exc).__name__,
+                flush=True,
+            )
+
+        # ----------------------------------------------------
+        # EQUITY SNAPSHOTS
+        # ----------------------------------------------------
+
+        try:
+
+            unit15_poll_equity()
+
+        except Exception as exc:
+
+            print(
+                "UNIT 15 EQUITY LOOP ERROR =",
+                type(exc).__name__,
+                flush=True,
+            )
+
+        # ----------------------------------------------------
+        # PERSISTENT NOTIFICATIONS
+        # ----------------------------------------------------
+
+        try:
+
+            unit15_flush_notifications()
+
+        except Exception as exc:
+
+            print(
+                "UNIT 15 NOTIFICATION ERROR =",
+                type(exc).__name__,
+                flush=True,
+            )
+
+        # ----------------------------------------------------
+        # RECEIVE TELEGRAM COMMANDS
+        # ----------------------------------------------------
+
+        if UNIT15_ON_DEMAND:
+
+            try:
+
+                unit15_poll_commands()
+
+            except Exception as exc:
+
+                print(
+                    "UNIT 15 TELEGRAM POLLING ERROR =",
+                    type(exc).__name__,
+                    flush=True,
+                )
+
+            # Command reception failure does not
+            # prevent previously stored commands.
+
+            try:
+
+                unit15_process_commands()
+
+            except Exception as exc:
+
+                print(
+                    "UNIT 15 COMMAND EXECUTION ERROR =",
+                    type(exc).__name__,
+                    flush=True,
+                )
+
+        # ----------------------------------------------------
+        # SCHEDULED REPORT DELIVERY
+        # ----------------------------------------------------
+
+        if UNIT15_8H_ENABLED:
+
+            try:
+
+                unit15_process_scheduled_reports()
+
+            except Exception as exc:
+
+                print(
+                    "UNIT 15 SCHEDULER ERROR =",
+                    type(exc).__name__,
+                    flush=True,
+                )
+
+        _u15_time.sleep(
+            _UNIT15_POLL_SECONDS
+        )
+
+
+# ============================================================
+# START ONE REPORTING WORKER
+# NO DUPLICATE THREAD ACTIVATION
+# ============================================================
+
+def unit15_start_worker():
+
+    global _UNIT15_THREAD
+
+    if not UNIT15_ENABLED:
+
+        return "DISABLED"
+
+    with _UNIT15_WORKER_LOCK:
+
+        if (
+            _UNIT15_THREAD is not None
+            and _UNIT15_THREAD.is_alive()
+        ):
+
+            return "RUNNING"
+
+        worker = _u15_thread.Thread(
+            target=unit15_worker,
+
+            name="WEEX-UNIT15-REPORTING",
+
+            daemon=False,
+        )
+
+        _UNIT15_THREAD = worker
+
+        worker.start()
+
+    return "RUNNING"
+
+
+# ============================================================
+# ORIGINAL UNIT 15 HYBRID ADAPTER
+# UNIT 14 -> UNIT 15
+# ============================================================
+
+def fresh_unit_15_hybrid_adapter(
+    config,
+    unit_14_result,
+):
+
+    errors = []
+
+    status = "NOT_STARTED"
+
+    received = (
+        unit_14_result
+        if isinstance(
+            unit_14_result,
+            dict,
+        )
+        else {}
+    )
+
+    manual_status = (
+        unit15_manual_controller_status()
+    )
+
+    notification_result = {
+        "received": False,
+        "notifications": 0,
+    }
+
+    # --------------------------------------------------------
+    # SYMBOL DIAGNOSTIC
+    # NOT AN EXECUTION AUTHORIZATION CONDITION
+    # --------------------------------------------------------
+
+    try:
+
+        unit15_configuration_check()
+
+    except Exception as exc:
+
+        errors.append(
+            "CONFIGURATION:"
+            + type(exc).__name__
+        )
+
+    # --------------------------------------------------------
+    # REGISTER SYMBOL AND CONTRACT MULTIPLIER
+    # --------------------------------------------------------
+
+    try:
+
+        symbol = unit15_register_symbol()
+
+        if symbol:
+
+            unit15_contract_multiplier(
+                symbol
+            )
+
+    except Exception as exc:
+
+        errors.append(
+            "SYMBOL:"
+            + type(exc).__name__
+        )
+
+    # --------------------------------------------------------
+    # UNIT 14 RESULT HANDOVER
+    # --------------------------------------------------------
+
+    try:
+
+        notification_result = (
+            unit15_process_unit14_result(
+                received
+            )
+        )
+
+    except Exception as exc:
+
+        errors.append(
+            "HANDOVER:"
+            + type(exc).__name__
+        )
+
+    # --------------------------------------------------------
+    # REPORTING WORKER ACTIVATION
+    # --------------------------------------------------------
+
+    try:
+
+        status = unit15_start_worker()
+
+    except Exception as exc:
+
+        status = "WORKER_START_ERROR"
+
+        errors.append(
+            "WORKER:"
+            + type(exc).__name__
+        )
+
+    print(
+        "UNIT 15 RECEIVED UNIT 14 STATUS =",
+        received.get("status"),
+        flush=True,
+    )
+
+    print(
+        "UNIT 15 HYBRID ADAPTER STATUS =",
+        status,
+        flush=True,
+    )
+
+    print(
+        "UNIT 15 MANUAL CONTROLLER =",
+        manual_status["manual_command"],
+        flush=True,
+    )
+
+    print(
+        "UNIT 15 REPORTING ERRORS =",
+        errors,
+        flush=True,
+    )
+
+    return {
+        "unit": 15,
+
+        "version": "V6",
+
+        "status": status,
+
+        "unit_14_status":
+            received.get("status"),
+
+        "unit_14_position_results":
+            received.get(
+                "position_results",
+                [],
+            ),
+
+        "unit_14_exchange_write":
+            bool(
+                received.get(
+                    "exchange_write",
+                    False,
+                )
+            ),
+
+        "exchange_write":
+            False,
+
+        "real_cash_execution":
+            False,
+
+        "scheduled_8h_enabled":
+            UNIT15_8H_ENABLED,
+
+        "on_demand_enabled":
+            UNIT15_ON_DEMAND,
+
+        "performance_report_hours":
+            (1, 8, 24),
+
+        "timezone":
+            "Africa/Lagos",
+
+        "manual_controller":
+            manual_status,
+
+        "notification_result":
+            notification_result,
+
+        "reporting_independent":
+            True,
+
+        "errors":
+            errors,
+    }
+
+
+# ============================================================
+# NONBLOCKING LOCAL VALIDATION
+# NO TELEGRAM OR EXCHANGE REQUESTS
+# ============================================================
+
+def unit15_validation_v4():
+
+    tests = {}
+
+    print("=" * 80, flush=True)
+
+    print(
+        "UNIT 15 V6 VALIDATION START",
+        flush=True,
+    )
+
+    # --------------------------------------------------------
+    # SQLITE
+    # --------------------------------------------------------
+
+    try:
+
+        db = unit15_db()
+
+        db.close()
+
+        tests["SQLITE"] = True
+
+    except Exception:
+
+        tests["SQLITE"] = False
+
+    # --------------------------------------------------------
+    # UNIT 14 HANDOVER
+    # --------------------------------------------------------
+
+    tests["UNIT14_HANDOVER"] = (
+        isinstance(
+            globals().get(
+                "FRESH_RECONSTRUCTION_UNIT_14_RESULT"
+            ),
+            dict,
+        )
+    )
+
+    # --------------------------------------------------------
+    # SCHEDULE
+    # --------------------------------------------------------
+
+    tests["THREE_REPORT_SLOTS"] = (
+        _UNIT15_SLOTS
+        == (5, 13, 21)
+    )
+
+    tests["LAGOS_TIMEZONE"] = (
+        str(_UNIT15_TZ)
+        == "Africa/Lagos"
+    )
+
+    test_now = _U15_DT(
+        2026,
+        11,
+        28,
+        5,
+        1,
+        tzinfo=_UNIT15_TZ,
+    )
+
+    due = unit15_due_slots(
+        test_now
+    )
+
+    tests["MISSED_MINUTE_CATCHUP"] = (
+        any(
+            slot.hour == 5
+            and slot.minute == 0
+            for slot in due
+        )
+    )
+
+    tests["NO_FUTURE_REPORT"] = (
+        all(
+            slot <= test_now
+            for slot in due
+        )
+    )
+
+    # --------------------------------------------------------
+    # PARTIAL FILL NORMALIZATION
+    # --------------------------------------------------------
+
+    partial_order = {
+        "orderId": "LOCAL-TEST-1",
+
+        "symbol": "NEARSUSDT",
+
+        "status": "CANCELED",
+
+        "executedQty": "6.5",
+
+        "avgPrice": "3.1",
+
+        "updateTime": "1795842000000",
+
+        "side": "SELL",
+
+        "positionSide": "LONG",
+    }
+
+    parsed, error = (
+        unit15_parse_order(
+            partial_order
+        )
+    )
+
+    tests["PARTIAL_FILL_INCLUDED"] = (
+        parsed is not None
+        and error is None
+        and parsed["qty"] == _U15_D("6.5")
+        and parsed["partial_fill"]
+        and parsed["action"] == "CLOSE"
+    )
+
+    # --------------------------------------------------------
+    # ZERO FILL EXCLUSION
+    # --------------------------------------------------------
+
+    zero_order = dict(
+        partial_order
+    )
+
+    zero_order["executedQty"] = "0"
+
+    parsed, error = (
+        unit15_parse_order(
+            zero_order
+        )
+    )
+
+    tests["ZERO_FILL_EXCLUDED"] = (
+        parsed is None
+        and error == "NO_CONFIRMED_FILL"
+    )
+
+    # --------------------------------------------------------
+    # EXISTING INTERFACES
+    # --------------------------------------------------------
+
+    tests["TELEGRAM_INTERFACE"] = (
+        callable(unit15_telegram)
+    )
+
+    tests["REPORT_INTERFACE"] = (
+        callable(unit15_report)
+    )
+
+    tests["SHARED_AUTHENTICATION"] = (
+        callable(
+            globals().get(
+                "unit_13_v4_signed_request"
+            )
+        )
+    )
+
+    tests["UNIVERSAL_SYMBOL_INTERFACE"] = (
+        callable(
+            globals().get(
+                "unit_13_14_active_symbols"
+            )
+        )
+    )
+
+    tests["MANUAL_CONTROLLER_INTERFACE"] = (
+        callable(
+            unit15_manual_controller_status
+        )
+    )
+
+    # --------------------------------------------------------
+    # VALIDATION REPORT
+    # --------------------------------------------------------
+
+    for name, passed in tests.items():
+
+        print(
+            "UNIT 15 TEST:",
+            name,
+            "=",
+            "PASS" if passed else "FAIL",
+            flush=True,
+        )
+
+    passed = sum(
+        bool(value)
+        for value in tests.values()
+    )
+
+    failed = len(tests) - passed
+
+    print(
+        "UNIT 15 TESTS PASSED =",
+        passed,
+        flush=True,
+    )
+
+    print(
+        "UNIT 15 TESTS FAILED =",
+        failed,
+        flush=True,
+    )
+
+    print(
+        "UNIT 15 V6 VALIDATION RESULT =",
+        "PASS" if failed == 0 else "FAIL",
+        flush=True,
+    )
+
+    # Diagnostic result only.
+    # Do not terminate trading initialization.
+
+    return failed == 0
+
+
+# ============================================================
+# UNIT 15 ACTIVATION
+# PRESERVE ORIGINAL GLOBAL VARIABLE NAMES
+# ============================================================
+
+try:
+
+    FRESH_UNIT_15_VALIDATION_READY = (
+        unit15_validation_v4()
+    )
+
+except Exception as exc:
+
+    FRESH_UNIT_15_VALIDATION_READY = False
+
+    print(
+        "UNIT 15 VALIDATION ERROR =",
+        type(exc).__name__,
+        flush=True,
+    )
+
+
+FRESH_RECONSTRUCTION_UNIT_15_RESULT = (
+    fresh_unit_15_hybrid_adapter(
+        FRESH_RECONSTRUCTION_CONFIG,
+        FRESH_RECONSTRUCTION_UNIT_14_RESULT,
+    )
+)
+
+
+print(
+    "FRESH RECONSTRUCTION UNIT 15 V6 READY =",
+    FRESH_UNIT_15_VALIDATION_READY,
+    flush=True,
+)
+
+print(
+    "UNIT 15 FINAL STATUS =",
+    FRESH_RECONSTRUCTION_UNIT_15_RESULT.get(
+        "status"
+    ),
+    flush=True,
+)
+
+
+# ============================================================
+# END COMPLETE UNIT 15 V6 REPLACEMENT
+# END PART 3 OF 3
+# ZERO INDENTATION
+# ============================================================
+#
+# PRESERVE ALL EXISTING DOWNSTREAM SECTIONS:
+#
+# - UNIT 9 SYMBOL CONTRACT SPECIFICATIONS
+# - UNIT 8 TP NET ROI ACCEPTANCE CONTROLLER
+# - UNIT 8 INITIAL_USDT ACCEPTANCE CONTROLLER
+# - UNIVERSAL SYMBOL SWITCHING
+# - ENTRY PIPELINE REFRESH
+# - CONTINUOUS SCAN LOOP
+# - MANUAL DEMO POSITION CONTROLLER
+#
+# ============================================================
