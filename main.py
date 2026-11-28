@@ -21697,3 +21697,1162 @@ print(
 # UNIT 15 FOLLOWS
 # ZERO INDENTATION
 # ============================================================
+
+
+# ============================================================
+# COMPLETE UNIT 15 V6 REPLACEMENT
+# PART 1 OF 3
+# CONFIGURATION / EXCHANGE / SQLITE
+# ZERO INDENTATION
+# ============================================================
+
+import os as _u15_os
+import time as _u15_time
+import json as _u15_json
+import threading as _u15_thread
+import urllib.request as _u15_http
+import urllib.parse as _u15_url
+import urllib.error as _u15_error
+import sqlite3 as _u15_sql
+
+from decimal import Decimal as _U15_D
+from datetime import datetime as _U15_DT
+from datetime import timedelta as _U15_TD
+from zoneinfo import ZoneInfo as _U15_Zone
+from collections import Counter as _U15_Counter
+
+
+# ============================================================
+# EXISTING RENDER CONFIGURATION
+# ============================================================
+
+UNIT15_ENABLED = (
+    _u15_os.getenv(
+        "UNIT15_ENABLED", "TRUE"
+    ).strip().upper() == "TRUE"
+)
+
+UNIT15_8H_ENABLED = (
+    _u15_os.getenv(
+        "UNIT15_8H_ENABLED", "TRUE"
+    ).strip().upper() == "TRUE"
+)
+
+UNIT15_ON_DEMAND = (
+    _u15_os.getenv(
+        "UNIT15_ON_DEMAND_ENABLED", "TRUE"
+    ).strip().upper() == "TRUE"
+)
+
+UNIT15_STARTUP_NOTIFY = (
+    _u15_os.getenv(
+        "UNIT15_STARTUP_NOTIFY", "TRUE"
+    ).strip().upper() == "TRUE"
+)
+
+
+_UNIT15_TZ = _U15_Zone("Africa/Lagos")
+
+_UNIT15_BASE = "https://api-contract.weex.com"
+
+_UNIT15_HISTORY = "/capi/v3/sim/order/history"
+
+_UNIT15_BALANCE = "/capi/v3/sim/balance"
+
+_UNIT15_SLOTS = (5, 13, 21)
+
+_UNIT15_CATCHUP_MINUTES = 120
+
+_UNIT15_POLL_SECONDS = 10
+
+_UNIT15_EQUITY_POLL_SECONDS = 300
+
+_UNIT15_LOCK = _u15_thread.Lock()
+
+_UNIT15_WORKER_LOCK = _u15_thread.Lock()
+
+_UNIT15_LAST_EQUITY_POLL = 0
+
+_UNIT15_LAST_REPORT = None
+
+_UNIT15_THREAD = None
+
+
+_UNIT15_DB_PATH = _u15_os.path.join(
+    _u15_os.path.dirname(
+        UNIT14_DB_PATH
+    ) or ".",
+    "unit15_reporting.sqlite3",
+)
+
+
+# ============================================================
+# NUMBER AND DATE HELPERS
+# ============================================================
+
+def unit15_num(value):
+
+    if value is None or value == "":
+
+        return None
+
+    try:
+
+        number = _U15_D(str(value))
+
+        return (
+            number
+            if number.is_finite()
+            else None
+        )
+
+    except Exception:
+
+        return None
+
+
+def unit15_value(record, *names):
+
+    for name in names:
+
+        value = record.get(name)
+
+        if value is not None and value != "":
+
+            return value
+
+    return None
+
+
+def unit15_ms(value):
+
+    try:
+
+        number = int(
+            _U15_D(str(value))
+        )
+
+        if number < 100000000000:
+
+            number *= 1000
+
+        return (
+            number
+            if number > 0
+            else None
+        )
+
+    except Exception:
+
+        return None
+
+
+def unit15_now():
+
+    return _U15_DT.now(
+        _UNIT15_TZ
+    )
+
+
+def unit15_now_ms():
+
+    return int(
+        _u15_time.time() * 1000
+    )
+
+
+# ============================================================
+# UNIVERSAL SYMBOL CONFIGURATION
+# NO HARDCODED BTC SYMBOL
+# ============================================================
+
+def unit15_active_symbols():
+
+    market_symbol, demo_symbol = (
+        unit_13_14_active_symbols()
+    )
+
+    return (
+        str(market_symbol).strip().upper(),
+        str(demo_symbol).strip().upper(),
+    )
+
+
+# ============================================================
+# CONFIGURATION DIAGNOSTICS
+# NO TRADING AUTHORIZATION GATE
+# ============================================================
+
+def unit15_configuration_check():
+
+    market_symbol, demo_symbol = (
+        unit15_active_symbols()
+    )
+
+    print(
+        "UNIT 15 MARKET SYMBOL =",
+        market_symbol,
+        flush=True,
+    )
+
+    print(
+        "UNIT 15 DEMO SYMBOL =",
+        demo_symbol,
+        flush=True,
+    )
+
+    return bool(
+        market_symbol
+        and demo_symbol
+    )
+
+
+# ============================================================
+# SHARED AUTHENTICATED EXCHANGE REQUEST
+# REUSE UNIT 13 AUTHENTICATION
+# ============================================================
+
+def unit15_get(path, query=""):
+
+    if isinstance(query, str):
+
+        params = _u15_url.parse_qsl(
+            query,
+            keep_blank_values=True,
+        )
+
+    else:
+
+        params = query
+
+    return unit_13_v4_signed_request(
+        "GET",
+        path,
+        params or None,
+    )
+
+
+# ============================================================
+# PERSISTENT REPORTING DATABASE
+# INDEPENDENT OF TRADING TRANSACTION TABLES
+# ============================================================
+
+def unit15_db():
+
+    directory = _u15_os.path.dirname(
+        _UNIT15_DB_PATH
+    )
+
+    if directory:
+
+        _u15_os.makedirs(
+            directory,
+            exist_ok=True,
+        )
+
+    db = _u15_sql.connect(
+        _UNIT15_DB_PATH,
+        timeout=30,
+        isolation_level=None,
+    )
+
+    db.row_factory = _u15_sql.Row
+
+    db.execute(
+        "PRAGMA busy_timeout=30000"
+    )
+
+    db.execute(
+        "PRAGMA journal_mode=WAL"
+    )
+
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS
+        unit15_runtime (
+            state_key TEXT PRIMARY KEY,
+            state_value TEXT,
+            updated_at INTEGER NOT NULL
+        )
+    """)
+
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS
+        unit15_symbols (
+            demo_symbol TEXT PRIMARY KEY,
+            market_symbol TEXT,
+            first_seen INTEGER NOT NULL,
+            last_seen INTEGER NOT NULL
+        )
+    """)
+
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS
+        unit15_equity (
+            time_ms INTEGER PRIMARY KEY,
+            equity TEXT NOT NULL,
+            field TEXT NOT NULL
+        )
+    """)
+
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS
+        unit15_report_delivery (
+            report_key TEXT PRIMARY KEY,
+            report_hours INTEGER NOT NULL,
+            notification TEXT NOT NULL,
+            window_end INTEGER NOT NULL,
+            state TEXT NOT NULL,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            message_id TEXT,
+            last_error TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        )
+    """)
+
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS
+        unit15_commands (
+            update_id INTEGER PRIMARY KEY,
+            command TEXT NOT NULL,
+            report_hours INTEGER NOT NULL,
+            state TEXT NOT NULL,
+            received_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        )
+    """)
+
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS
+        unit15_notifications (
+            notification_id TEXT PRIMARY KEY,
+            message TEXT NOT NULL,
+            state TEXT NOT NULL,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            message_id TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        )
+    """)
+
+    return db
+
+
+# ============================================================
+# PERSISTENT RUNTIME SETTINGS
+# ============================================================
+
+def unit15_state_get(
+    key,
+    default=None,
+):
+
+    db = unit15_db()
+
+    try:
+
+        row = db.execute("""
+            SELECT state_value
+            FROM unit15_runtime
+            WHERE state_key = ?
+        """, (
+            key,
+        )).fetchone()
+
+        if row is None:
+
+            return default
+
+        return _u15_json.loads(
+            row["state_value"]
+        )
+
+    finally:
+
+        db.close()
+
+
+def unit15_state_set(
+    key,
+    value,
+):
+
+    db = unit15_db()
+
+    try:
+
+        db.execute("""
+            INSERT INTO unit15_runtime (
+                state_key,
+                state_value,
+                updated_at
+            )
+            VALUES (?, ?, ?)
+
+            ON CONFLICT(state_key)
+            DO UPDATE SET
+                state_value =
+                    excluded.state_value,
+                updated_at =
+                    excluded.updated_at
+        """, (
+            key,
+            _u15_json.dumps(
+                value,
+                default=str,
+            ),
+            unit15_now_ms(),
+        ))
+
+    finally:
+
+        db.close()
+
+    return value
+
+
+# ============================================================
+# REMEMBER SYMBOLS USED BY THE BOT
+# SUPPORT REPORTING ACROSS SYMBOL SWITCHES
+# ============================================================
+
+def unit15_register_symbol():
+
+    market, demo = (
+        unit15_active_symbols()
+    )
+
+    if not demo:
+
+        return None
+
+    now = unit15_now_ms()
+
+    db = unit15_db()
+
+    try:
+
+        db.execute("""
+            INSERT INTO unit15_symbols (
+                demo_symbol,
+                market_symbol,
+                first_seen,
+                last_seen
+            )
+            VALUES (?, ?, ?, ?)
+
+            ON CONFLICT(demo_symbol)
+            DO UPDATE SET
+                market_symbol =
+                    excluded.market_symbol,
+                last_seen =
+                    excluded.last_seen
+        """, (
+            demo,
+            market,
+            now,
+            now,
+        ))
+
+    finally:
+
+        db.close()
+
+    return demo
+
+
+def unit15_registered_symbols():
+
+    unit15_register_symbol()
+
+    db = unit15_db()
+
+    try:
+
+        rows = db.execute("""
+            SELECT demo_symbol
+            FROM unit15_symbols
+            ORDER BY first_seen
+        """).fetchall()
+
+        return [
+            row["demo_symbol"]
+            for row in rows
+        ]
+
+    finally:
+
+        db.close()
+
+
+# ============================================================
+# UNIVERSAL EXCHANGE HISTORY
+# NO FIXED BTC SYMBOL
+# ============================================================
+
+def unit15_history(
+    demo_symbol=None,
+):
+
+    if demo_symbol is None:
+
+        _, demo_symbol = (
+            unit15_active_symbols()
+        )
+
+    demo_symbol = str(
+        demo_symbol
+    ).strip().upper()
+
+    orders = {}
+
+    complete = False
+
+    previous_page = None
+
+    for page in range(20):
+
+        query = _u15_url.urlencode({
+            "symbol": demo_symbol,
+            "limit": 1000,
+            "page": page,
+        })
+
+        batch = unit15_get(
+            _UNIT15_HISTORY,
+            query,
+        )
+
+        if not isinstance(batch, list):
+
+            raise RuntimeError(
+                "UNIT 15 HISTORY RESPONSE INVALID"
+            )
+
+        page_ids = []
+
+        for order in batch:
+
+            if not isinstance(order, dict):
+
+                continue
+
+            oid = unit15_value(
+                order,
+                "orderId",
+                "id",
+                "clientOrderId",
+            )
+
+            if oid is None:
+
+                continue
+
+            oid = str(oid)
+
+            symbol = str(
+                order.get("symbol")
+                or demo_symbol
+            ).upper()
+
+            if symbol != demo_symbol:
+
+                continue
+
+            key = (
+                symbol,
+                oid,
+            )
+
+            page_ids.append(key)
+
+            record = dict(order)
+
+            record["symbol"] = symbol
+
+            old = orders.get(key)
+
+            if old is None:
+
+                orders[key] = record
+
+                continue
+
+            old_qty = unit15_num(
+                unit15_value(
+                    old,
+                    "executedQty",
+                    "filledQty",
+                    "filledSize",
+                )
+            ) or _U15_D(0)
+
+            new_qty = unit15_num(
+                unit15_value(
+                    record,
+                    "executedQty",
+                    "filledQty",
+                    "filledSize",
+                )
+            ) or _U15_D(0)
+
+            old_time = unit15_ms(
+                unit15_value(
+                    old,
+                    "updateTime",
+                    "updatedAt",
+                    "createdTime",
+                )
+            ) or 0
+
+            new_time = unit15_ms(
+                unit15_value(
+                    record,
+                    "updateTime",
+                    "updatedAt",
+                    "createdTime",
+                )
+            ) or 0
+
+            if (
+                new_qty,
+                new_time,
+            ) >= (
+                old_qty,
+                old_time,
+            ):
+
+                orders[key] = record
+
+        signature = tuple(
+            sorted(page_ids)
+        )
+
+        if len(batch) < 1000:
+
+            complete = True
+
+            break
+
+        if signature == previous_page:
+
+            print(
+                "UNIT 15 REPEATED HISTORY PAGE =",
+                page,
+                flush=True,
+            )
+
+            break
+
+        previous_page = signature
+
+    print(
+        "UNIT 15 HISTORY SYMBOL =",
+        demo_symbol,
+        flush=True,
+    )
+
+    print(
+        "UNIT 15 HISTORY RECORDS =",
+        len(orders),
+        flush=True,
+    )
+
+    print(
+        "UNIT 15 HISTORY COMPLETE =",
+        complete,
+        flush=True,
+    )
+
+    return (
+        list(orders.values()),
+        complete,
+    )
+
+
+# ============================================================
+# COMBINED HISTORY ACROSS REGISTERED SYMBOLS
+# ============================================================
+
+def unit15_all_history():
+
+    combined = []
+
+    complete = True
+
+    failures = {}
+
+    symbols = (
+        unit15_registered_symbols()
+    )
+
+    for symbol in symbols:
+
+        try:
+
+            orders, verified = (
+                unit15_history(symbol)
+            )
+
+            combined.extend(orders)
+
+            if not verified:
+
+                complete = False
+
+        except Exception as exc:
+
+            complete = False
+
+            failures[symbol] = str(exc)
+
+            print(
+                "UNIT 15 SYMBOL HISTORY ERROR =",
+                symbol,
+                type(exc).__name__,
+                flush=True,
+            )
+
+    return {
+        "orders": combined,
+        "complete": complete,
+        "symbols": symbols,
+        "failures": failures,
+    }
+
+
+# ============================================================
+# PERSISTENT EQUITY SNAPSHOT STORAGE
+# ============================================================
+
+def unit15_save_equity(
+    equity,
+    field,
+    time_ms=None,
+):
+
+    if time_ms is None:
+
+        time_ms = unit15_now_ms()
+
+    equity = unit15_num(equity)
+
+    if equity is None or equity < 0:
+
+        raise ValueError(
+            "UNIT 15 INVALID EQUITY"
+        )
+
+    db = unit15_db()
+
+    try:
+
+        db.execute("""
+            INSERT OR REPLACE INTO
+            unit15_equity (
+                time_ms,
+                equity,
+                field
+            )
+            VALUES (?, ?, ?)
+        """, (
+            int(time_ms),
+            str(equity),
+            str(field),
+        ))
+
+    finally:
+
+        db.close()
+
+    return {
+        "time_ms": int(time_ms),
+        "equity": equity,
+        "field": str(field),
+    }
+
+
+# ============================================================
+# READ EQUITY SNAPSHOT NEAREST REPORT BOUNDARY
+# ============================================================
+
+def unit15_equity_boundary(
+    boundary_ms,
+    tolerance_ms=360000,
+):
+
+    db = unit15_db()
+
+    try:
+
+        row = db.execute("""
+            SELECT
+                time_ms,
+                equity,
+                field
+            FROM unit15_equity
+
+            WHERE time_ms BETWEEN ? AND ?
+
+            ORDER BY ABS(time_ms - ?)
+
+            LIMIT 1
+        """, (
+            boundary_ms - tolerance_ms,
+            boundary_ms + tolerance_ms,
+            boundary_ms,
+        )).fetchone()
+
+        if row is None:
+
+            return None
+
+        return {
+            "time_ms":
+                row["time_ms"],
+
+            "equity":
+                _U15_D(row["equity"]),
+
+            "field":
+                row["field"],
+        }
+
+    finally:
+
+        db.close()
+
+
+# ============================================================
+# REGISTER REPORT DELIVERY
+# DO NOT MARK REPORT AS DELIVERED BEFORE TELEGRAM ACK
+# ============================================================
+
+def unit15_register_report(
+    report_key,
+    hours,
+    notification,
+    window_end,
+):
+
+    now = unit15_now_ms()
+
+    db = unit15_db()
+
+    try:
+
+        db.execute("""
+            INSERT OR IGNORE INTO
+            unit15_report_delivery (
+                report_key,
+                report_hours,
+                notification,
+                window_end,
+                state,
+                created_at,
+                updated_at
+            )
+            VALUES (
+                ?, ?, ?, ?,
+                'PENDING',
+                ?, ?
+            )
+        """, (
+            report_key,
+            int(hours),
+            notification,
+            int(window_end),
+            now,
+            now,
+        ))
+
+    finally:
+
+        db.close()
+
+    return report_key
+
+
+def unit15_report_record(
+    report_key,
+):
+
+    db = unit15_db()
+
+    try:
+
+        row = db.execute("""
+            SELECT *
+            FROM unit15_report_delivery
+            WHERE report_key = ?
+        """, (
+            report_key,
+        )).fetchone()
+
+        return (
+            dict(row)
+            if row is not None
+            else None
+        )
+
+    finally:
+
+        db.close()
+
+
+def unit15_report_delivered(
+    report_key,
+):
+
+    record = unit15_report_record(
+        report_key
+    )
+
+    return bool(
+        record
+        and record["state"] == "DELIVERED"
+    )
+
+
+def unit15_update_delivery(
+    report_key,
+    delivered,
+    message_id=None,
+    error=None,
+):
+
+    db = unit15_db()
+
+    try:
+
+        db.execute("""
+            UPDATE unit15_report_delivery
+            SET
+                state = ?,
+                attempts = attempts + 1,
+                message_id = COALESCE(
+                    ?,
+                    message_id
+                ),
+                last_error = ?,
+                updated_at = ?
+            WHERE report_key = ?
+            AND state != 'DELIVERED'
+        """, (
+            (
+                "DELIVERED"
+                if delivered
+                else "PENDING"
+            ),
+            message_id,
+            error,
+            unit15_now_ms(),
+            report_key,
+        ))
+
+    finally:
+
+        db.close()
+
+
+# ============================================================
+# PERSISTENT TELEGRAM COMMAND TRACKING
+# ============================================================
+
+def unit15_store_command(
+    update_id,
+    command,
+    hours,
+):
+
+    now = unit15_now_ms()
+
+    db = unit15_db()
+
+    try:
+
+        db.execute("""
+            INSERT OR IGNORE INTO
+            unit15_commands (
+                update_id,
+                command,
+                report_hours,
+                state,
+                received_at,
+                updated_at
+            )
+            VALUES (
+                ?, ?, ?,
+                'PENDING',
+                ?, ?
+            )
+        """, (
+            int(update_id),
+            command,
+            int(hours),
+            now,
+            now,
+        ))
+
+    finally:
+
+        db.close()
+
+
+def unit15_pending_commands():
+
+    db = unit15_db()
+
+    try:
+
+        rows = db.execute("""
+            SELECT *
+            FROM unit15_commands
+            WHERE state = 'PENDING'
+            ORDER BY update_id
+        """).fetchall()
+
+        return [
+            dict(row)
+            for row in rows
+        ]
+
+    finally:
+
+        db.close()
+
+
+def unit15_complete_command(
+    update_id,
+):
+
+    db = unit15_db()
+
+    try:
+
+        db.execute("""
+            UPDATE unit15_commands
+            SET
+                state = 'DELIVERED',
+                updated_at = ?
+            WHERE update_id = ?
+        """, (
+            unit15_now_ms(),
+            int(update_id),
+        ))
+
+    finally:
+
+        db.close()
+
+
+# ============================================================
+# TELEGRAM NOTIFICATION PERSISTENCE
+# ACCEPTANCE / REJECTION / QUEUED / EXECUTION
+# ============================================================
+
+def unit15_queue_notification(
+    notification_id,
+    message,
+):
+
+    now = unit15_now_ms()
+
+    db = unit15_db()
+
+    try:
+
+        db.execute("""
+            INSERT OR IGNORE INTO
+            unit15_notifications (
+                notification_id,
+                message,
+                state,
+                created_at,
+                updated_at
+            )
+            VALUES (
+                ?, ?,
+                'PENDING',
+                ?, ?
+            )
+        """, (
+            str(notification_id),
+            str(message),
+            now,
+            now,
+        ))
+
+    finally:
+
+        db.close()
+
+    return notification_id
+
+
+def unit15_pending_notifications():
+
+    db = unit15_db()
+
+    try:
+
+        rows = db.execute("""
+            SELECT *
+            FROM unit15_notifications
+            WHERE state = 'PENDING'
+            ORDER BY created_at
+        """).fetchall()
+
+        return [
+            dict(row)
+            for row in rows
+        ]
+
+    finally:
+
+        db.close()
+
+
+def unit15_update_notification(
+    notification_id,
+    delivered,
+    message_id=None,
+):
+
+    db = unit15_db()
+
+    try:
+
+        db.execute("""
+            UPDATE unit15_notifications
+            SET
+                state = ?,
+                attempts = attempts + 1,
+                message_id = COALESCE(
+                    ?,
+                    message_id
+                ),
+                updated_at = ?
+            WHERE notification_id = ?
+            AND state != 'DELIVERED'
+        """, (
+            (
+                "DELIVERED"
+                if delivered
+                else "PENDING"
+            ),
+            message_id,
+            unit15_now_ms(),
+            str(notification_id),
+        ))
+
+    finally:
+
+        db.close()
+
+
+# ============================================================
+# END COMPLETE UNIT 15 V6 - PART 1 OF 3
+# ZERO INDENTATION
+# NEXT: PERFORMANCE / EQUITY / TELEGRAM
+# ============================================================
