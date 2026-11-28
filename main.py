@@ -14412,3 +14412,770 @@ def unit_13_v4_base_result(
 # ZERO INDENTATION
 # NEXT: SQLITE TRANSACTION RECORDS
 # ============================================================
+
+
+# ============================================================
+# COMPLETE UNIT 13 V6
+# PART 2 OF 3
+# SQLITE TRANSACTIONS AND TP RECONCILIATION
+# ZERO INDENTATION
+# ============================================================
+
+UNIT13_V6_DB_PATH = os.getenv(
+    "UNIT13_DB_PATH",
+    "/var/data/unit13_execution.sqlite3"
+)
+
+
+# ============================================================
+# SQLITE CONNECTION AND TABLE
+# ============================================================
+
+def unit_13_db():
+
+    directory = os.path.dirname(
+        UNIT13_V6_DB_PATH
+    )
+
+    if directory:
+
+        os.makedirs(
+            directory,
+            exist_ok=True
+        )
+
+    db = sqlite3.connect(
+        UNIT13_V6_DB_PATH,
+        timeout=30
+    )
+
+    db.row_factory = sqlite3.Row
+
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS unit13_tp_orders (
+            client_id TEXT PRIMARY KEY,
+            symbol TEXT NOT NULL,
+            position_side TEXT NOT NULL,
+            cycle_id TEXT NOT NULL,
+            stage TEXT NOT NULL,
+            quantity TEXT NOT NULL,
+            filled_quantity TEXT NOT NULL DEFAULT '0',
+            exchange_order_id TEXT,
+            status TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        )
+    """)
+
+    db.execute("""
+        CREATE INDEX IF NOT EXISTS
+        unit13_tp_cycle_index
+        ON unit13_tp_orders (
+            symbol,
+            position_side,
+            cycle_id,
+            stage
+        )
+    """)
+
+    db.commit()
+
+    return db
+
+
+# ============================================================
+# INDEPENDENT POSITION CYCLE IDENTITY
+# ============================================================
+
+def unit_13_cycle_id(position):
+
+    symbol = str(
+        position.get("symbol") or ""
+    ).upper()
+
+    side = str(
+        position.get("side") or ""
+    ).upper()
+
+    position_id = str(
+        position.get("id") or ""
+    )
+
+    opened_at = str(
+        position.get("createdTime")
+        or position.get("openTime")
+        or ""
+    )
+
+    identity = (
+        symbol
+        + ":"
+        + side
+        + ":"
+        + position_id
+        + ":"
+        + opened_at
+    )
+
+    return hashlib.sha256(
+        identity.encode("utf-8")
+    ).hexdigest()[:32]
+
+
+# ============================================================
+# UNIQUE ORDER ID FOR EACH EXECUTION ATTEMPT
+# ============================================================
+
+def unit_13_new_client_id(stage):
+
+    return (
+        "FR13-"
+        + str(stage)
+        + "-"
+        + uuid.uuid4().hex[:24]
+    )
+
+
+# ============================================================
+# READ EXISTING TP TRANSACTIONS
+# ============================================================
+
+def unit_13_read_orders(
+    symbol,
+    side,
+    cycle_id,
+    stage=None,
+):
+
+    db = unit_13_db()
+
+    try:
+
+        if stage is None:
+
+            rows = db.execute("""
+                SELECT *
+                FROM unit13_tp_orders
+                WHERE symbol = ?
+                AND position_side = ?
+                AND cycle_id = ?
+                ORDER BY created_at
+            """, (
+                symbol,
+                side,
+                cycle_id,
+            )).fetchall()
+
+        else:
+
+            rows = db.execute("""
+                SELECT *
+                FROM unit13_tp_orders
+                WHERE symbol = ?
+                AND position_side = ?
+                AND cycle_id = ?
+                AND stage = ?
+                ORDER BY created_at
+            """, (
+                symbol,
+                side,
+                cycle_id,
+                stage,
+            )).fetchall()
+
+        return [
+            dict(row)
+            for row in rows
+        ]
+
+    finally:
+
+        db.close()
+
+
+# ============================================================
+# RECORD ACTUAL SUBMISSION INTENT
+# NOT PRICE CROSSING
+# ============================================================
+
+def unit_13_record_order(
+    symbol,
+    side,
+    cycle_id,
+    stage,
+    quantity,
+    client_id,
+):
+
+    now = int(time.time() * 1000)
+
+    db = unit_13_db()
+
+    try:
+
+        db.execute("""
+            INSERT INTO unit13_tp_orders (
+                client_id,
+                symbol,
+                position_side,
+                cycle_id,
+                stage,
+                quantity,
+                filled_quantity,
+                exchange_order_id,
+                status,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            client_id,
+            symbol,
+            side,
+            cycle_id,
+            stage,
+            str(quantity),
+            "0",
+            None,
+            "SUBMITTING",
+            now,
+            now,
+        ))
+
+        db.commit()
+
+    finally:
+
+        db.close()
+
+    return client_id
+
+
+# ============================================================
+# UPDATE INDIVIDUAL TRANSACTION
+# ============================================================
+
+def unit_13_update_order(
+    client_id,
+    status,
+    exchange_order_id=None,
+    filled_quantity=None,
+):
+
+    db = unit_13_db()
+
+    try:
+
+        db.execute("""
+            UPDATE unit13_tp_orders
+
+            SET status = ?,
+
+                exchange_order_id = COALESCE(
+                    ?,
+                    exchange_order_id
+                ),
+
+                filled_quantity = COALESCE(
+                    ?,
+                    filled_quantity
+                ),
+
+                updated_at = ?
+
+            WHERE client_id = ?
+        """, (
+            str(status).upper(),
+
+            (
+                str(exchange_order_id)
+                if exchange_order_id is not None
+                else None
+            ),
+
+            (
+                str(filled_quantity)
+                if filled_quantity is not None
+                else None
+            ),
+
+            int(time.time() * 1000),
+
+            client_id,
+        ))
+
+        db.commit()
+
+    finally:
+
+        db.close()
+
+
+# ============================================================
+# EXCHANGE TERMINAL ORDER STATES
+# ============================================================
+
+def unit_13_terminal_status(status):
+
+    return str(status).upper() in (
+        "FILLED",
+        "CANCELED",
+        "CANCELLED",
+        "EXPIRED",
+        "REJECTED",
+    )
+
+
+# ============================================================
+# FIND EXACT EXCHANGE TRANSACTION
+# ============================================================
+
+def unit_13_find_history_order(
+    order,
+    history,
+):
+
+    client_id = str(
+        order.get("client_id") or ""
+    )
+
+    exchange_id = str(
+        order.get("exchange_order_id") or ""
+    )
+
+    opposite = (
+        "SELL"
+        if order["position_side"] == "LONG"
+        else "BUY"
+    )
+
+    matches = []
+
+    for record in history:
+
+        if not isinstance(record, dict):
+
+            continue
+
+        record_client = str(
+            record.get("clientOrderId")
+            or record.get("newClientOrderId")
+            or ""
+        )
+
+        record_id = str(
+            record.get("orderId") or ""
+        )
+
+        matched = (
+            bool(exchange_id)
+            and record_id == exchange_id
+        ) or (
+            bool(client_id)
+            and record_client == client_id
+        )
+
+        if not matched:
+
+            continue
+
+        if str(
+            record.get("symbol") or ""
+        ).upper() != order["symbol"]:
+
+            continue
+
+        if str(
+            record.get("positionSide") or ""
+        ).upper() != order["position_side"]:
+
+            continue
+
+        if str(
+            record.get("side") or ""
+        ).upper() != opposite:
+
+            continue
+
+        matches.append(record)
+
+    if not matches:
+
+        return None
+
+    return max(
+        matches,
+        key=lambda record: (
+            Decimal(
+                str(
+                    record.get("executedQty")
+                    or 0
+                )
+            ),
+            int(
+                record.get("updateTime")
+                or record.get("createdTime")
+                or 0
+            )
+        )
+    )
+
+
+# ============================================================
+# RECONCILE ONE TP TRANSACTION
+# ============================================================
+
+def unit_13_reconcile_order(
+    order,
+    history,
+):
+
+    record = unit_13_find_history_order(
+        order,
+        history,
+    )
+
+    if record is None:
+
+        return order
+
+    status = str(
+        record.get("status")
+        or order["status"]
+    ).upper()
+
+    confirmed = Decimal(
+        str(
+            record.get("executedQty")
+            or 0
+        )
+    )
+
+    previous = Decimal(
+        str(
+            order.get("filled_quantity")
+            or 0
+        )
+    )
+
+    confirmed = max(
+        confirmed,
+        previous
+    )
+
+    exchange_id = (
+        record.get("orderId")
+        or order.get("exchange_order_id")
+    )
+
+    unit_13_update_order(
+        order["client_id"],
+        status,
+        exchange_id,
+        confirmed,
+    )
+
+    order.update({
+        "status": status,
+        "exchange_order_id": exchange_id,
+        "filled_quantity": str(confirmed),
+    })
+
+    return order
+
+
+# ============================================================
+# RECONCILE CURRENT POSITION CYCLE
+# ============================================================
+
+def unit_13_reconcile_cycle(
+    symbol,
+    side,
+    cycle_id,
+    history=None,
+):
+
+    if history is None:
+
+        history = unit_13_v4_history(
+            symbol
+        )
+
+    orders = unit_13_read_orders(
+        symbol,
+        side,
+        cycle_id,
+    )
+
+    totals = {
+        "TP1": Decimal(0),
+        "TP2": Decimal(0),
+    }
+
+    pending = {
+        "TP1": False,
+        "TP2": False,
+    }
+
+    for order in orders:
+
+        order = unit_13_reconcile_order(
+            order,
+            history,
+        )
+
+        stage = order["stage"]
+
+        if stage not in totals:
+
+            continue
+
+        totals[stage] += Decimal(
+            str(
+                order.get("filled_quantity")
+                or 0
+            )
+        )
+
+        if not unit_13_terminal_status(
+            order["status"]
+        ):
+
+            pending[stage] = True
+
+    return {
+        "filled": totals,
+        "pending": pending,
+        "orders": orders,
+    }
+
+
+# ============================================================
+# OUTSTANDING EXECUTABLE TP QUANTITY
+# ============================================================
+
+def unit_13_remaining_quantity(
+    planned,
+    confirmed,
+    active_size,
+    step,
+):
+
+    planned = Decimal(str(planned))
+    confirmed = Decimal(str(confirmed))
+    active_size = Decimal(str(active_size))
+
+    remaining = max(
+        Decimal(0),
+        planned - confirmed
+    )
+
+    remaining = min(
+        remaining,
+        active_size
+    )
+
+    return unit_13_floor(
+        remaining,
+        step
+    )
+
+
+# ============================================================
+# DIRECT TP TRANSACTION EXECUTION
+# ============================================================
+
+def unit_13_execute_tp(
+    symbol,
+    side,
+    cycle_id,
+    stage,
+    quantity,
+):
+
+    quantity = Decimal(str(quantity))
+
+    client_id = unit_13_new_client_id(
+        stage
+    )
+
+    unit_13_record_order(
+        symbol,
+        side,
+        cycle_id,
+        stage,
+        quantity,
+        client_id,
+    )
+
+    print(
+        "UNIT 13 TP SUBMISSION =",
+        stage,
+        flush=True
+    )
+
+    print(
+        "UNIT 13 TP QUANTITY =",
+        quantity,
+        flush=True
+    )
+
+    print(
+        "UNIT 13 TP CLIENT ID =",
+        client_id,
+        flush=True
+    )
+
+    try:
+
+        reply = unit_13_submit_close(
+            symbol,
+            side,
+            quantity,
+            client_id,
+        )
+
+    except Exception as exc:
+
+        unit_13_update_order(
+            client_id,
+            "ACK_UNKNOWN",
+        )
+
+        print(
+            "UNIT 13 TP SUBMISSION RESPONSE =",
+            str(exc),
+            flush=True
+        )
+
+        return {
+            "stage": stage,
+            "client_id": client_id,
+            "status": "ACK_UNKNOWN",
+            "attempted": True,
+            "completed": False,
+            "filled_quantity": "0",
+            "exchange_write": False,
+            "error": str(exc),
+        }
+
+    exchange_id = None
+
+    if isinstance(reply, dict):
+
+        exchange_id = reply.get(
+            "orderId"
+        )
+
+    if exchange_id:
+
+        status = "ACKNOWLEDGED"
+
+    elif (
+        isinstance(reply, dict)
+        and reply.get("success") is False
+        and str(
+            reply.get("status") or ""
+        ).upper() == "REJECTED"
+    ):
+
+        status = "REJECTED"
+
+    else:
+
+        status = "ACK_UNKNOWN"
+
+    unit_13_update_order(
+        client_id,
+        status,
+        exchange_id,
+    )
+
+    print(
+        "UNIT 13 TP RESPONSE =",
+        reply,
+        flush=True
+    )
+
+    try:
+
+        history = unit_13_v4_history(
+            symbol
+        )
+
+        orders = unit_13_read_orders(
+            symbol,
+            side,
+            cycle_id,
+            stage,
+        )
+
+        current = next(
+            order
+            for order in orders
+            if order["client_id"] == client_id
+        )
+
+        current = unit_13_reconcile_order(
+            current,
+            history,
+        )
+
+        status = current["status"]
+
+        confirmed = Decimal(
+            str(
+                current.get("filled_quantity")
+                or 0
+            )
+        )
+
+        exchange_id = current.get(
+            "exchange_order_id"
+        )
+
+    except Exception as exc:
+
+        confirmed = Decimal(0)
+
+        print(
+            "UNIT 13 TP RECONCILIATION RESPONSE =",
+            str(exc),
+            flush=True
+        )
+
+    completed = (
+        confirmed >= quantity
+    )
+
+    print(
+        "UNIT 13 TP CONFIRMED FILL =",
+        confirmed,
+        flush=True
+    )
+
+    print(
+        "UNIT 13 TP TRANSACTION STATUS =",
+        status,
+        flush=True
+    )
+
+    return {
+        "stage": stage,
+        "client_id": client_id,
+        "order_id": exchange_id,
+        "status": status,
+        "attempted": True,
+        "completed": completed,
+        "filled_quantity": str(confirmed),
+        "exchange_write": bool(
+            exchange_id or confirmed > 0
+        ),
+    }
+
+
+# ============================================================
+# END COMPLETE UNIT 13 V6 - PART 2 OF 3
+# ZERO INDENTATION
+# NEXT: MAIN EXECUTOR AND UNIT 14 HANDOVER
+# ============================================================
