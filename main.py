@@ -18587,3 +18587,1310 @@ def unit_14_finalize_flat_cycle(
 # ZERO INDENTATION
 # NEXT: H1 / H2 / R1 / R2 / B1 - B5
 # ============================================================
+
+
+# ============================================================
+# COMPLETE UNIT 14 V4 REPLACEMENT
+# PART 3 OF 4
+# HEDGE / RECOVERY / BACKUP EXECUTION
+# ZERO INDENTATION
+# ============================================================
+
+
+# ============================================================
+# EXCHANGE CONTRACT SPECIFICATIONS
+# EXISTING UNIT 9 CONFIGURATION HANDOVER
+# ============================================================
+
+def unit_14_contract_details(config):
+
+    precision = config["market_precision"]
+
+    D = unit_14_v3_D
+
+    return {
+        "step": D(
+            precision["quantity_step"]
+        ),
+
+        "minimum": D(
+            precision["minimum_quantity"]
+        ),
+
+        "price_step": D(
+            precision["price_step"]
+        ),
+
+        "multiplier": D(
+            precision.get(
+                "contract_multiplier",
+                "1"
+            )
+        ),
+    }
+
+
+# ============================================================
+# CURRENT ATR
+# EXISTING ANALYSIS SNAPSHOT
+# ============================================================
+
+def unit_14_current_atr():
+
+    return unit_14_v3_D(
+        FRESH_RECONSTRUCTION_ANALYSIS_SNAPSHOT[
+            "atr14"
+        ]
+    )
+
+
+# ============================================================
+# CREATE OR RECOVER INDEPENDENT MANAGEMENT CYCLE
+# ============================================================
+
+def unit_14_ensure_e0_cycle(position):
+
+    D = unit_14_v3_D
+
+    symbol = str(
+        position["symbol"]
+    ).upper()
+
+    side = str(
+        position["side"]
+    ).upper()
+
+    cycle_id = (
+        "U14-"
+        + unit_13_cycle_id(position)
+    )
+
+    existing = unit_14_stage_read(
+        cycle_id
+    )
+
+    if existing is not None:
+
+        return cycle_id
+
+    size = D(
+        position["size"]
+    )
+
+    entry = (
+        D(position["openValue"])
+        / D(
+            position.get("cumOpenSize")
+            or size
+        )
+    )
+
+    unit_14_stage_create_cycle(
+        cycle_id,
+        symbol,
+        side,
+        size,
+        entry,
+        unit_14_current_atr(),
+    )
+
+    return cycle_id
+
+
+# ============================================================
+# STAGE ACTION IDENTIFICATION
+# ============================================================
+
+def unit_14_pair_actions(stage):
+
+    if stage in ("H1", "H2"):
+
+        return (
+            stage + "-C",
+            stage + "-H",
+        )
+
+    return (
+        stage + "-C",
+        stage + "-O",
+    )
+
+
+# ============================================================
+# CONFIRMED STAGE QUANTITY
+# ============================================================
+
+def unit_14_confirmed_quantity(
+    orders,
+    action,
+):
+
+    return Decimal(
+        str(
+            orders.get(
+                action, {}
+            ).get(
+                "confirmed_filled",
+                "0"
+            )
+        )
+    )
+
+
+# ============================================================
+# PAIR COMPLETION
+# BOTH LEGS MUST HAVE CONFIRMED FILLS
+# ============================================================
+
+def unit_14_pair_complete(
+    orders,
+    stage,
+):
+
+    close_action, open_action = (
+        unit_14_pair_actions(stage)
+    )
+
+    return bool(
+        orders.get(
+            close_action, {}
+        ).get("complete")
+        and orders.get(
+            open_action, {}
+        ).get("complete")
+    )
+
+
+# ============================================================
+# DETERMINE WHETHER A STAGE HAS ACTUALLY STARTED
+# ============================================================
+
+def unit_14_pair_started(
+    orders,
+    stage,
+):
+
+    actions = unit_14_pair_actions(
+        stage
+    )
+
+    return any(
+        bool(
+            orders.get(
+                action, {}
+            ).get("attempts")
+        )
+        for action in actions
+    )
+
+
+# ============================================================
+# INDEPENDENT HEDGE AND RECOVERY PAIR EXECUTION
+# ============================================================
+
+def unit_14_stage_execute_pair(
+    cycle_id,
+    stage,
+    quantity,
+    mark_price,
+    opening_leverage,
+    quantity_step,
+    minimum_quantity,
+    margin_buffer_percent="0",
+    contract_multiplier="1",
+):
+
+    D = unit_14_v3_D
+
+    cycle = unit_14_stage_read(
+        cycle_id
+    )
+
+    original = cycle["original_side"]
+
+    opposite = unit_14_opposite_side(
+        original
+    )
+
+    symbol = cycle["symbol"]
+
+    step = D(quantity_step)
+
+    minimum = D(minimum_quantity)
+
+    quantity = unit_14_v3_floor(
+        D(quantity),
+        step,
+    )
+
+    close_action, open_action = (
+        unit_14_pair_actions(stage)
+    )
+
+    if stage in ("H1", "H2"):
+
+        close_side = original
+
+        open_side = opposite
+
+    else:
+
+        close_side = opposite
+
+        open_side = original
+
+    if quantity < minimum:
+
+        return {
+            "status":
+                "STAGE_BELOW_EXCHANGE_MINIMUM",
+
+            "stage": stage,
+
+            "complete": False,
+
+            "handled": True,
+
+            "execution_attempted": False,
+
+            "exchange_write": False,
+
+            "quantity": str(quantity),
+        }
+
+    history = unit_14_v3_history(
+        symbol
+    )
+
+    close_record = (
+        unit_14_stage_reconcile_order(
+            cycle_id,
+            close_action,
+            history,
+        )
+    )
+
+    open_record = (
+        unit_14_stage_reconcile_order(
+            cycle_id,
+            open_action,
+            history,
+        )
+    )
+
+    close_target = unit_14_stage_target(
+        cycle_id,
+        close_action,
+    )
+
+    open_target = unit_14_stage_target(
+        cycle_id,
+        open_action,
+    )
+
+    target = (
+        close_target
+        or open_target
+        or quantity
+    )
+
+    close_filled = D(
+        close_record.get(
+            "confirmed_filled",
+            "0"
+        )
+    )
+
+    open_filled = D(
+        open_record.get(
+            "confirmed_filled",
+            "0"
+        )
+    )
+
+    close_remaining = max(
+        Decimal(0),
+        target - close_filled,
+    )
+
+    open_remaining = max(
+        Decimal(0),
+        target - open_filled,
+    )
+
+    results = {}
+
+    # --------------------------------------------------------
+    # OPENING LEG
+    # EXECUTE FIRST IF AVAILABLE FUNDS ARE SUFFICIENT
+    # --------------------------------------------------------
+
+    def execute_open():
+
+        if open_record.get("pending"):
+
+            return open_record
+
+        if open_remaining < minimum:
+
+            return open_record
+
+        available = unit_14_v3_balance()
+
+        required = unit_14_required_margin(
+            open_remaining,
+            mark_price,
+            opening_leverage,
+            contract_multiplier,
+            margin_buffer_percent,
+        )
+
+        if available < required:
+
+            return {
+                "status":
+                    "WAITING_FOR_AVAILABLE_FUNDS",
+
+                "available": str(available),
+
+                "required": str(required),
+
+                "attempted": False,
+
+                "exchange_write": False,
+            }
+
+        return unit_14_execute_action(
+            cycle_id,
+            open_action,
+            symbol,
+            open_side,
+            open_remaining,
+            is_close=False,
+            target_quantity=target,
+        )
+
+    # --------------------------------------------------------
+    # CLOSING LEG
+    # INDEPENDENT EXECUTION
+    # --------------------------------------------------------
+
+    def execute_close():
+
+        if close_record.get("pending"):
+
+            return close_record
+
+        if close_remaining < minimum:
+
+            return close_record
+
+        position = unit_14_v3_position(
+            close_side
+        )
+
+        if position is None:
+
+            return {
+                "status": "POSITION_NOT_PRESENT",
+                "attempted": False,
+                "exchange_write": False,
+            }
+
+        executable = unit_14_v3_floor(
+            min(
+                close_remaining,
+                D(position["size"]),
+            ),
+            step,
+        )
+
+        if executable < minimum:
+
+            return {
+                "status":
+                    "CLOSE_QUANTITY_BELOW_MINIMUM",
+
+                "attempted": False,
+
+                "exchange_write": False,
+            }
+
+        return unit_14_execute_action(
+            cycle_id,
+            close_action,
+            symbol,
+            close_side,
+            executable,
+            is_close=True,
+            target_quantity=target,
+        )
+
+    # --------------------------------------------------------
+    # INDEPENDENT OR SEQUENTIAL FUNDING
+    # --------------------------------------------------------
+
+    available = unit_14_v3_balance()
+
+    required = unit_14_required_margin(
+        open_remaining,
+        mark_price,
+        opening_leverage,
+        contract_multiplier,
+        margin_buffer_percent,
+    )
+
+    independent = (
+        available >= required
+    )
+
+    if independent:
+
+        results[open_action] = (
+            execute_open()
+        )
+
+        results[close_action] = (
+            execute_close()
+        )
+
+    else:
+
+        results[close_action] = (
+            execute_close()
+        )
+
+        latest_close = (
+            unit_14_stage_reconcile_order(
+                cycle_id,
+                close_action,
+                unit_14_v3_history(symbol),
+            )
+        )
+
+        if latest_close.get("complete"):
+
+            results[open_action] = (
+                execute_open()
+            )
+
+        else:
+
+            results[open_action] = {
+                "status":
+                    "WAITING_FOR_CLOSING_FILL",
+
+                "attempted": False,
+
+                "exchange_write": False,
+            }
+
+    # --------------------------------------------------------
+    # FINAL PAIR RECONCILIATION
+    # --------------------------------------------------------
+
+    history = unit_14_v3_history(
+        symbol
+    )
+
+    close_record = (
+        unit_14_stage_reconcile_order(
+            cycle_id,
+            close_action,
+            history,
+        )
+    )
+
+    open_record = (
+        unit_14_stage_reconcile_order(
+            cycle_id,
+            open_action,
+            history,
+        )
+    )
+
+    complete = bool(
+        close_record.get("complete")
+        and open_record.get("complete")
+    )
+
+    attempted = any(
+        record.get("attempted", False)
+        for record in results.values()
+    )
+
+    exchange_write = any(
+        record.get(
+            "exchange_write", False
+        )
+        for record in results.values()
+    )
+
+    print(
+        "UNIT 14 STAGE =", stage,
+        "TARGET =", target,
+        "FUNDING MODE =",
+        (
+            "INDEPENDENT"
+            if independent
+            else "SEQUENTIAL"
+        ),
+        flush=True,
+    )
+
+    print(
+        "UNIT 14",
+        close_action,
+        "CONFIRMED =",
+        close_record.get(
+            "confirmed_filled"
+        ),
+        flush=True,
+    )
+
+    print(
+        "UNIT 14",
+        open_action,
+        "CONFIRMED =",
+        open_record.get(
+            "confirmed_filled"
+        ),
+        flush=True,
+    )
+
+    return {
+        "status": (
+            stage + "_COMPLETE"
+            if complete
+            else stage + "_IN_PROGRESS"
+        ),
+
+        "stage": stage,
+
+        "cycle_id": cycle_id,
+
+        "complete": complete,
+
+        "handled": True,
+
+        "execution_attempted": attempted,
+
+        "exchange_write": exchange_write,
+
+        "independent_funding": independent,
+
+        "target_quantity": str(target),
+
+        "close_record": close_record,
+
+        "open_record": open_record,
+
+        "results": results,
+    }
+
+
+# ============================================================
+# BACKUP EXECUTION B1 - B5
+# ============================================================
+
+def unit_14_execute_backup(
+    config,
+    cycle_id,
+    position,
+    mark,
+):
+
+    D = unit_14_v3_D
+
+    strategy = config.get(
+        "strategy", {}
+    )
+
+    precision = (
+        unit_14_contract_details(config)
+    )
+
+    enabled = os.getenv(
+        "BACKUP_EXECUTION_ENABLED",
+        "true",
+    ).strip().lower() == "true"
+
+    result = {
+        "status": "BACKUP_MONITORING",
+
+        "handled": True,
+
+        "cycle_id": cycle_id,
+
+        "backup_execution_enabled":
+            enabled,
+
+        "backup_execution_attempted":
+            False,
+
+        "backup_execution_completed":
+            False,
+
+        "exchange_write": False,
+    }
+
+    if not enabled:
+
+        result["status"] = (
+            "BACKUP_DISABLED"
+        )
+
+        return result
+
+    symbol = str(
+        position["symbol"]
+    ).upper()
+
+    side = str(
+        position["side"]
+    ).upper()
+
+    history = unit_14_v3_history(
+        symbol
+    )
+
+    completed = 0
+
+    next_stage = None
+
+    for stage in range(1, 6):
+
+        action = "B" + str(stage)
+
+        record = (
+            unit_14_stage_reconcile_order(
+                cycle_id,
+                action,
+                history,
+            )
+        )
+
+        if record.get("complete"):
+
+            completed += 1
+
+            continue
+
+        next_stage = stage
+
+        break
+
+    result["backups_filled"] = (
+        completed
+    )
+
+    result["backup_next_stage"] = (
+        next_stage
+    )
+
+    if next_stage is None:
+
+        result["status"] = (
+            "ALL_BACKUPS_COMPLETED"
+        )
+
+        return result
+
+    action = "B" + str(next_stage)
+
+    liquidation = D(
+        position.get("liquidationPrice")
+        or 0
+    )
+
+    buffer_percent = D(
+        strategy.get(
+            "backup_buffer_percent",
+            "0.3"
+        )
+    )
+
+    backup_percent = D(
+        strategy.get(
+            "backup_available_balance_percent",
+            "0.5"
+        )
+    )
+
+    trigger, reached = (
+        unit_14_v3_trigger(
+            side,
+            liquidation,
+            mark,
+            buffer_percent,
+        )
+    )
+
+    result.update({
+        "backup_trigger_price":
+            str(trigger),
+
+        "backup_trigger_reached":
+            reached,
+
+        "liquidation_price":
+            str(liquidation),
+    })
+
+    target = unit_14_stage_target(
+        cycle_id,
+        action,
+    )
+
+    if not reached and target is None:
+
+        return result
+
+    available = unit_14_v3_balance()
+
+    leverage = D(
+        position["leverage"]
+    )
+
+    if target is None:
+
+        target = unit_14_balance_quantity(
+            available,
+            backup_percent,
+            mark,
+            leverage,
+            precision["step"],
+            precision["multiplier"],
+        )
+
+    confirmed = D(
+        record.get(
+            "confirmed_filled",
+            "0"
+        )
+    )
+
+    remaining = unit_14_v3_floor(
+        max(
+            Decimal(0),
+            target - confirmed,
+        ),
+        precision["step"],
+    )
+
+    result["backup_quantity"] = (
+        str(remaining)
+    )
+
+    if remaining < precision["minimum"]:
+
+        result["status"] = (
+            "BACKUP_BELOW_EXCHANGE_MINIMUM"
+        )
+
+        return result
+
+    required = unit_14_required_margin(
+        remaining,
+        mark,
+        leverage,
+        precision["multiplier"],
+    )
+
+    if available < required:
+
+        result["status"] = (
+            "BACKUP_WAITING_FOR_FUNDS"
+        )
+
+        return result
+
+    execution = unit_14_execute_action(
+        cycle_id,
+        action,
+        symbol,
+        side,
+        remaining,
+        is_close=False,
+        target_quantity=target,
+    )
+
+    result.update({
+        "status": execution["status"],
+
+        "backup_execution_attempted":
+            execution.get(
+                "attempted", False
+            ),
+
+        "backup_execution_completed":
+            execution.get(
+                "complete", False
+            ),
+
+        "exchange_write":
+            execution.get(
+                "exchange_write", False
+            ),
+
+        "backup_client_order_id":
+            execution.get("client_id"),
+
+        "backup_order_id":
+            execution.get(
+                "exchange_order_id"
+            ),
+
+        "backup_submitted_stage":
+            next_stage,
+
+        "backup_execution":
+            execution,
+    })
+
+    if execution.get("complete"):
+
+        result["backups_filled"] = (
+            completed + 1
+        )
+
+    return result
+
+
+# ============================================================
+# HEDGE / RECOVERY DISPATCHER
+# H1 -> H2 -> R1 -> R2 -> BACKUPS
+# ============================================================
+
+def unit_14_stage_dispatch(
+    active_positions,
+    original_position,
+    unit_13_result,
+    quantity_step,
+    minimum_quantity,
+    mark,
+    config=None,
+    cycle_id=None,
+):
+
+    D = unit_14_v3_D
+
+    if config is None:
+
+        config = (
+            FRESH_RECONSTRUCTION_CONFIG
+        )
+
+    if original_position is None:
+
+        if cycle_id is None:
+
+            return {
+                "status": "NO_POSITION",
+                "handled": False,
+            }
+
+    if cycle_id is None:
+
+        cycle_id = (
+            unit_14_ensure_e0_cycle(
+                original_position
+            )
+        )
+
+    cycle = unit_14_stage_read(
+        cycle_id
+    )
+
+    side = cycle["original_side"]
+
+    opposite = unit_14_opposite_side(
+        side
+    )
+
+    symbol = cycle["symbol"]
+
+    tp = unit_14_tp_position_result(
+        unit_13_result,
+        side,
+    )
+
+    # --------------------------------------------------------
+    # POST TP1 / TP2 HANDOVER
+    # --------------------------------------------------------
+
+    if (
+        tp.get("tp1_completed")
+        or tp.get("tp2_completed")
+    ):
+
+        return {
+            "status": (
+                "POST_TP2"
+                if tp.get("tp2_completed")
+                else "POST_TP1"
+            ),
+
+            "cycle_id": cycle_id,
+
+            "handled": False,
+
+            "execution_attempted": False,
+
+            "exchange_write": False,
+        }
+
+    step = D(quantity_step)
+
+    minimum = D(minimum_quantity)
+
+    atr = D(
+        cycle["frozen_atr"]
+    )
+
+    entry = D(
+        cycle["original_entry"]
+    )
+
+    base_qty = D(
+        cycle["original_quantity"]
+    )
+
+    mark = D(mark)
+
+    adverse = (
+        (entry - mark) / atr
+        if side == "LONG"
+        else (mark - entry) / atr
+    )
+
+    orders = (
+        unit_14_stage_reconcile_cycle(
+            cycle_id
+        )
+    )
+
+    precision = (
+        unit_14_contract_details(config)
+    )
+
+    def filled(action):
+
+        return unit_14_confirmed_quantity(
+            orders,
+            action,
+        )
+
+    def complete(stage):
+
+        return unit_14_pair_complete(
+            orders,
+            stage,
+        )
+
+    def started(stage):
+
+        return unit_14_pair_started(
+            orders,
+            stage,
+        )
+
+    def execute(stage, quantity):
+
+        opening_side = (
+            opposite
+            if stage in ("H1", "H2")
+            else side
+        )
+
+        exchange = config.get(
+            "exchange", {}
+        )
+
+        position = (
+            active_positions.get(
+                opening_side
+            )
+            or active_positions.get(side)
+            or active_positions.get(opposite)
+        )
+
+        leverage = D(
+            exchange.get(
+                (
+                    "leverage_long"
+                    if opening_side == "LONG"
+                    else "leverage_short"
+                )
+            )
+            or position["leverage"]
+        )
+
+        outcome = (
+            unit_14_stage_execute_pair(
+                cycle_id=cycle_id,
+
+                stage=stage,
+
+                quantity=quantity,
+
+                mark_price=mark,
+
+                opening_leverage=leverage,
+
+                quantity_step=step,
+
+                minimum_quantity=minimum,
+
+                contract_multiplier=(
+                    precision["multiplier"]
+                ),
+            )
+        )
+
+        outcome["adverse_atr"] = (
+            str(adverse)
+        )
+
+        return outcome
+
+    # --------------------------------------------------------
+    # H1 — FIRST ADVERSE ATR
+    # --------------------------------------------------------
+
+    h1_qty = unit_14_v3_floor(
+        base_qty / Decimal(2),
+        step,
+    )
+
+    if not complete("H1"):
+
+        if (
+            adverse >= Decimal(1)
+            or started("H1")
+        ):
+
+            return execute(
+                "H1",
+                h1_qty,
+            )
+
+        return {
+            "status": "H1_MONITORING",
+
+            "handled": True,
+
+            "cycle_id": cycle_id,
+
+            "adverse_atr": str(adverse),
+
+            "exchange_write": False,
+        }
+
+    # --------------------------------------------------------
+    # H2 — SECOND ADVERSE ATR
+    # --------------------------------------------------------
+
+    h2_qty = unit_14_v3_floor(
+        max(
+            Decimal(0),
+            base_qty - filled("H1-C"),
+        ),
+        step,
+    )
+
+    recovery_started = (
+        started("R1")
+        or started("R2")
+    )
+
+    if not complete("H2"):
+
+        if (
+            started("H2")
+            or (
+                not recovery_started
+                and adverse >= Decimal(2)
+            )
+        ):
+
+            return execute(
+                "H2",
+                h2_qty,
+            )
+
+    # --------------------------------------------------------
+    # TOTAL CONFIRMED HEDGE QUANTITY
+    # --------------------------------------------------------
+
+    hedge_total = (
+        filled("H1-H")
+        + filled("H2-H")
+    )
+
+    # --------------------------------------------------------
+    # R1 — RECOVERY TO ORIGINAL ENTRY
+    # --------------------------------------------------------
+
+    r1_qty = unit_14_v3_floor(
+        hedge_total / Decimal(2),
+        step,
+    )
+
+    if r1_qty < minimum:
+
+        r1_qty = unit_14_v3_floor(
+            hedge_total,
+            step,
+        )
+
+    if not complete("R1"):
+
+        if (
+            adverse <= Decimal(0)
+            or started("R1")
+        ):
+
+            return execute(
+                "R1",
+                r1_qty,
+            )
+
+        return {
+            "status": "R1_MONITORING",
+
+            "handled": True,
+
+            "cycle_id": cycle_id,
+
+            "adverse_atr": str(adverse),
+
+            "exchange_write": False,
+        }
+
+    # --------------------------------------------------------
+    # R2 — FURTHER FAVORABLE ATR
+    # --------------------------------------------------------
+
+    r2_qty = unit_14_v3_floor(
+        max(
+            Decimal(0),
+            hedge_total - filled("R1-C"),
+        ),
+        step,
+    )
+
+    r2_complete = (
+        complete("R2")
+        or (
+            r2_qty == 0
+            and filled("R1-C") >= hedge_total
+            and filled("R1-O") >= hedge_total
+        )
+    )
+
+    if not r2_complete:
+
+        if (
+            adverse <= Decimal(-1)
+            or started("R2")
+        ):
+
+            return execute(
+                "R2",
+                r2_qty,
+            )
+
+        # ----------------------------------------------------
+        # RECOVERY FAILURE
+        # PRICE RETURNS TO ADVERSE ATR AFTER R1
+        # ----------------------------------------------------
+
+        if (
+            adverse >= Decimal(1)
+            and not started("R2")
+        ):
+
+            position = (
+                unit_14_v3_position(side)
+            )
+
+            if position is not None:
+
+                return unit_14_execute_backup(
+                    config,
+                    cycle_id,
+                    position,
+                    mark,
+                )
+
+        return {
+            "status": "R2_MONITORING",
+
+            "handled": True,
+
+            "cycle_id": cycle_id,
+
+            "adverse_atr": str(adverse),
+
+            "exchange_write": False,
+        }
+
+    # --------------------------------------------------------
+    # COMPLETED RECOVERY
+    # NO PERMANENT RECOVERY_COMPLETE EXECUTION LOCK
+    # --------------------------------------------------------
+
+    return {
+        "status": "RECOVERY_COMPLETE",
+
+        "cycle_id": cycle_id,
+
+        "handled": False,
+
+        "recovery_complete": True,
+
+        "fresh_hedge_cycle_required": True,
+
+        "adverse_atr": str(adverse),
+
+        "exchange_write": False,
+    }
+
+
+# ============================================================
+# BACKUP HANDOVER
+# EXISTING FUNCTION INTERFACE
+# ============================================================
+
+def unit_14_v4_backup_handover(
+    stage_result,
+    cycle_id,
+):
+
+    return {
+        "cycle_id": cycle_id,
+
+        "backup_ready": (
+            stage_result.get(
+                "backup_next_stage"
+            ) is not None
+        ),
+
+        "status": stage_result.get(
+            "status"
+        ),
+
+        "exchange_write":
+            stage_result.get(
+                "exchange_write",
+                False
+            ),
+    }
+
+
+# ============================================================
+# END COMPLETE UNIT 14 V4 - PART 3 OF 4
+# ZERO INDENTATION
+# NEXT: ATR BREAK-EVEN / TP3 / MAIN EXECUTOR
+# ============================================================
